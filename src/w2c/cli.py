@@ -681,7 +681,7 @@ def rebuild_ledger(root: Path, state_overrides: dict[str, str] | None = None) ->
         f"## Milestone Registry\n{registry}\n"
         f"## Recent Decisions\n{recent}\n"
         f"## Blockers\n{blockers}"
-        f"{'\n' if not blockers.endswith(chr(10)) else ''}"
+        f"{chr(10) if not blockers.endswith(chr(10)) else ''}"
         f"## Next Action\n{next_action}\n"
     )
     atomic_write(wdir / "STATE.md", new_state)
