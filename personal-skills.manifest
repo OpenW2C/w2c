@@ -1,0 +1,9 @@
+# personal-skills.manifest — W2C skills (markdown planning + execution)
+# Installed by install.sh / `w2c install-skills` into ~/.agents/skills
+#
+# Format: <skill-name> <source-type> <source-relative-path>
+#   source-type: flat
+#   Paths are relative to this repository
+
+work-to-chores    flat        skills/work-to-chores
+do-chores         flat        skills/do-chores

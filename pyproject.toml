@@ -1,0 +1,52 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "w2c"
+version = "0.1.0"
+description = "Markdown planning CLI for work-to-chores / do-chores"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+authors = [{ name = "OpenW2C" }]
+keywords = ["planning", "markdown", "cli"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Environment :: Console",
+  "License :: OSI Approved :: MIT License",
+]
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/OpenW2C/w2c"
+Repository = "https://github.com/OpenW2C/w2c"
+
+[project.scripts]
+w2c = "w2c.cli:main"
+w2c-smoke = "w2c.smoke:main"
+
+[tool.hatch.build.targets.wheel]
+only-include = ["w2c"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"templates" = "w2c/assets/templates"
+"skills" = "w2c/assets/skills"
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "/src",
+  "/scripts",
+  "/templates",
+  "/skills",
+  "/tests",
+  "/install.sh",
+  "/README.md",
+  "/LICENSE",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
