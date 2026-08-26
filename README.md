@@ -123,7 +123,7 @@ Agents must not hand-edit STATE.md, QUEUE.md, ROADMAP status emojis, or `[ ]` / 
 ```text
 src/w2c/           # Python package (pipx / python -m w2c)
 scripts/           # shims for DATA_HOME copies
-templates/         # ledger templates
+templates/         # shipped ledger templates; runtime copies live in ~/.local/share/w2c/templates (or $W2C_DATA_HOME/templates)
 skills/            # work-to-chores, do-chores
 install.sh         # curl installer
 tests/

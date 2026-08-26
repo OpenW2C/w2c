@@ -322,15 +322,8 @@ def _checkout_or_data_asset(name: str) -> Path | None:
     return _first_existing_dir(cands)
 
 
-def templates_dir(script_file: Path | None = None) -> Path | None:
-    found = _package_asset("templates") or _checkout_or_data_asset("templates")
-    if found:
-        return found
-    if script_file is not None:
-        cand = script_file.resolve().parent.parent / "templates"
-        if cand.is_dir():
-            return cand
-    return None
+def templates_dir(script_file: Path | None = None) -> Path:
+    return w2c_local.data_home() / "templates"
 
 
 def skills_dir() -> Path | None:
