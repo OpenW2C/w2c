@@ -32,6 +32,7 @@
 | Validation commands | |
 | Completion condition | All slices verified; single commit after milestone verification; push only with explicit approval |
 | Size budget (LOC diff) | |
+| Manual test guide | no |
 
 ## Git Operation Plan
 | Field | Value |
@@ -55,4 +56,18 @@
 - **Validation** — run the validation commands in this table before each commit and before each push.
 - **Status writes** — never hand-edit STATE.md, QUEUE.md, ROADMAP status emojis, or task checkboxes. Use `w2c` on PATH.
 - **Verify loop** — a task is not complete until its Verify commands pass and requesting-code-review is clean.
-- **Closeout reports** — write `S##-T##-SUMMARY.md` before `complete`; `S##-UAT.md` + `S##-SUMMARY.md` before `slice-complete`; `M###-VALIDATION.md` + `M###-SUMMARY.md` before milestone DONE.
+- **Closeout reports** — write `S##-T##-SUMMARY.md` before `complete`; `S##-UAT.md` + `S##-SUMMARY.md` before `slice-complete`; `M###-VALIDATION.md` + `M###-SUMMARY.md` before milestone DONE. Manual test steps in `M###-MANUAL-TEST.md` (if opted in) are for the human after DONE — they do not gate completeness.
+- **Commit and PR** — honor `## Commit and PR conventions`. Never add `Co-authored-by:` or similar AI co-author trailers.
+
+## Commit and PR conventions
+
+Planner: inspect this repo (`CONTRIBUTING*`, `.github/*PULL_REQUEST_TEMPLATE*`, recent `git log` title/body) and fill this section. Do not leave TBD.
+
+**Commit title:**
+
+**Commit body:**
+
+**Pull request:**
+
+**AI attribution — forbidden:**
+Do not add `Co-authored-by:` trailers or similar AI co-author / “assisted by Cursor, Copilot, Claude, or Codex” lines.

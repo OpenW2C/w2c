@@ -84,15 +84,17 @@ Write these in the milestone plan folder. They are ledger, not runtime logs. Com
 
 **`M###-SUMMARY.md`** — frontmatter plus What Happened, Success Criteria Results, Deviations, Follow-ups.
 
+**`M###-MANUAL-TEST.md`** — optional human guide written at plan time. Not a closeout report. Do not require it for `milestone-complete`.
+
 ## Loop
 
 Every unit:
 
-1. **Smoke** — log `--stage smoke --event started`, then `w2c smoke`. On FAIL: log `--stage smoke --event fail` and STOP with the report. Do not implement. On PASS: log `--stage smoke --event pass`. Smoke requires a valid Git Operation Plan on milestone and slice plans.
+1. **Smoke** — log `--stage smoke --event started`, then `w2c smoke`. On FAIL: log `--stage smoke --event fail` and STOP with the report. Do not implement. On PASS: log `--stage smoke --event pass`. Smoke requires a valid Git Operation Plan, a filled `## Commit and PR conventions` section (including the Co-authored-by ban) on milestone and slice plans, and a `Manual test guide` of `yes` or `no` (plus `M###-MANUAL-TEST.md` when `yes`).
 2. **Pick** — log `--stage next --event started`, then `w2c next` with any M/S/T filters from the invocation. Include `--milestone` / `--slice` / `--task` on the event when known.
 3. If `--dry-run`: log `--stage dry-run --event complete --detail` with the unit id, print the unit, read Git Operation Plan and report Isolation mode + Local/Remote branch + whether isolate setup would run, and STOP. Do **not** create a worktree, switch branch, or implement.
 4. If no open task: log `--stage next --event stop --detail "no open task"`, print that, and STOP.
-5. **Read order:** STATE.md, ROADMAP.md, active `M###-ROADMAP.md` (guardrails + **Git Operation Plan**), slice `M###-S##-PLAN.md` (must include matching Git Operation Plan), `M###-CONTEXT.md`, latest `contexts/CONTEXTvX.Y.md`, DECISIONS.md.
+5. **Read order:** STATE.md, ROADMAP.md, active `M###-ROADMAP.md` (guardrails + **Git Operation Plan** + **Commit and PR conventions**), slice `M###-S##-PLAN.md` (must include matching Git Operation Plan and the same filled conventions, not “see parent”), `M###-CONTEXT.md`, latest `contexts/CONTEXTvX.Y.md`, DECISIONS.md.
 6. **Isolate** — log `--stage isolate --event started`. Follow the Git Operation Plan (see below). On success: `--stage isolate --event complete --detail` with mode and branch. On hard stop: `--stage isolate --event stop`.
 7. **Implement** that task only (in the isolated workspace). Log `--stage implement --event started` before edits and `--stage implement --event complete` after.
 8. **Verify** — log `--stage verify --event started`, then run the task’s Verify commands. On failure: log `--stage verify --event retry`, find root cause, fix, re-verify. Loop until green, then `--stage verify --event pass`.
@@ -100,13 +102,13 @@ Every unit:
 10. **Task summary** — write `.w2c/plans/M###-<slug>/S##-T##-SUMMARY.md` using the task-summary shape below. Do not call `complete` until this file exists and is non-empty. Log `--stage report --event complete --detail task-summary`.
 11. **Complete** — `w2c complete --milestone … --slice … --task …`. The CLI refuses without the task summary. It does **not** mark the slice or milestone done.
 12. **Slice closeout** — if stdout contains `NEED_SLICE_REPORTS` or `NEED_SLICE_COMPLETE`: re-run every task Verify command in that slice plus the slice Verification section. On failure: fix, re-verify, log `--stage verify --event retry`. Then write `S##-UAT.md` (human checklist, leave boxes unchecked) and `S##-SUMMARY.md` (automated results). Then `w2c slice-complete --milestone … --slice …`.
-13. **Milestone closeout** — if stdout contains `NEED_MILESTONE_REPORTS` or `NEED_MILESTONE_COMPLETE`: run milestone Validation commands and check success criteria. Write `M###-VALIDATION.md` (audit/verdict) and `M###-SUMMARY.md` (what shipped). Then `w2c milestone-complete M###`. Then remind the Git Operation Plan push rule: **do not push** without explicit user approval; when approved, push only to `origin/<Remote branch>` where Remote branch equals the planned Local branch (ticket id / confirmed slug). Never invent a different remote name.
+13. **Milestone closeout** — if stdout contains `NEED_MILESTONE_REPORTS` or `NEED_MILESTONE_COMPLETE`: run milestone Validation commands and check success criteria. Write `M###-VALIDATION.md` (audit/verdict) and `M###-SUMMARY.md` (what shipped). Then `w2c milestone-complete M###`. Do **not** require `M###-MANUAL-TEST.md` or that the human ran those steps. If Delivery & Guardrails `Manual test guide` is `yes`, print the path to `M###-MANUAL-TEST.md` and say it is for the user to run after closeout — unread/unchecked steps are not a failure. Then remind the Git Operation Plan push rule: **do not push** without explicit user approval; when approved, push only to `origin/<Remote branch>` where Remote branch equals the planned Local branch (ticket id / confirmed slug). Never invent a different remote name. When committing or opening a PR, follow `## Commit and PR conventions`; **never** add `Co-authored-by` or similar AI co-author trailers.
 14. **Report** — log `--stage report --event complete`. Then: task id/title, files changed, verify commands + outcomes, review result, which reports were written, isolation mode/branch used, blockers.
 15. If `--max-units` is set and units remain and the scope still has open tasks: go to step 1. Otherwise STOP.
 
 No-args always stops after one completed or failed unit.
 
-Honor Delivery & Guardrails and **Git Operation Plan** on the milestone ROADMAP: commit cadence (default milestone), isolation mode/branch, no push/PR without explicit user approval.
+Honor Delivery & Guardrails, **Git Operation Plan**, and **Commit and PR conventions** on the milestone ROADMAP: commit cadence (default milestone), isolation mode/branch, no push/PR without explicit user approval, never AI `Co-authored-by` trailers.
 
 ## Isolate step (required)
 
@@ -139,4 +141,6 @@ Isolation is **ticket-scoped**: later milestones/slices with the same Remote bra
 - Implementing from the wrong tree when mode is `worktree`
 - Force-reset, force-push, or deleting worktrees/branches
 - Pushing or opening a PR without explicit user approval
+- Adding `Co-authored-by:` or similar AI co-author trailers on commits or PRs
+- Blocking milestone closeout because `M###-MANUAL-TEST.md` steps were not run
 - Committing `.w2c/runtime/` or hand-editing `events.jsonl`

@@ -47,6 +47,17 @@ SLICE ID: S01
 | Local branch | DEMO-1 |
 | Remote branch | DEMO-1 |
 | Follow | milestone Git Operation Plan — do not invent a different branch |
+
+## Commit and PR conventions
+
+**Commit title:** short imperative subject.
+
+**Commit body:** optional body after a blank line.
+
+**Pull request:** follow this repo's PR template when opening a PR; no push without approval.
+
+**AI attribution — forbidden:**
+Do not add `Co-authored-by:` trailers or similar AI co-author lines for Cursor, Copilot, Claude, or Codex.
 """
 
 M_ROADMAP = """# M001: demo
@@ -54,6 +65,11 @@ M_ROADMAP = """# M001: demo
 ## Slices
 
 - [ ] **S01: Foundation** `risk:low` `depends:[]`
+
+## Delivery & Guardrails
+| Field | Value |
+| --- | --- |
+| Manual test guide | no |
 
 ## Git Operation Plan
 | Field | Value |
@@ -67,6 +83,17 @@ M_ROADMAP = """# M001: demo
 | Reuse policy | reuse-if-same-ticket-else-stop |
 | Worktree skill | n/a |
 | Push rule | after milestone verification + explicit user approval; push ref must equal Remote branch |
+
+## Commit and PR conventions
+
+**Commit title:** short imperative subject.
+
+**Commit body:** optional body after a blank line.
+
+**Pull request:** follow this repo's PR template when opening a PR; no push without approval.
+
+**AI attribution — forbidden:**
+Do not add `Co-authored-by:` trailers or similar AI co-author lines for Cursor, Copilot, Claude, or Codex.
 """
 
 
@@ -349,6 +376,56 @@ class W2CTests(unittest.TestCase):
         names = {c.name: c for c in report.checks}
         self.assertEqual(names["git-operation-plan-milestone"].status, "FAIL")
         self.assertIn("using-git-worktrees", names["git-operation-plan-milestone"].detail)
+
+    def test_smoke_fails_without_commit_pr_conventions(self) -> None:
+        self._seed_open_tasks()
+        d = self.tmp / ".w2c/plans/M001-demo"
+        road = (d / "M001-ROADMAP.md").read_text(encoding="utf-8")
+        write(d / "M001-ROADMAP.md", road.split("## Commit and PR conventions")[0])
+        report = w2c.run_smoke(self.tmp)
+        names = {c.name: c for c in report.checks}
+        self.assertEqual(names["commit-pr-conventions-milestone"].status, "FAIL")
+        self.assertTrue(report.failed())
+
+    def test_smoke_fails_manual_test_yes_without_file(self) -> None:
+        self._seed_open_tasks()
+        d = self.tmp / ".w2c/plans/M001-demo"
+        road = (d / "M001-ROADMAP.md").read_text(encoding="utf-8")
+        write(
+            d / "M001-ROADMAP.md",
+            road.replace("| Manual test guide | no |", "| Manual test guide | yes |"),
+        )
+        report = w2c.run_smoke(self.tmp)
+        names = {c.name: c for c in report.checks}
+        self.assertEqual(names["manual-test-guide"].status, "FAIL")
+        self.assertIn("MANUAL-TEST.md", names["manual-test-guide"].detail)
+        self.assertTrue(report.failed())
+
+    def test_smoke_pass_manual_test_yes_with_file(self) -> None:
+        self._seed_open_tasks()
+        d = self.tmp / ".w2c/plans/M001-demo"
+        road = (d / "M001-ROADMAP.md").read_text(encoding="utf-8")
+        write(
+            d / "M001-ROADMAP.md",
+            road.replace("| Manual test guide | no |", "| Manual test guide | yes |"),
+        )
+        write(d / "M001-MANUAL-TEST.md", "# M001 manual test\n\n1. Open the app.\n")
+        report = w2c.run_smoke(self.tmp)
+        names = {c.name: c for c in report.checks}
+        self.assertEqual(names["manual-test-guide"].status, "PASS")
+        self.assertFalse(report.failed(), [c for c in report.checks if c.status == "FAIL"])
+
+    def test_milestone_done_does_not_require_manual_test_file(self) -> None:
+        self._seed_open_tasks()
+        self._write_task_summary("S01", "T01")
+        self.assertEqual(w2c.cmd_complete(self.tmp, "M001", "S01", "T01"), 0)
+        self._write_task_summary("S01", "T02")
+        self.assertEqual(w2c.cmd_complete(self.tmp, "M001", "S01", "T02"), 0)
+        self._write_slice_reports("S01")
+        self.assertEqual(w2c.cmd_slice_complete(self.tmp, "M001", "S01"), 0)
+        self._write_milestone_reports("M001")
+        self.assertFalse((self.tmp / ".w2c/plans/M001-demo/M001-MANUAL-TEST.md").is_file())
+        self.assertEqual(w2c.cmd_milestone_status(self.tmp, "M001", "DONE"), 0)
 
 
 if __name__ == "__main__":

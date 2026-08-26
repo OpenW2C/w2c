@@ -71,7 +71,7 @@ Cursor and Claude pick the skills up from `~/.agents/skills` after `install.sh` 
 
 ## Git isolation
 
-Every milestone `M###-ROADMAP.md` and slice `M###-S##-PLAN.md` must include a **`## Git Operation Plan`** table.
+Every milestone `M###-ROADMAP.md` and slice `M###-S##-PLAN.md` must include a **`## Git Operation Plan`** table and a filled **`## Commit and PR conventions`** section (this repo's commit title/body and PR rules, plus an explicit ban on AI `Co-authored-by` trailers).
 
 - **Modes:** `worktree` or `branch` only (no in-place).
 - **Branch names:** Local branch == Remote branch == external ticket id (e.g. `MOR-252`) or a confirmed slug when there is no ticket.
@@ -80,7 +80,9 @@ Every milestone `M###-ROADMAP.md` and slice `M###-S##-PLAN.md` must include a **
 - **Plan commit:** after writing plans, if `.w2c/config.toml` has `track = true`, `work-to-chores` asks approval to commit only `.w2c/` ledger/plan files onto the ticket branch (never `runtime/`, never product code, no push). Default is untracked; worktrees get `.w2c/` via symlink or copy.
 - **Push:** after milestone verification, only with explicit user approval, to `origin/<Remote branch>` exactly.
 
-`w2c smoke` **FAIL**s when the Git Operation Plan is missing, Isolation mode is invalid, Local≠Remote, branch is empty/`N/A`, worktree mode lacks `using-git-worktrees` in the Worktree skill field, or a slice disagrees with its milestone. Older plans without this section must be updated (re-run work-to-chores or add the section manually) before smoke/handoff will pass.
+`w2c smoke` **FAIL**s when the Git Operation Plan is missing, Isolation mode is invalid, Local≠Remote, branch is empty/`N/A`, worktree mode lacks `using-git-worktrees` in the Worktree skill field, a slice disagrees with its milestone, `## Commit and PR conventions` is missing/empty or does not forbid `Co-authored-by`, `Manual test guide` is missing or not `yes`/`no`, or that field is `yes` without a non-empty `M###-MANUAL-TEST.md`. Older plans without these sections must be updated (re-run work-to-chores or add the sections manually) before smoke/handoff will pass.
+
+If `Manual test guide` is `yes`, work-to-chores writes `M###-MANUAL-TEST.md` at plan time. That file is a human walkthrough after the milestone is done; `milestone-complete` does **not** wait on those steps.
 
 The CLI does **not** run git mutations; skills instruct the agent.
 
@@ -110,7 +112,7 @@ w2c <command>
 | `context-new --major|--minor` | New `contexts/CONTEXTvX.Y.md` (never overwrite) |
 | `event --skill … --stage … --event …` | Append one local runtime event |
 | `events [--tail N] [--skill …]` | Print last N local events (`0` = all) |
-| `smoke` | Ledger coherence checks (includes Git Operation Plan field checks) |
+| `smoke` | Ledger coherence checks (Git Operation Plan, Commit and PR conventions, optional manual-test guide) |
 
 Agents must not hand-edit STATE.md, QUEUE.md, ROADMAP status emojis, or `[ ]` / `[x]` on tasks.
 

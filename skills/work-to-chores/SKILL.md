@@ -51,7 +51,7 @@ w2c milestone-new --slug ...
 w2c milestone-status M001 PLANNING
 ```
 
-Never hand-edit those status bits. Authoring plan content (vision, tasks, verify commands, Git Operation Plan) is allowed after Stage 5 approval.
+Never hand-edit those status bits. Authoring plan content (vision, tasks, verify commands, Git Operation Plan, Commit and PR conventions) is allowed after Stage 5 approval.
 
 ## Events (local only)
 
@@ -156,13 +156,32 @@ Required Git Operation Plan fields (milestone is canonical):
 
 Do not implement product code in this skill.
 
+### Commit and PR conventions (required, per milestone)
+
+After isolation grilling and before the draft is marked ready, **inspect the client repo** and fill `## Commit and PR conventions` on every `M###-ROADMAP.md` and every `M###-S##-PLAN.md`.
+
+1. Read `CONTRIBUTING*`, `.github/*PULL_REQUEST_TEMPLATE*`, and recent `git log` title/body. Fill **Commit title**, **Commit body**, and **Pull request** from what this repo actually uses. If docs are missing, still fill from recent commit/PR history — do not leave TBD.
+2. Slice plans must **copy the filled rules**, not “see parent”.
+3. Every copy of the section must include **AI attribution — forbidden:** do not add `Co-authored-by:` trailers or similar Cursor / Copilot / Claude / Codex co-author lines.
+
+`w2c smoke` **FAIL**s if the section is missing, empty, or does not forbid `Co-authored-by`.
+
+### Milestone manual test guide (required grilling — one question at a time)
+
+For **each milestone**, ask: “Do you want a step-by-step manual test file for this milestone’s scope, to run after the milestone is done?” Recommended: **yes** when the milestone changes user-visible behavior; **no** for docs/infra-only. Save with `w2c decide --scope M### --decision "milestone-scoped manual test guide" --choice yes|no`.
+
+- If **yes:** set Delivery & Guardrails `Manual test guide` to `yes`. Write `.w2c/plans/M###-<slug>/M###-MANUAL-TEST.md` from `templates/M-MANUAL-TEST.md` — full, concise, numbered steps with expected results, scoped to this milestone. Banner must say it is **not** a completeness gate.
+- If **no:** set `Manual test guide` to `no`. Do not write the file.
+
+`w2c smoke` **FAIL**s if the field is missing, not `yes`/`no`, or is `yes` while `M###-MANUAL-TEST.md` is missing/empty. Milestone DONE still only requires `M###-VALIDATION.md` + `M###-SUMMARY.md` — never the manual-test file or that the human ran it.
+
 Log `--stage plan --event complete` when the draft plan is ready for validation.
 
 ## Stage 4 - Validate the plan
 
 Log `--stage validate --event started`. Until there are no pending issues or gaps, loop Stages 1-4. Never rewrite an existing CONTEXT; `w2c context-new --major` or `--minor`. Save decisions with `w2c decide`. Log `--stage validate --event retry` on each loop back, then `--stage validate --event complete` when clean.
 
-Confirm Git Operation Plan is present and consistent across all milestones/slices for the ticket (same mode and branch).
+Confirm Git Operation Plan is present and consistent across all milestones/slices for the ticket (same mode and branch). Confirm every ROADMAP and slice PLAN has a filled `## Commit and PR conventions` section (repo-detected title/body/PR rules plus the Co-authored-by ban). Confirm each milestone Delivery & Guardrails `Manual test guide` is `yes` or `no`, and if `yes` that `M###-MANUAL-TEST.md` exists and is non-empty.
 
 ## Stage 5 - User review
 
@@ -191,6 +210,7 @@ Canonical tree:
     S##-SUMMARY.md
     M###-VALIDATION.md
     M###-SUMMARY.md
+    M###-MANUAL-TEST.md   # optional; only if Manual test guide is yes
   contexts/CONTEXTvX.Y.md
   DECISIONS.md
   ROADMAP.md
@@ -198,9 +218,9 @@ Canonical tree:
   QUEUE.md
 ```
 
-Use `w2c milestone-new` then fill ROADMAP/CONTEXT/slice plan content (including Git Operation Plan). Formats: follow the templates in this repo (`templates/`) and README.md. Milestone files are `M###-ROADMAP.md` + `M###-CONTEXT.md` + slice plans - never a second `M###-PLAN.md`.
+Use `w2c milestone-new` then fill ROADMAP/CONTEXT/slice plan content (including Git Operation Plan and Commit and PR conventions). Formats: follow the templates in this repo (`templates/`) and README.md. Milestone files are `M###-ROADMAP.md` + `M###-CONTEXT.md` + slice plans - never a second `M###-PLAN.md`.
 
-`w2c milestone-status` / `w2c set` for pointers. `w2c smoke` before handing off to do-chores — smoke **fails** if Git Operation Plan is missing, Isolation mode is not `worktree`/`branch`, Local≠Remote, branch is empty/`N/A`, or worktree mode lacks `using-git-worktrees` in Worktree skill. Log `--stage write --event complete` when smoke is clean.
+`w2c milestone-status` / `w2c set` for pointers. `w2c smoke` before handing off to do-chores — smoke **fails** if Git Operation Plan is missing, Isolation mode is not `worktree`/`branch`, Local≠Remote, branch is empty/`N/A`, worktree mode lacks `using-git-worktrees` in Worktree skill, `## Commit and PR conventions` is missing/empty or does not forbid `Co-authored-by`, `Manual test guide` is missing or not `yes`/`no`, or that field is `yes` without a non-empty `M###-MANUAL-TEST.md`. Log `--stage write --event complete` when smoke is clean.
 
 ### Plan-commit gate (only when `track = true`)
 
@@ -230,3 +250,7 @@ Then tell the user: run `do-chores` next; isolation setup (worktree create or br
 - Creating a worktree during planning (setup is first `do-chores` only)
 - Pushing or opening a PR from this skill
 - Inventing a worktree procedure when using-git-worktrees is missing
+- Writing empty or “see parent” Commit and PR conventions, or omitting the Co-authored-by ban
+- Adding `Co-authored-by:` or similar AI co-author trailers
+- Skipping the milestone manual-test-guide question
+- Treating unread `M###-MANUAL-TEST.md` steps as a milestone completeness failure

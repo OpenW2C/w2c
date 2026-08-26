@@ -97,6 +97,7 @@ M_ROADMAP_STUB = """# {mid}: {title}
 | Validation commands | |
 | Completion condition | All slices verified; single commit after milestone verification; push only with explicit approval |
 | Size budget (LOC diff) | |
+| Manual test guide | no |
 
 ## Git Operation Plan
 | Field | Value |
@@ -121,6 +122,20 @@ M_ROADMAP_STUB = """# {mid}: {title}
 - **Status writes** — never hand-edit STATE.md, QUEUE.md, ROADMAP status emojis, or task checkboxes. Use `.w2c/scripts/w2c.sh`.
 - **Verify loop** — a task is not complete until its Verify commands pass and requesting-code-review is clean.
 - **Closeout reports** — write `S##-T##-SUMMARY.md` before `complete`; `S##-UAT.md` + `S##-SUMMARY.md` before `slice-complete`; `M###-VALIDATION.md` + `M###-SUMMARY.md` before milestone DONE.
+- **Commit and PR** — honor `## Commit and PR conventions`. Never add `Co-authored-by:` or similar AI co-author trailers.
+
+## Commit and PR conventions
+
+Planner: inspect this repo (`CONTRIBUTING*`, `.github/*PULL_REQUEST_TEMPLATE*`, recent `git log` title/body) and fill this section. Do not leave TBD.
+
+**Commit title:**
+
+**Commit body:**
+
+**Pull request:**
+
+**AI attribution — forbidden:**
+Do not add `Co-authored-by:` trailers or similar AI co-author / “assisted by Cursor, Copilot, Claude, or Codex” lines.
 """
 
 M_CONTEXT_STUB = """# {mid} — {title}\n\n## Problem\n\n## Solution\n\n## Key Decisions\n\n## Out of Scope\n\n## Validation\n\n## Completion Criteria\n"""
@@ -439,6 +454,10 @@ def milestone_validation_path(plan_dir: Path, mid: str) -> Path:
 
 def milestone_summary_path(plan_dir: Path, mid: str) -> Path:
     return plan_dir / f"{mid}-SUMMARY.md"
+
+
+def milestone_manual_test_path(plan_dir: Path, mid: str) -> Path:
+    return plan_dir / f"{mid}-MANUAL-TEST.md"
 
 
 def slice_plan_path(root: Path, mid: str, sid: str) -> Path | None:
@@ -1102,12 +1121,12 @@ def cmd_context_new(root: Path, major: bool, minor: bool) -> int:
 
 
 
-def parse_git_operation_fields(text: str) -> dict[str, str]:
-    """Parse | Field | Value | rows under ## Git Operation Plan."""
-    m = re.search(r"^## Git Operation Plan\s*$", text, re.M)
+def parse_table_under_heading(text: str, heading: str) -> dict[str, str]:
+    """Parse | Field | Value | rows under a ## heading until the next ##."""
+    m = re.search(rf"^## {re.escape(heading)}\s*$", text, re.M)
     if not m:
         return {}
-    rest = text[m.end():]
+    rest = text[m.end() :]
     next_h = re.search(r"^## ", rest, re.M)
     if next_h:
         rest = rest[: next_h.start()]
@@ -1122,6 +1141,11 @@ def parse_git_operation_fields(text: str) -> dict[str, str]:
             continue
         fields[key] = val
     return fields
+
+
+def parse_git_operation_fields(text: str) -> dict[str, str]:
+    """Parse | Field | Value | rows under ## Git Operation Plan."""
+    return parse_table_under_heading(text, "Git Operation Plan")
 
 
 def validate_git_operation_plan(fields: dict[str, str], *, require_worktree_skill: bool = True) -> list[str]:
@@ -1145,6 +1169,39 @@ def validate_git_operation_plan(fields: dict[str, str], *, require_worktree_skil
         if "using-git-worktrees" not in skill:
             problems.append("worktree mode requires Worktree skill mentioning using-git-worktrees")
     return problems
+
+
+_PROHIBITION_RE = re.compile(r"\b(do not|don't|never|must not)\b", re.I)
+
+
+def section_under_heading(text: str, heading: str) -> str | None:
+    m = re.search(rf"^## {re.escape(heading)}\s*$", text, re.M)
+    if not m:
+        return None
+    rest = text[m.end() :]
+    next_h = re.search(r"^## ", rest, re.M)
+    if next_h:
+        rest = rest[: next_h.start()]
+    return rest
+
+
+def validate_commit_pr_conventions(text: str) -> list[str]:
+    """Return problems; empty list means the section is present, non-empty, and forbids Co-authored-by."""
+    body = section_under_heading(text, "Commit and PR conventions")
+    if body is None:
+        return ["missing ## Commit and PR conventions section"]
+    if not body.strip():
+        return ["empty ## Commit and PR conventions section"]
+    if "co-authored-by" not in body.lower():
+        return ["Commit and PR conventions must mention Co-authored-by"]
+    if not _PROHIBITION_RE.search(body):
+        return ["Commit and PR conventions must forbid Co-authored-by"]
+    return []
+
+
+def parse_manual_test_guide(text: str) -> str:
+    fields = parse_table_under_heading(text, "Delivery & Guardrails")
+    return fields.get("Manual test guide", "").strip().lower()
 
 
 def run_smoke(root: Path) -> Report:
@@ -1295,6 +1352,55 @@ def run_smoke(root: Path) -> Report:
         "git-operation-plan-slice",
         "PASS" if git_s_ok else "FAIL",
         "; ".join(git_s_detail[:8]),
+    )
+
+    cpr_m_ok = True
+    cpr_m_detail: list[str] = []
+    cpr_s_ok = True
+    cpr_s_detail: list[str] = []
+    mt_ok = True
+    mt_detail: list[str] = []
+    for mil in mils:
+        d = plan_dir_for(root, mil.mid)
+        if d is None:
+            continue
+        mroad = d / f"{mil.mid}-ROADMAP.md"
+        if not mroad.is_file():
+            continue
+        mtext = read_text(mroad)
+        mprobs = validate_commit_pr_conventions(mtext)
+        if mprobs:
+            cpr_m_ok = False
+            cpr_m_detail.append(f"{mil.mid}: {'; '.join(mprobs)}")
+        guide = parse_manual_test_guide(mtext)
+        if guide not in ("yes", "no"):
+            mt_ok = False
+            mt_detail.append(f"{mil.mid}: Manual test guide must be yes|no (got {guide!r})")
+        elif guide == "yes" and not report_present(milestone_manual_test_path(d, mil.mid)):
+            mt_ok = False
+            mt_detail.append(f"{mil.mid}: missing or empty {mil.mid}-MANUAL-TEST.md")
+        for sid, _done, _title in parse_slices(mtext):
+            p = d / f"{mil.mid}-{sid}-PLAN.md"
+            if not p.is_file():
+                continue
+            sprobs = validate_commit_pr_conventions(read_text(p))
+            if sprobs:
+                cpr_s_ok = False
+                cpr_s_detail.append(f"{mil.mid}/{sid}: {'; '.join(sprobs)}")
+    report.add(
+        "commit-pr-conventions-milestone",
+        "PASS" if cpr_m_ok else "FAIL",
+        "; ".join(cpr_m_detail[:8]),
+    )
+    report.add(
+        "commit-pr-conventions-slice",
+        "PASS" if cpr_s_ok else "FAIL",
+        "; ".join(cpr_s_detail[:8]),
+    )
+    report.add(
+        "manual-test-guide",
+        "PASS" if mt_ok else "FAIL",
+        "; ".join(mt_detail[:8]),
     )
 
     missing: list[str] = []
