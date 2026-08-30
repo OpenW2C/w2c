@@ -41,6 +41,7 @@ pipx install git+https://github.com/OpenW2C/w2c.git && w2c install-skills
 ```
 
 3. A plan must exist (ROADMAP + at least one slice plan with tasks). If not: STOP. Log `--stage prereq --event stop --detail "no plan"` and tell the user to run work-to-chores.
+4. `.w2c/config.toml` must have a valid `git_delivery` (`slice-commit-milestone-push-pr` or `milestone-commit-milestone-push-pr`). If missing: STOP. Log `--stage prereq --event stop --detail "missing git_delivery"`. Tell the user to run `w2c init --git-delivery …` or `w2c migrate … --git-delivery …`.
 
 **Worktree skill (when the plan says so):** if the active Git Operation Plan Isolation mode is `worktree`, **using-git-worktrees** must be invocable before isolation setup. If missing: STOP. Log `--stage prereq --event stop --detail "missing using-git-worktrees"`. Do not invent a substitute worktree procedure.
 
@@ -90,7 +91,7 @@ Write these in the milestone plan folder. They are ledger, not runtime logs. Com
 
 Every unit:
 
-1. **Smoke** — log `--stage smoke --event started`, then `w2c smoke`. On FAIL: log `--stage smoke --event fail` and STOP with the report. Do not implement. On PASS: log `--stage smoke --event pass`. Smoke requires a valid Git Operation Plan, a filled `## Commit and PR conventions` section (including the Co-authored-by ban) on milestone and slice plans, and a `Manual test guide` of `yes` or `no` (plus `M###-MANUAL-TEST.md` when `yes`).
+1. **Smoke** — log `--stage smoke --event started`, then `w2c smoke`. On FAIL: log `--stage smoke --event fail` and STOP with the report. Do not implement. On PASS: log `--stage smoke --event pass`. Smoke requires a valid `git_delivery` in `.w2c/config.toml`, a valid Git Operation Plan, a filled `## Commit and PR conventions` section (including the Co-authored-by ban) on milestone and slice plans, and a `Manual test guide` of `yes` or `no` (plus `M###-MANUAL-TEST.md` when `yes`).
 2. **Pick** — log `--stage next --event started`, then `w2c next` with any M/S/T filters from the invocation. Include `--milestone` / `--slice` / `--task` on the event when known.
 3. If `--dry-run`: log `--stage dry-run --event complete --detail` with the unit id, print the unit, read Git Operation Plan and report Isolation mode + Local/Remote branch + whether isolate setup would run, and STOP. Do **not** create a worktree, switch branch, or implement.
 4. If no open task: log `--stage next --event stop --detail "no open task"`, print that, and STOP.
@@ -101,14 +102,18 @@ Every unit:
 9. **Review** — log `--stage review --event started`, then invoke requesting-code-review. On findings: log `--stage review --event retry`, find root cause, fix, re-verify, re-review. Loop until clean, then `--stage review --event pass`.
 10. **Task summary** — write `.w2c/plans/M###-<slug>/S##-T##-SUMMARY.md` using the task-summary shape below. Do not call `complete` until this file exists and is non-empty. Log `--stage report --event complete --detail task-summary`.
 11. **Complete** — `w2c complete --milestone … --slice … --task …`. The CLI refuses without the task summary. It does **not** mark the slice or milestone done.
-12. **Slice closeout** — if stdout contains `NEED_SLICE_REPORTS` or `NEED_SLICE_COMPLETE`: re-run every task Verify command in that slice plus the slice Verification section. On failure: fix, re-verify, log `--stage verify --event retry`. Then write `S##-UAT.md` (human checklist, leave boxes unchecked) and `S##-SUMMARY.md` (automated results). Then `w2c slice-complete --milestone … --slice …`.
-13. **Milestone closeout** — if stdout contains `NEED_MILESTONE_REPORTS` or `NEED_MILESTONE_COMPLETE`: run milestone Validation commands and check success criteria. Write `M###-VALIDATION.md` (audit/verdict) and `M###-SUMMARY.md` (what shipped). Then `w2c milestone-complete M###`. Do **not** require `M###-MANUAL-TEST.md` or that the human ran those steps. If Delivery & Guardrails `Manual test guide` is `yes`, print the path to `M###-MANUAL-TEST.md` and say it is for the user to run after closeout — unread/unchecked steps are not a failure. Then remind the Git Operation Plan push rule: **do not push** without explicit user approval; when approved, push only to `origin/<Remote branch>` where Remote branch equals the planned Local branch (ticket id / confirmed slug). Never invent a different remote name. When committing or opening a PR, follow `## Commit and PR conventions`; **never** add `Co-authored-by` or similar AI co-author trailers.
-14. **Report** — log `--stage report --event complete`. Then: task id/title, files changed, verify commands + outcomes, review result, which reports were written, isolation mode/branch used, blockers.
+12. **Slice closeout** — if stdout contains `NEED_SLICE_REPORTS` or `NEED_SLICE_COMPLETE`: re-run every task Verify command in that slice plus the slice Verification section. On failure: fix, re-verify, log `--stage verify --event retry`. Then write `S##-UAT.md` (human checklist, leave boxes unchecked) and `S##-SUMMARY.md` (automated results). Then `w2c slice-complete --milestone … --slice …`. Read `git_delivery` from `.w2c/config.toml`. If it is `slice-commit-milestone-push-pr`: **ask** for explicit approval to make a **local commit** of the product changes (honor `## Commit and PR conventions`; never AI co-author trailers). If the user declines: skip the commit and continue. Do **not** push or open a PR at slice closeout.
+13. **Milestone closeout** — if stdout contains `NEED_MILESTONE_REPORTS` or `NEED_MILESTONE_COMPLETE`: run milestone Validation commands and check success criteria. Write `M###-VALIDATION.md` (audit/verdict) and `M###-SUMMARY.md` (what shipped). Then `w2c milestone-complete M###`. Do **not** require `M###-MANUAL-TEST.md` or that the human ran those steps. If Delivery & Guardrails `Manual test guide` is `yes`, print the path to `M###-MANUAL-TEST.md` and say it is for the user to run after closeout — unread/unchecked steps are not a failure. Then honor `git_delivery`:
+    - If `milestone-commit-milestone-push-pr`: **ask** for a local commit (same conventions / co-author ban). Decline → skip commit and continue.
+    - **Always ask** (separate prompt) to **push** to `origin/<Remote branch>` where Remote branch equals the planned Local branch. Decline → skip push and PR; continue.
+    - If push was approved: **ask separately** to **open a PR**. Decline → skip PR; continue.
+    Never invent a different remote name. Follow `## Commit and PR conventions`; **never** add `Co-authored-by` or similar AI co-author trailers.
+14. **Report** — log `--stage report --event complete`. Then: task id/title, files changed, verify commands + outcomes, review result, which reports were written, isolation mode/branch used, git_delivery gates taken or skipped, blockers.
 15. If `--max-units` is set and units remain and the scope still has open tasks: go to step 1. Otherwise STOP.
 
 No-args always stops after one completed or failed unit.
 
-Honor Delivery & Guardrails, **Git Operation Plan**, and **Commit and PR conventions** on the milestone ROADMAP: commit cadence (default milestone), isolation mode/branch, no push/PR without explicit user approval, never AI `Co-authored-by` trailers.
+Honor Delivery & Guardrails, **Git Operation Plan**, `git_delivery` from `.w2c/config.toml`, and **Commit and PR conventions**: ask every time before commit / push / PR; decline skips that action only; never AI `Co-authored-by` trailers.
 
 ## Isolate step (required)
 
@@ -141,6 +146,8 @@ Isolation is **ticket-scoped**: later milestones/slices with the same Remote bra
 - Implementing from the wrong tree when mode is `worktree`
 - Force-reset, force-push, or deleting worktrees/branches
 - Pushing or opening a PR without explicit user approval
+- Committing without explicit user approval
+- Auto-commit / auto-push / auto-PR when the user declined that gate
 - Adding `Co-authored-by:` or similar AI co-author trailers on commits or PRs
 - Blocking milestone closeout because `M###-MANUAL-TEST.md` steps were not run
 - Committing `.w2c/runtime/` or hand-editing `events.jsonl`

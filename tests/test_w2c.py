@@ -101,7 +101,7 @@ class W2CTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = Path(tempfile.mkdtemp(prefix="w2c-test-"))
         self.addCleanup(lambda: shutil.rmtree(self.tmp, ignore_errors=True))
-        w2c.cmd_init(self.tmp)
+        w2c.cmd_init(self.tmp, git_delivery="slice-commit-milestone-push-pr")
 
     def test_next_milestone_id_starts_at_m001(self) -> None:
         self.assertEqual(w2c.next_milestone_id(self.tmp), "M001")
@@ -210,6 +210,20 @@ class W2CTests(unittest.TestCase):
         self._seed_open_tasks()
         report = w2c.run_smoke(self.tmp)
         self.assertFalse(report.failed(), [c for c in report.checks if c.status == "FAIL"])
+        names = {c.name: c for c in report.checks}
+        self.assertEqual(names["git-delivery-config"].status, "PASS")
+
+    def test_smoke_fails_without_git_delivery(self) -> None:
+        self._seed_open_tasks()
+        cfg = self.tmp / ".w2c" / "config.toml"
+        cfg.write_text(
+            "track = false" + chr(10) + 'worktree_ledger = "symlink"' + chr(10),
+            encoding="utf-8",
+        )
+        report = w2c.run_smoke(self.tmp)
+        names = {c.name: c for c in report.checks}
+        self.assertEqual(names["git-delivery-config"].status, "FAIL")
+        self.assertTrue(report.failed())
 
     def test_smoke_fail_on_id_clash_and_state_mismatch(self) -> None:
         self._seed_open_tasks()
@@ -226,7 +240,7 @@ class W2CTests(unittest.TestCase):
 
         # Unique-id clash already asserted. Fresh tree for STATE vs ROADMAP mismatch.
         shutil.rmtree(self.tmp / ".w2c", ignore_errors=True)
-        w2c.cmd_init(self.tmp)
+        w2c.cmd_init(self.tmp, git_delivery="slice-commit-milestone-push-pr")
         self._seed_open_tasks()
         w2c.cmd_milestone_status(self.tmp, "M001", "INPROGRESS")
         state = self.tmp / ".w2c/STATE.md"

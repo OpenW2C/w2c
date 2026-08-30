@@ -40,7 +40,7 @@ Must match the parent `M###-ROADMAP.md` Git Operation Plan (same Isolation mode,
 - A task is not done until Verify passes, requesting-code-review is clean, and `S##-T##-SUMMARY.md` is written.
 - After the last task in this slice: re-run Verify, write `S##-UAT.md` + `S##-SUMMARY.md`, then `slice-complete`.
 - After the last slice: write `M###-VALIDATION.md` + `M###-SUMMARY.md`, then `milestone-complete`.
-- Honor this slice Git Operation Plan and the milestone Git Operation Plan. No push or PR without explicit user approval.
+- Honor this slice Git Operation Plan, the milestone Git Operation Plan, and `git_delivery` from `.w2c/config.toml`. Never commit, push, or open a PR without explicit user approval for that action.
 - Honor `## Commit and PR conventions` (copy the filled rules from the milestone ROADMAP; do not say “see parent”). Never add `Co-authored-by:` or similar AI co-author trailers.
 - Never force-reset, force-push, or delete worktrees/branches.
 

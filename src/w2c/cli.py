@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Iterable
 
 from w2c import local as w2c_local
+from w2c import git_delivery as w2c_gd
 from w2c.skills_install import install_skills, write_copilot_instructions
 
 STATUS_EMOJI = {
@@ -88,14 +89,14 @@ M_ROADMAP_STUB = """# {mid}: {title}
 | External ticket ID | |
 | Integration strategy | trunk-direct |
 | Integration branch | |
-| Commit cadence | milestone |
+| Commit cadence | (from .w2c/config.toml git_delivery) |
 | Review unit | none |
 | Git/PR checkpoint mode | none |
 | Isolation mode | |
 | Branch name | |
 | Execution sequence | |
 | Validation commands | |
-| Completion condition | All slices verified; single commit after milestone verification; push only with explicit approval |
+| Completion condition | All slices verified; honor git_delivery + explicit approval gates |
 | Size budget (LOC diff) | |
 | Manual test guide | no |
 
@@ -110,10 +111,10 @@ M_ROADMAP_STUB = """# {mid}: {title}
 | Plan commit | required-before-isolation |
 | Reuse policy | reuse-if-same-ticket-else-stop |
 | Worktree skill | |
-| Push rule | after milestone verification + explicit user approval; push ref must equal Remote branch |
+| Push rule | from config + explicit approval; push ref must equal Remote branch |
 
 ### Guardrails
-- **Commit cadence** — one commit after the milestone is verified unless this table says otherwise. Do not commit per slice by default.
+- **Commit cadence** — read `git_delivery` from `.w2c/config.toml`. Never commit, push, or open a PR without explicit user approval for that action.
 - **Remote mutation** — no push, PR, or remote git mutation without explicit user approval.
 - **Git isolation** — honor Isolation mode (`worktree` or `branch` only). Local branch must equal Remote branch (ticket id or confirmed slug). Setup on first `do-chores`; reuse the same ticket isolation across milestones.
 - **Plan commit** — commit `.w2c/` plan/ledger files (never `runtime/`, never product code) onto the ticket branch before isolation so a worktree can see the ledger. No push without approval.
@@ -745,7 +746,21 @@ def set_milestone_status_in_roadmap(text: str, mid: str, status: str) -> str:
     return new
 
 
-def cmd_init(root: Path, track: bool | None = None) -> int:
+
+
+def resolve_git_delivery(
+    root: Path,
+    git_delivery: str | None,
+    *,
+    allow_prompt: bool = True,
+) -> str:
+    try:
+        return w2c_gd.resolve_git_delivery(root, git_delivery, allow_prompt=allow_prompt)
+    except w2c_local.GitDeliveryError as e:
+        raise W2CError(str(e)) from e
+
+
+def cmd_init(root: Path, track: bool | None = None, git_delivery: str | None = None) -> int:
     wdir = w2c_dir(root)
     wdir.mkdir(parents=True, exist_ok=True)
     (wdir / "plans").mkdir(exist_ok=True)
@@ -772,10 +787,14 @@ def cmd_init(root: Path, track: bool | None = None) -> int:
         atomic_write(ctx0, tpl if tpl.endswith("\n") else tpl + "\n")
         created.append("contexts/CONTEXTv1.0.md")
     rebuild_ledger(root)
+    gd = resolve_git_delivery(root, git_delivery)
     if not w2c_local.repo_config_path(root).is_file():
-        w2c_local.write_repo_config(root, track=bool(track))
-    elif track is True:
-        w2c_local.write_repo_config(root, track=True)
+        w2c_local.write_repo_config(root, track=bool(track), git_delivery=gd)
+    else:
+        kwargs: dict = {"git_delivery": gd}
+        if track is True:
+            kwargs["track"] = True
+        w2c_local.write_repo_config(root, **kwargs)
     track_flag = True if track is True else w2c_local.is_track_enabled(root)
     w2c_local.ensure_gitignore(root, track=track_flag)
     created.extend(write_copilot_instructions(root, skills_dir()))
@@ -1308,6 +1327,16 @@ def run_smoke(root: Path) -> Report:
     else:
         report.add("decisions-header", "FAIL", "missing table header")
 
+    gd = w2c_local.load_repo_config(root).get("git_delivery")
+    if gd in w2c_local.GIT_DELIVERY_VALUES:
+        report.add("git-delivery-config", "PASS", str(gd))
+    else:
+        report.add(
+            "git-delivery-config",
+            "FAIL",
+            "missing or invalid git_delivery in .w2c/config.toml; run "
+            f"w2c init --git-delivery {w2c_local.GIT_DELIVERY_SLICE}|{w2c_local.GIT_DELIVERY_MILESTONE}",
+        )
 
     git_m_ok = True
     git_m_detail: list[str] = []
@@ -1471,18 +1500,22 @@ def cmd_gitignore_ensure(root: Path, track: bool) -> int:
     return 0
 
 
-def cmd_migrate(root: Path, action: str) -> int:
+def cmd_migrate(root: Path, action: str, git_delivery: str | None = None) -> int:
     if action == "untrack":
         backup = w2c_local.migrate_untrack(root)
+        gd = resolve_git_delivery(root, git_delivery)
+        w2c_local.write_repo_config(root, track=False, git_delivery=gd)
         print(f"backed up to {backup}")
         print("updated .gitignore (default: ignore .w2c/ and Copilot W2C instruction files)")
         print("git index untracked (working tree files kept)")
         print("Commit .gitignore and the index change. Other clones must run:")
-        print("  w2c migrate adopt")
+        print("  w2c migrate adopt --git-delivery <value>")
         print("before they pull this commit.")
         return 0
     if action == "adopt":
         restored = w2c_local.migrate_adopt(root)
+        gd = resolve_git_delivery(root, git_delivery)
+        w2c_local.write_repo_config(root, track=False, git_delivery=gd)
         if restored:
             print("restored: " + ", ".join(restored))
         else:
@@ -1519,8 +1552,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--root", type=Path, default=None, help="repo root (default: discover)")
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    sub.add_parser("init", help="create ledger stubs if missing").add_argument(
+    init_p = sub.add_parser("init", help="create ledger stubs if missing")
+    init_p.add_argument(
         "--track", action="store_true", help="commit .w2c ledger and Copilot W2C files"
+    )
+    init_p.add_argument(
+        "--git-delivery",
+        dest="git_delivery",
+        choices=sorted(w2c_local.GIT_DELIVERY_VALUES),
+        default=None,
+        help="mandatory git commit/push cadence (required unless already set or TTY prompt)",
     )
     sub.add_parser("status", help="print STATE.md")
     sub.add_parser("smoke", help="ledger coherence checks")
@@ -1584,6 +1625,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     mig = sub.add_parser("migrate", help="untrack or restore W2C files")
     mig.add_argument("action", choices=["untrack", "adopt"])
+    mig.add_argument(
+        "--git-delivery",
+        dest="git_delivery",
+        choices=sorted(w2c_local.GIT_DELIVERY_VALUES),
+        default=None,
+        help="mandatory git commit/push cadence when not already set",
+    )
 
     gi = sub.add_parser("gitignore-ensure", help="ensure W2C gitignore entries")
     gi.add_argument("--track", action="store_true")
@@ -1616,7 +1664,11 @@ def dispatch(args: argparse.Namespace) -> int:
         )
     root = args.root.resolve() if args.root else find_repo_root()
     if cmd == "init":
-        return cmd_init(root, track=True if getattr(args, "track", False) else None)
+        return cmd_init(
+            root,
+            track=True if getattr(args, "track", False) else None,
+            git_delivery=getattr(args, "git_delivery", None),
+        )
     if cmd == "status":
         return cmd_status(root)
     if cmd == "smoke":
@@ -1664,7 +1716,7 @@ def dispatch(args: argparse.Namespace) -> int:
     if cmd == "events":
         return cmd_events(root, args.tail, args.skill)
     if cmd == "migrate":
-        return cmd_migrate(root, args.action)
+        return cmd_migrate(root, args.action, git_delivery=getattr(args, "git_delivery", None))
     if cmd == "gitignore-ensure":
         return cmd_gitignore_ensure(root, bool(getattr(args, "track", False)))
     if cmd == "projects":
@@ -1681,7 +1733,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         return dispatch(args)
-    except W2CError as e:
+    except (W2CError, w2c_local.GitDeliveryError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
 

@@ -131,11 +131,13 @@ During Stage 3, grill these decisions **before** the draft plan is marked ready.
 
 Isolation scope is always **ticket**: every milestone/slice for this ticket shares the same mode and branch. Setup happens on **first `do-chores`**, not during planning. Do **not** create a worktree in this skill.
 
+After isolation grilling, read `.w2c/config.toml` `git_delivery`. If missing or invalid: **STOP**. Tell the user to run `w2c init --git-delivery slice-commit-milestone-push-pr|milestone-commit-milestone-push-pr` (or `w2c migrate … --git-delivery …`). Do not invent a cadence.
+
 Default guardrails in each `M###-ROADMAP.md` Delivery and Guardrails table:
 
 - Isolation mode + Branch name filled from the grilled decisions
-- commit cadence = milestone (one commit after the milestone is verified)
-- no push/PR without explicit user approval
+- Commit cadence / Push rule leave pointing at config (`git_delivery` is source of truth — do not bake a milestone or slice default into the plan)
+- no commit / push / PR without explicit user approval for that action
 - no per-run git handshake
 
 Every `M###-ROADMAP.md` and every `M###-S##-PLAN.md` must include a filled **`## Git Operation Plan`** table (see templates). Slice plans must mirror the same Isolation mode, Local branch, and Remote branch as the milestone — do not invent a different branch.
@@ -152,7 +154,7 @@ Required Git Operation Plan fields (milestone is canonical):
 | Plan commit | `required-before-isolation` |
 | Reuse policy | `reuse-if-same-ticket-else-stop` |
 | Worktree skill | `using-git-worktrees` if mode is `worktree`; `n/a` if `branch` |
-| Push rule | after milestone verification + explicit user approval; push ref must equal Remote branch |
+| Push rule | from config + explicit approval; push ref must equal Remote branch |
 
 Do not implement product code in this skill.
 
@@ -181,7 +183,7 @@ Log `--stage plan --event complete` when the draft plan is ready for validation.
 
 Log `--stage validate --event started`. Until there are no pending issues or gaps, loop Stages 1-4. Never rewrite an existing CONTEXT; `w2c context-new --major` or `--minor`. Save decisions with `w2c decide`. Log `--stage validate --event retry` on each loop back, then `--stage validate --event complete` when clean.
 
-Confirm Git Operation Plan is present and consistent across all milestones/slices for the ticket (same mode and branch). Confirm every ROADMAP and slice PLAN has a filled `## Commit and PR conventions` section (repo-detected title/body/PR rules plus the Co-authored-by ban). Confirm each milestone Delivery & Guardrails `Manual test guide` is `yes` or `no`, and if `yes` that `M###-MANUAL-TEST.md` exists and is non-empty.
+Confirm Git Operation Plan is present and consistent across all milestones/slices for the ticket (same mode and branch). Confirm `.w2c/config.toml` has a valid `git_delivery`. Confirm every ROADMAP and slice PLAN has a filled `## Commit and PR conventions` section (repo-detected title/body/PR rules plus the Co-authored-by ban). Confirm each milestone Delivery & Guardrails `Manual test guide` is `yes` or `no`, and if `yes` that `M###-MANUAL-TEST.md` exists and is non-empty. Do not require plan cells to duplicate the chosen cadence — config is source of truth.
 
 ## Stage 5 - User review
 
@@ -220,7 +222,7 @@ Canonical tree:
 
 Use `w2c milestone-new` then fill ROADMAP/CONTEXT/slice plan content (including Git Operation Plan and Commit and PR conventions). Formats: follow the templates in this repo (`templates/`) and README.md. Milestone files are `M###-ROADMAP.md` + `M###-CONTEXT.md` + slice plans - never a second `M###-PLAN.md`.
 
-`w2c milestone-status` / `w2c set` for pointers. `w2c smoke` before handing off to do-chores — smoke **fails** if Git Operation Plan is missing, Isolation mode is not `worktree`/`branch`, Local≠Remote, branch is empty/`N/A`, worktree mode lacks `using-git-worktrees` in Worktree skill, `## Commit and PR conventions` is missing/empty or does not forbid `Co-authored-by`, `Manual test guide` is missing or not `yes`/`no`, or that field is `yes` without a non-empty `M###-MANUAL-TEST.md`. Log `--stage write --event complete` when smoke is clean.
+`w2c milestone-status` / `w2c set` for pointers. `w2c smoke` before handing off to do-chores — smoke **fails** if `git_delivery` is missing/invalid in `.w2c/config.toml`, Git Operation Plan is missing, Isolation mode is not `worktree`/`branch`, Local≠Remote, branch is empty/`N/A`, worktree mode lacks `using-git-worktrees` in Worktree skill, `## Commit and PR conventions` is missing/empty or does not forbid `Co-authored-by`, `Manual test guide` is missing or not `yes`/`no`, or that field is `yes` without a non-empty `M###-MANUAL-TEST.md`. Log `--stage write --event complete` when smoke is clean.
 
 ### Plan-commit gate (only when `track = true`)
 
@@ -249,6 +251,8 @@ Then tell the user: run `do-chores` next; isolation setup (worktree create or br
 - Skipping branch confirmation or writing `N/A` / unequal Local vs Remote branch
 - Creating a worktree during planning (setup is first `do-chores` only)
 - Pushing or opening a PR from this skill
+- Inventing commit cadence when `git_delivery` is missing from `.w2c/config.toml`
+- Committing product code without explicit user approval
 - Inventing a worktree procedure when using-git-worktrees is missing
 - Writing empty or “see parent” Commit and PR conventions, or omitting the Co-authored-by ban
 - Adding `Co-authored-by:` or similar AI co-author trailers

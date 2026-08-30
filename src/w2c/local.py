@@ -1,6 +1,8 @@
 """Local-first W2C paths: global config, repo config, gitignore, migrate."""
 from __future__ import annotations
 
+import sys
+
 import hashlib
 import os
 import shutil
@@ -115,28 +117,59 @@ def unregister_project(root: Path) -> bool:
     save_global_config({"projects": [p for p in projects if p != resolved]})
     return True
 
+GIT_DELIVERY_SLICE = "slice-commit-milestone-push-pr"
+GIT_DELIVERY_MILESTONE = "milestone-commit-milestone-push-pr"
+GIT_DELIVERY_VALUES = frozenset({GIT_DELIVERY_SLICE, GIT_DELIVERY_MILESTONE})
+GIT_DELIVERY_RECOMMENDED = GIT_DELIVERY_SLICE
+
+
+class GitDeliveryError(ValueError):
+    """Raised when git_delivery is missing or invalid."""
+
+
+
+def normalize_git_delivery(value: object | None) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    return text if text in GIT_DELIVERY_VALUES else None
+
+
 def load_repo_config(root: Path) -> dict:
     path = repo_config_path(root)
     if not path.is_file():
-        return {"track": False, "worktree_ledger": "symlink"}
+        return {"track": False, "worktree_ledger": "symlink", "git_delivery": None}
     data = parse_toml(path.read_text(encoding="utf-8"))
     ledger = str(data.get("worktree_ledger") or "symlink")
     if ledger not in {"symlink", "copy"}:
         ledger = "symlink"
-    return {"track": bool(data.get("track", False)), "worktree_ledger": ledger}
+    return {
+        "track": bool(data.get("track", False)),
+        "worktree_ledger": ledger,
+        "git_delivery": normalize_git_delivery(data.get("git_delivery")),
+    }
 
 
-def dump_repo_config(track: bool, worktree_ledger: str = "symlink") -> str:
+def dump_repo_config(
+    track: bool,
+    worktree_ledger: str = "symlink",
+    git_delivery: str | None = None,
+) -> str:
     if worktree_ledger not in {"symlink", "copy"}:
         worktree_ledger = "symlink"
     flag = "true" if track else "false"
     q = chr(34)
-    return (
-        "# W2C project config (gitignored unless track = true)" + chr(10)
-        + "track = " + flag + chr(10)
-        + "worktree_ledger = " + q + worktree_ledger + q + chr(10)
-    )
-
+    lines = [
+        "# W2C project config (gitignored unless track = true)",
+        "track = " + flag,
+        "worktree_ledger = " + q + worktree_ledger + q,
+    ]
+    gd = normalize_git_delivery(git_delivery)
+    if gd is not None:
+        lines.append("git_delivery = " + q + gd + q)
+    return chr(10).join(lines) + chr(10)
 
 
 def write_repo_config(
@@ -144,17 +177,24 @@ def write_repo_config(
     *,
     track: bool | None = None,
     worktree_ledger: str | None = None,
+    git_delivery: str | None = None,
 ) -> None:
     current = load_repo_config(root)
     if track is None:
         track = bool(current.get("track"))
     if worktree_ledger is None:
         worktree_ledger = str(current.get("worktree_ledger") or "symlink")
+    if git_delivery is None:
+        git_delivery = current.get("git_delivery")
     path = repo_config_path(root)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(dump_repo_config(bool(track), str(worktree_ledger)), encoding="utf-8")
+    tmp.write_text(
+        dump_repo_config(bool(track), str(worktree_ledger), git_delivery),
+        encoding="utf-8",
+    )
     tmp.replace(path)
+
 
 
 def is_track_enabled(root: Path) -> bool:

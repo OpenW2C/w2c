@@ -23,14 +23,14 @@
 | External ticket ID | |
 | Integration strategy | trunk-direct |
 | Integration branch | |
-| Commit cadence | milestone |
+| Commit cadence | (from .w2c/config.toml git_delivery) |
 | Review unit | none |
 | Git/PR checkpoint mode | none |
 | Isolation mode | |
 | Branch name | |
 | Execution sequence | |
 | Validation commands | |
-| Completion condition | All slices verified; single commit after milestone verification; push only with explicit approval |
+| Completion condition | All slices verified; honor git_delivery + explicit approval gates |
 | Size budget (LOC diff) | |
 | Manual test guide | no |
 
@@ -45,10 +45,10 @@
 | Plan commit | required-before-isolation |
 | Reuse policy | reuse-if-same-ticket-else-stop |
 | Worktree skill | |
-| Push rule | after milestone verification + explicit user approval; push ref must equal Remote branch |
+| Push rule | from config + explicit approval; push ref must equal Remote branch |
 
 ### Guardrails
-- **Commit cadence** — one commit after the milestone is verified unless this table says otherwise. Do not commit per slice by default.
+- **Commit cadence** — read `git_delivery` from `.w2c/config.toml`. Never commit, push, or open a PR without explicit user approval for that action.
 - **Remote mutation** — no push, PR, or remote git mutation without explicit user approval.
 - **Git isolation** — honor Isolation mode (`worktree` or `branch` only). Local branch must equal Remote branch (ticket id or confirmed slug). Setup on first `do-chores`; reuse the same ticket isolation across milestones.
 - **Plan commit** — commit `.w2c/` plan/ledger files (never `runtime/`, never product code) onto the ticket branch before isolation so a worktree can see the ledger. No push without approval.

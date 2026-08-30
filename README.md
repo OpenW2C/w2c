@@ -36,8 +36,10 @@ Global config lives at `~/.config/.w2c/config.toml` (project registry). Runtime 
 From any directory in a client repo:
 
 ```bash
-w2c init            # ledger, gitignore, Copilot instruction files, register project
-w2c init --track    # same, but opt in to commit the ledger + Copilot files
+w2c init --git-delivery slice-commit-milestone-push-pr
+# or: milestone-commit-milestone-push-pr
+# TTY: omit the flag and choose interactively (cannot skip)
+w2c init --track --git-delivery slice-commit-milestone-push-pr
 ```
 
 That writes:
@@ -52,9 +54,9 @@ It does **not** overwrite an existing `DECISIONS.md` or `STATE.md`.
 Existing clients that already committed `.w2c/`:
 
 ```bash
-w2c migrate untrack   # backup, gitignore, git rm --cached; then commit
+w2c migrate untrack --git-delivery slice-commit-milestone-push-pr
 # other clones, before pulling that commit:
-w2c migrate adopt
+w2c migrate adopt --git-delivery slice-commit-milestone-push-pr
 ```
 
 ## How to use (plain English)
@@ -78,9 +80,13 @@ Every milestone `M###-ROADMAP.md` and slice `M###-S##-PLAN.md` must include a **
 - **Scope:** one isolation per ticket; reuse across milestones.
 - **Timing:** plan in the current checkout; create/reuse isolation on the **first `do-chores`**. For `worktree`, the executor must invoke **using-git-worktrees** (hard stop if missing).
 - **Plan commit:** after writing plans, if `.w2c/config.toml` has `track = true`, `work-to-chores` asks approval to commit only `.w2c/` ledger/plan files onto the ticket branch (never `runtime/`, never product code, no push). Default is untracked; worktrees get `.w2c/` via symlink or copy.
-- **Push:** after milestone verification, only with explicit user approval, to `origin/<Remote branch>` exactly.
+- **`git_delivery` (required in `.w2c/config.toml`):** set at `w2c init` / `migrate` via `--git-delivery` or a TTY prompt (cannot skip). Values:
+  - `slice-commit-milestone-push-pr` — ask for a local commit after each slice closeout; after milestone closeout ask to push, then ask to open a PR
+  - `milestone-commit-milestone-push-pr` — ask for a local commit after milestone closeout; then ask to push; then ask to open a PR
+- **Approvals:** every commit, push, and PR needs its own explicit yes; no skips that action only (ledger still closes). Never auto-commit / auto-push / auto-PR.
+- **Push / PR:** push only to `origin/<Remote branch>` exactly; PR is a separate ask after a successful push approval.
 
-`w2c smoke` **FAIL**s when the Git Operation Plan is missing, Isolation mode is invalid, Local≠Remote, branch is empty/`N/A`, worktree mode lacks `using-git-worktrees` in the Worktree skill field, a slice disagrees with its milestone, `## Commit and PR conventions` is missing/empty or does not forbid `Co-authored-by`, `Manual test guide` is missing or not `yes`/`no`, or that field is `yes` without a non-empty `M###-MANUAL-TEST.md`. Older plans without these sections must be updated (re-run work-to-chores or add the sections manually) before smoke/handoff will pass.
+`w2c smoke` **FAIL**s when `git_delivery` is missing/invalid in `.w2c/config.toml`, the Git Operation Plan is missing, Isolation mode is invalid, Local≠Remote, branch is empty/`N/A`, worktree mode lacks `using-git-worktrees` in the Worktree skill field, a slice disagrees with its milestone, `## Commit and PR conventions` is missing/empty or does not forbid `Co-authored-by`, `Manual test guide` is missing or not `yes`/`no`, or that field is `yes` without a non-empty `M###-MANUAL-TEST.md`. Older plans without these sections must be updated (re-run work-to-chores or add the sections manually) before smoke/handoff will pass.
 
 If `Manual test guide` is `yes`, work-to-chores writes `M###-MANUAL-TEST.md` at plan time. That file is a human walkthrough after the milestone is done; `milestone-complete` does **not** wait on those steps.
 
@@ -94,9 +100,9 @@ w2c <command>
 
 | Command | Purpose |
 | --- | --- |
-| `init [--track]` | Create ledger stubs if missing; Copilot files; register repo in global config |
+| `init [--track] --git-delivery …` | Create ledger stubs; require `git_delivery` (flag or TTY); Copilot files; register repo |
 | `install-skills [--force]` | Copy work-to-chores / do-chores into `~/.agents/skills` |
-| `migrate untrack|adopt` | Untrack `.w2c/` from git (with backup) or restore after pull |
+| `migrate untrack|adopt [--git-delivery …]` | Untrack `.w2c/` from git (with backup) or restore after pull; require `git_delivery` if unset |
 | `projects` / `register` / `unregister` | Global project registry (`~/.config/.w2c/config.toml`) |
 | `gitignore-ensure [--track]` | Ensure default or track gitignore entries |
 | `status` | Print STATE.md |
@@ -112,7 +118,7 @@ w2c <command>
 | `context-new --major|--minor` | New `contexts/CONTEXTvX.Y.md` (never overwrite) |
 | `event --skill … --stage … --event …` | Append one local runtime event |
 | `events [--tail N] [--skill …]` | Print last N local events (`0` = all) |
-| `smoke` | Ledger coherence checks (Git Operation Plan, Commit and PR conventions, optional manual-test guide) |
+| `smoke` | Ledger coherence checks (`git_delivery`, Git Operation Plan, Commit and PR conventions, optional manual-test guide) |
 
 Agents must not hand-edit STATE.md, QUEUE.md, ROADMAP status emojis, or `[ ]` / `[x]` on tasks.
 

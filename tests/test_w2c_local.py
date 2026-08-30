@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 SRC = Path(__file__).resolve().parents[1] / "src"
@@ -18,6 +19,7 @@ os.environ["W2C_DATA_HOME"] = str(_HOME / "share" / "w2c")
 
 from w2c import cli as w2c  # noqa: E402
 from w2c import local as w2c_local  # noqa: E402
+from w2c import git_delivery as w2c_gd  # noqa: E402
 
 
 def _git(repo: Path, *args: str) -> subprocess.CompletedProcess:
@@ -32,20 +34,54 @@ class W2CLocalTest(unittest.TestCase):
         _git(self.tmp, "config", "user.name", "test")
 
     def test_init_writes_repo_config_and_registers(self) -> None:
-        self.assertEqual(w2c.cmd_init(self.tmp), 0)
+        self.assertEqual(w2c.cmd_init(self.tmp, git_delivery="slice-commit-milestone-push-pr"), 0)
         cfg = self.tmp / ".w2c" / "config.toml"
         self.assertTrue(cfg.is_file())
         self.assertFalse(w2c_local.is_track_enabled(self.tmp))
+        self.assertEqual(
+            w2c_local.load_repo_config(self.tmp)["git_delivery"],
+            "slice-commit-milestone-push-pr",
+        )
         projects = w2c_local.load_global_config()["projects"]
         self.assertIn(str(self.tmp.resolve()), projects)
 
+    def test_init_requires_git_delivery_without_tty(self) -> None:
+        with mock.patch.object(w2c_gd.sys.stdin, "isatty", return_value=False):
+            with self.assertRaises(w2c.W2CError) as ctx:
+                w2c.cmd_init(self.tmp)
+        self.assertIn("git_delivery", str(ctx.exception))
+
+    def test_init_rejects_invalid_git_delivery(self) -> None:
+        with self.assertRaises(w2c.W2CError) as ctx:
+            w2c.cmd_init(self.tmp, git_delivery="nope")
+        self.assertIn("invalid", str(ctx.exception).lower())
+
+    def test_migrate_adopt_requires_git_delivery_when_missing(self) -> None:
+        self.assertEqual(w2c.cmd_init(self.tmp, git_delivery="slice-commit-milestone-push-pr"), 0)
+        # Strip git_delivery from config
+        w2c_local.write_repo_config(self.tmp, track=False, git_delivery=None)
+        # Force dump without key
+        cfg = self.tmp / ".w2c" / "config.toml"
+        cfg.write_text('track = false\nworktree_ledger = "symlink"\n', encoding="utf-8")
+        with mock.patch.object(w2c_gd.sys.stdin, "isatty", return_value=False):
+            with self.assertRaises(w2c.W2CError):
+                w2c.cmd_migrate(self.tmp, "adopt")
+        self.assertEqual(
+            w2c.cmd_migrate(self.tmp, "adopt", git_delivery="milestone-commit-milestone-push-pr"),
+            0,
+        )
+        self.assertEqual(
+            w2c_local.load_repo_config(self.tmp)["git_delivery"],
+            "milestone-commit-milestone-push-pr",
+        )
+
     def test_init_writes_copilot_instructions(self) -> None:
-        self.assertEqual(w2c.cmd_init(self.tmp), 0)
+        self.assertEqual(w2c.cmd_init(self.tmp, git_delivery="slice-commit-milestone-push-pr"), 0)
         self.assertTrue((self.tmp / ".github/instructions/work-to-chores.instructions.md").is_file())
         self.assertTrue((self.tmp / ".github/instructions/do-chores.instructions.md").is_file())
 
     def test_gitignore_default_ignores_ledger_and_copilot(self) -> None:
-        w2c.cmd_init(self.tmp)
+        w2c.cmd_init(self.tmp, git_delivery="slice-commit-milestone-push-pr")
         inst = self.tmp / ".github" / "instructions" / "work-to-chores.instructions.md"
         gi = (self.tmp / ".gitignore").read_text(encoding="utf-8")
         self.assertIn(".w2c/", gi)
@@ -56,7 +92,7 @@ class W2CLocalTest(unittest.TestCase):
         self.assertEqual(proc2.returncode, 0)
 
     def test_track_keeps_runtime_ignored_only(self) -> None:
-        w2c.cmd_init(self.tmp, track=True)
+        w2c.cmd_init(self.tmp, track=True, git_delivery="slice-commit-milestone-push-pr")
         runtime = self.tmp / ".w2c" / "runtime" / "events.jsonl"
         runtime.parent.mkdir(parents=True, exist_ok=True)
         runtime.write_text("{}" + chr(10), encoding="utf-8")
@@ -70,7 +106,7 @@ class W2CLocalTest(unittest.TestCase):
         self.assertEqual(proc_r.returncode, 0)
 
     def test_migrate_untrack_keeps_files_and_clears_index(self) -> None:
-        w2c.cmd_init(self.tmp, track=True)
+        w2c.cmd_init(self.tmp, track=True, git_delivery="slice-commit-milestone-push-pr")
         state = self.tmp / ".w2c" / "STATE.md"
         _git(self.tmp, "add", ".w2c/STATE.md")
         _git(self.tmp, "add", ".gitignore")
@@ -86,7 +122,7 @@ class W2CLocalTest(unittest.TestCase):
         self.assertIn(".w2c/", gi)
 
     def test_migrate_adopt_restores_from_backup(self) -> None:
-        w2c.cmd_init(self.tmp)
+        w2c.cmd_init(self.tmp, git_delivery="slice-commit-milestone-push-pr")
         w2c_local.ensure_gitignore(self.tmp, track=False)
         w2c_local.backup_w2c_assets(self.tmp)
         import shutil
@@ -96,7 +132,7 @@ class W2CLocalTest(unittest.TestCase):
         self.assertIn(".w2c/", restored)
 
     def test_register_unregister_roundtrip(self) -> None:
-        w2c.cmd_init(self.tmp)
+        w2c.cmd_init(self.tmp, git_delivery="slice-commit-milestone-push-pr")
         self.assertEqual(w2c.cmd_unregister(self.tmp), 0)
         self.assertNotIn(str(self.tmp.resolve()), w2c_local.load_global_config()["projects"])
         self.assertEqual(w2c.cmd_register(self.tmp), 0)
