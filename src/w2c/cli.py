@@ -139,7 +139,7 @@ Planner: inspect this repo (`CONTRIBUTING*`, `.github/*PULL_REQUEST_TEMPLATE*`, 
 Do not add `Co-authored-by:` trailers or similar AI co-author / “assisted by Cursor, Copilot, Claude, or Codex” lines.
 """
 
-M_CONTEXT_STUB = """# {mid} — {title}\n\n## Problem\n\n## Solution\n\n## Key Decisions\n\n## Out of Scope\n\n## Validation\n\n## Completion Criteria\n"""
+M_CONTEXT_STUB = """# {mid} — {title}\n\n## Problem\n\n## Solution\n\n## Key Decisions\n\n## Decision Rationale\n\nFor each grilled choice that shapes this milestone:\n\n### <Decision title>\n\n- **Choice:**\n- **Why we chose it:**\n- **Pros:**\n- **Cons:**\n- **Expected outcome:**\n- **Diagram:**\n\n```mermaid\nflowchart TD\n  placeholder[Replace with the choice-space diagram from grilling]\n```\n\n## Out of Scope\n\n## Validation\n\n## Completion Criteria\n"""
 
 
 class W2CError(Exception):

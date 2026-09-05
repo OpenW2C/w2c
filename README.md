@@ -61,7 +61,7 @@ w2c migrate adopt --git-delivery slice-commit-milestone-push-pr
 
 ## How to use (plain English)
 
-**Plan:** Say `work to chores` (or `/work-to-chores`) and paste a ticket, spec, or a short description of the work. The agent will interview you, check the codebase, and write a plan under `.w2c/`. It will not change product code.
+**Plan:** Say `work to chores` (or `/work-to-chores`) and paste a ticket, spec, or a short description of the work. The agent will interview you (evidence from the repo first, then recommended + alternatives with trade-offs), check the codebase, and write a plan under `.w2c/` (including Decision Rationale in each `M###-CONTEXT.md`). It will not change product code.
 
 **Do:** Say `do chores` to do the next small task in that plan. Add `M011` or `S02` to stay inside that scope. Add `--max-units 5` to do several tasks in a row. Add `--dry-run` to see the next task without doing it.
 

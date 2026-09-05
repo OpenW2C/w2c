@@ -66,6 +66,55 @@ w2c events --tail 20 [--skill work-to-chores]
 
 Log at every stage enter/exit and every hard stop. `decide`, `milestone-new`, `context-new`, and `milestone-status` also append automatically.
 
+## Interview question contract
+
+Use this contract for **every** grilling and brainstorming question in Stages 1–3 (including Stage 2 gap resolution). One question at a time. Wait for an answer before the next.
+
+```mermaid
+flowchart TD
+  topic[Identify next decision topic]
+  evidence[Search repo for related facts]
+  present[Present Evidence block]
+  options[Present N options with pros cons example outcome]
+  diagram[Show mermaid of choice space]
+  ask[Ask one question wait for answer]
+  save[Record choice via w2c decide]
+  topic --> evidence --> present --> options --> diagram --> ask --> save
+```
+
+### Evidence block (mandatory before the question)
+
+Search the project for facts related to this decision. Present them **before** asking:
+
+- What was searched (files, symbols, patterns)
+- Facts found (tables OK): current implementation, call sites, related patterns, edge cases, absences
+- How that evidence shapes the options
+
+Do not ask the user for a fact you can look up in the repo.
+
+### Options block (flexible count)
+
+Always mark one option `[recommended]`.
+
+- **Target ~4** meaningful options when the decision is open-ended
+- **Fewer** when the decision is naturally narrow (e.g. yes/no, worktree vs branch)
+- **More** when evidence shows additional real approaches worth choosing among
+- Never invent filler or illegal options just to hit a count
+
+For **each** option, in simple English (short sentences; gloss jargon in one line):
+
+- What it means
+- **Pros**
+- **Cons**
+- **Example**
+- **Possible outcome**
+
+Include **one mermaid diagram** that compares the options or shows the recommended flow vs alternatives. For a tiny choice set (yes/no), a small 2-node diagram is enough.
+
+### After the answer
+
+Save with `w2c decide` (short rationale is fine). Keep the rich write-up (why, pros/cons, outcome, diagram) for `M###-CONTEXT.md` **Decision Rationale** at plan-write time.
+
 ## Stage 1 - Gather context
 
 Always run this stage, even when a ticket or spec is pasted.
@@ -74,11 +123,11 @@ Log `--stage gather --event started` before interviewing.
 
 Need a hint of the work. If the prompt has no ticket, spec, or description: ask for one before interviewing.
 
-Then, in order:
+Then, in order — each question follows the **Interview question contract**:
 
-1. **Grilling** - one question at a time. Search the codebase before asking. Recommended option marked. Close when **scope, users, done criteria, risks, integrations, and out-of-scope** are clear. Log `--stage gather --event complete --detail grilling` when that pass closes (or `retry` if you must restart it).
-2. **Brainstorming** - find structural gaps (edge cases, empty states, testing seams). Log `--stage gather --event complete --detail brainstorming` when it closes.
-3. **Grilling again** - confirm each gap and pick a solution.
+1. **Grilling** - one question at a time. Close when **scope, users, done criteria, risks, integrations, and out-of-scope** are clear. Log `--stage gather --event complete --detail grilling` when that pass closes (or `retry` if you must restart it).
+2. **Brainstorming** - find structural gaps (edge cases, empty states, testing seams). When proposing approaches or gap solutions, use the same evidence-first options contract. Log `--stage gather --event complete --detail brainstorming` when it closes.
+3. **Grilling again** - confirm each gap and pick a solution (same contract).
 
 Log `--stage gather --event complete` when Stage 1 finishes.
 
@@ -98,8 +147,7 @@ If you find an issue, present in plain English:
 
 - what is wrong
 - impact
-- multiple options
-- a recommended option
+- then the **Interview question contract** (evidence, options with pros/cons/example/outcome, mermaid, recommended)
 
 Wait for a choice. Save it with `w2c decide`. Then return to Stage 1 with a new CONTEXT version. Log `--stage review --event retry` before looping.
 
@@ -121,7 +169,7 @@ Each task needs a testing or other verification plan. Embed this execution rule 
 
 ### Git isolation (required grilling — one question at a time)
 
-During Stage 3, grill these decisions **before** the draft plan is marked ready. Only two modes exist: `worktree` or `branch` (no in-place).
+During Stage 3, grill these decisions **before** the draft plan is marked ready. Follow the **Interview question contract**. Only two modes exist: `worktree` or `branch` (no in-place) — do not invent a third isolation mode.
 
 1. **Isolation mode** — ask worktree vs branch. Plain English: worktree = separate directory via using-git-worktrees (recommended when that skill is available); branch = same checkout, switch/create the ticket branch. Save with `w2c decide`. If `worktree`, run the using-git-worktrees prereq check immediately.
 2. **Branch name** — Local branch **must equal** Remote branch.
@@ -170,7 +218,7 @@ After isolation grilling and before the draft is marked ready, **inspect the cli
 
 ### Milestone manual test guide (required grilling — one question at a time)
 
-For **each milestone**, ask: “Do you want a step-by-step manual test file for this milestone’s scope, to run after the milestone is done?” Recommended: **yes** when the milestone changes user-visible behavior; **no** for docs/infra-only. Save with `w2c decide --scope M### --decision "milestone-scoped manual test guide" --choice yes|no`.
+For **each milestone**, follow the **Interview question contract** (evidence may be short: user-visible vs docs/infra). Ask: “Do you want a step-by-step manual test file for this milestone’s scope, to run after the milestone is done?” Recommended: **yes** when the milestone changes user-visible behavior; **no** for docs/infra-only. Save with `w2c decide --scope M### --decision "milestone-scoped manual test guide" --choice yes|no`.
 
 - If **yes:** set Delivery & Guardrails `Manual test guide` to `yes`. Write `.w2c/plans/M###-<slug>/M###-MANUAL-TEST.md` from `templates/M-MANUAL-TEST.md` — full, concise, numbered steps with expected results, scoped to this milestone. Banner must say it is **not** a completeness gate.
 - If **no:** set `Manual test guide` to `no`. Do not write the file.
@@ -183,11 +231,11 @@ Log `--stage plan --event complete` when the draft plan is ready for validation.
 
 Log `--stage validate --event started`. Until there are no pending issues or gaps, loop Stages 1-4. Never rewrite an existing CONTEXT; `w2c context-new --major` or `--minor`. Save decisions with `w2c decide`. Log `--stage validate --event retry` on each loop back, then `--stage validate --event complete` when clean.
 
-Confirm Git Operation Plan is present and consistent across all milestones/slices for the ticket (same mode and branch). Confirm `.w2c/config.toml` has a valid `git_delivery`. Confirm every ROADMAP and slice PLAN has a filled `## Commit and PR conventions` section (repo-detected title/body/PR rules plus the Co-authored-by ban). Confirm each milestone Delivery & Guardrails `Manual test guide` is `yes` or `no`, and if `yes` that `M###-MANUAL-TEST.md` exists and is non-empty. Do not require plan cells to duplicate the chosen cadence — config is source of truth.
+Confirm Git Operation Plan is present and consistent across all milestones/slices for the ticket (same mode and branch). Confirm `.w2c/config.toml` has a valid `git_delivery`. Confirm every ROADMAP and slice PLAN has a filled `## Commit and PR conventions` section (repo-detected title/body/PR rules plus the Co-authored-by ban). Confirm each milestone Delivery & Guardrails `Manual test guide` is `yes` or `no`, and if `yes` that `M###-MANUAL-TEST.md` exists and is non-empty. When grilled decisions exist, confirm each milestone `M###-CONTEXT.md` has a filled **Decision Rationale** (choice, why, pros, cons, expected outcome, diagram) — not only Key Decisions bullets. Do not require plan cells to duplicate the chosen cadence — config is source of truth.
 
 ## Stage 5 - User review
 
-Log `--stage user-review --event started`. Ask the user to review the plan (including isolation mode and branch name). If they request a change:
+Log `--stage user-review --event started`. Ask the user to review the plan (including isolation mode and branch name, and Decision Rationale in each `M###-CONTEXT.md`). If they request a change:
 
 1. Do not trust it until checked against the original requirement.
 2. If it fits: restate what you understood and your suggested adjustment; wait for confirmation; then Stage 1 with a new CONTEXT version. Log `--stage user-review --event retry`.
@@ -222,6 +270,8 @@ Canonical tree:
 
 Use `w2c milestone-new` then fill ROADMAP/CONTEXT/slice plan content (including Git Operation Plan and Commit and PR conventions). Formats: follow the templates in this repo (`templates/`) and README.md. Milestone files are `M###-ROADMAP.md` + `M###-CONTEXT.md` + slice plans - never a second `M###-PLAN.md`.
 
+When filling each `M###-CONTEXT.md`, copy every Stage 1–3 grilled decision into **Decision Rationale** (not only a one-line Key Decisions bullet): choice, why we chose it, pros, cons, expected outcome, and the mermaid diagram. `w2c decide` rationale may stay short; the rich write-up lives here.
+
 `w2c milestone-status` / `w2c set` for pointers. `w2c smoke` before handing off to do-chores — smoke **fails** if `git_delivery` is missing/invalid in `.w2c/config.toml`, Git Operation Plan is missing, Isolation mode is not `worktree`/`branch`, Local≠Remote, branch is empty/`N/A`, worktree mode lacks `using-git-worktrees` in Worktree skill, `## Commit and PR conventions` is missing/empty or does not forbid `Co-authored-by`, `Manual test guide` is missing or not `yes`/`no`, or that field is `yes` without a non-empty `M###-MANUAL-TEST.md`. Log `--stage write --event complete` when smoke is clean.
 
 ### Plan-commit gate (only when `track = true`)
@@ -243,6 +293,10 @@ Then tell the user: run `do-chores` next; isolation setup (worktree create or br
 
 - Implementing product code
 - Skipping grilling or brainstorming
+- Asking a grill/brainstorm question without an Evidence block first
+- Padding options with fake or illegal choices just to hit a count
+- Presenting options without pros, cons, example, possible outcome, and a mermaid diagram
+- Writing plans without Decision Rationale for grilled choices in `M###-CONTEXT.md`
 - Overwriting CONTEXTvX.Y.md
 - Hand-editing STATE/QUEUE/checkboxes/ROADMAP emojis
 - Writing milestone files before Stage 5 approval
