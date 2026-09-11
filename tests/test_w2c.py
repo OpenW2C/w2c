@@ -18,6 +18,8 @@ os.environ["W2C_CONFIG"] = str(_TEST_HOME / "config.toml")
 os.environ["W2C_DATA_HOME"] = str(_TEST_HOME / "data")
 
 from w2c import cli as w2c  # noqa: E402
+from w2c import local as w2c_local  # noqa: E402
+from w2c import __version__  # noqa: E402
 
 
 def write(path: Path, text: str) -> None:
@@ -482,6 +484,72 @@ class W2CTests(unittest.TestCase):
         self._write_milestone_reports("M001")
         self.assertFalse((self.tmp / ".w2c/plans/M001-demo/M001-MANUAL-TEST.md").is_file())
         self.assertEqual(w2c.cmd_milestone_status(self.tmp, "M001", "DONE"), 0)
+
+    def test_cli_version_flag(self) -> None:
+        with self.assertRaises(SystemExit) as ctx:
+            w2c.main(["--version"])
+        self.assertEqual(ctx.exception.code, 0)
+
+    def test_init_stamps_schema_and_w2c_version(self) -> None:
+        cfg = w2c_local.load_repo_config(self.tmp)
+        self.assertEqual(cfg["schema_version"], w2c_local.CURRENT_SCHEMA_VERSION)
+        self.assertEqual(cfg["w2c_version"], __version__)
+        raw = (self.tmp / ".w2c" / "config.toml").read_text(encoding="utf-8")
+        self.assertIn("schema_version = ", raw)
+        self.assertIn(f'w2c_version = "{__version__}"', raw)
+
+    def test_smoke_passes_schema_version_on_current(self) -> None:
+        self._seed_open_tasks()
+        report = w2c.run_smoke(self.tmp)
+        names = {c.name: c for c in report.checks}
+        self.assertEqual(names["schema-version"].status, "PASS")
+        self.assertIn("schema 1", names["schema-version"].detail)
+
+    def test_smoke_fails_when_schema_newer_than_cli(self) -> None:
+        self._seed_open_tasks()
+        cfg_path = self.tmp / ".w2c" / "config.toml"
+        raw = cfg_path.read_text(encoding="utf-8")
+        raw = raw.replace(
+            f"schema_version = {w2c_local.CURRENT_SCHEMA_VERSION}",
+            "schema_version = 999",
+            1,
+        )
+        cfg_path.write_text(raw, encoding="utf-8")
+        report = w2c.run_smoke(self.tmp)
+        names = {c.name: c for c in report.checks}
+        self.assertEqual(names["schema-version"].status, "FAIL")
+        self.assertIn("requires a newer w2c", names["schema-version"].detail)
+        self.assertTrue(report.failed())
+
+    def test_smoke_fails_when_schema_below_minimum(self) -> None:
+        self._seed_open_tasks()
+        original = w2c_local.MIN_SUPPORTED_SCHEMA_VERSION
+        try:
+            w2c_local.MIN_SUPPORTED_SCHEMA_VERSION = 2
+            report = w2c.run_smoke(self.tmp)
+        finally:
+            w2c_local.MIN_SUPPORTED_SCHEMA_VERSION = original
+        names = {c.name: c for c in report.checks}
+        self.assertEqual(names["schema-version"].status, "FAIL")
+        self.assertIn("predates what this w2c supports", names["schema-version"].detail)
+        self.assertIn("migrate adopt", names["schema-version"].detail)
+        self.assertTrue(report.failed())
+
+    def test_legacy_config_without_schema_defaults_to_one(self) -> None:
+        cfg_path = self.tmp / ".w2c" / "config.toml"
+        cfg_path.write_text(
+            "track = false"
+            + chr(10)
+            + 'worktree_ledger = "symlink"'
+            + chr(10)
+            + 'git_delivery = "slice-commit-milestone-push-pr"'
+            + chr(10),
+            encoding="utf-8",
+        )
+        cfg = w2c_local.load_repo_config(self.tmp)
+        self.assertEqual(cfg["schema_version"], 1)
+        self.assertEqual(cfg["w2c_version"], "unknown")
+
 
 
 if __name__ == "__main__":

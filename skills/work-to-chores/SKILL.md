@@ -9,6 +9,8 @@ description: >-
 
 # Work to Chores
 
+Requires: w2c >= 0.2.0
+
 **Plan only.** Interview, review, plan, validate, write `.w2c/` artifacts. Never implement product code.
 
 Read `USAGE.md` in this folder for the plain-English invocation.

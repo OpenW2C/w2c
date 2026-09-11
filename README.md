@@ -95,7 +95,7 @@ Every milestone `M###-ROADMAP.md` and slice `M###-S##-PLAN.md` must include a **
 
 `w2c init` does **not** create `DELIVERY-PROFILE.md`. Configure-client or agents write it after interviewing **Integration strategy** (`trunk-direct` \| `feature-branch` \| `gitflow`) and, separately, whether to include **CI/CD pointers** (default path `ai-playbook/mobile/ci-cd/`). Ship template: `templates/DELIVERY-PROFILE.md`; compose helper: `w2c.delivery_profile.compose_delivery_profile`. Absence of the profile does **not** fail `w2c smoke`.
 
-`w2c smoke` **FAIL**s when `git_delivery` is missing/invalid in `.w2c/config.toml`, the Git Operation Plan is missing, Isolation mode is invalid, Local≠Remote, branch is empty/`N/A`, worktree mode lacks `using-git-worktrees` in the Worktree skill field, a slice disagrees with its milestone, `## Commit and PR conventions` is missing/empty or does not forbid `Co-authored-by`, `Manual test guide` is missing or not `yes`/`no`, or that field is `yes` without a non-empty `M###-MANUAL-TEST.md`. Older plans without these sections must be updated (re-run work-to-chores or add the sections manually) before smoke/handoff will pass.
+`w2c smoke` **FAIL**s when `schema_version` is outside this install's supported range, `git_delivery` is missing/invalid in `.w2c/config.toml`, the Git Operation Plan is missing, Isolation mode is invalid, Local≠Remote, branch is empty/`N/A`, worktree mode lacks `using-git-worktrees` in the Worktree skill field, a slice disagrees with its milestone, `## Commit and PR conventions` is missing/empty or does not forbid `Co-authored-by`, `Manual test guide` is missing or not `yes`/`no`, or that field is `yes` without a non-empty `M###-MANUAL-TEST.md`. Older plans without these sections must be updated (re-run work-to-chores or add the sections manually) before smoke/handoff will pass.
 
 If `Manual test guide` is `yes`, work-to-chores writes `M###-MANUAL-TEST.md` at plan time. That file is a human walkthrough after the milestone is done; `milestone-complete` does **not** wait on those steps.
 
@@ -127,7 +127,8 @@ w2c <command>
 | `context-new --major|--minor` | New `contexts/CONTEXTvX.Y.md` (never overwrite) |
 | `event --skill … --stage … --event …` | Append one local runtime event |
 | `events [--tail N] [--skill …]` | Print last N local events (`0` = all) |
-| `smoke` | Ledger coherence checks (`git_delivery`, Git Operation Plan, Commit and PR conventions, optional manual-test guide) |
+| `--version` / `-V` | Print installed CLI semver |
+| `smoke` | Ledger coherence checks (`schema_version`, `git_delivery`, Git Operation Plan, Commit and PR conventions, optional manual-test guide) |
 
 Agents must not hand-edit STATE.md, QUEUE.md, ROADMAP status emojis, or `[ ]` / `[x]` on tasks.
 
@@ -145,6 +146,55 @@ skills/            # work-to-chores, do-chores
 install.sh         # curl installer
 tests/
 ```
+
+
+## Versioning
+
+**Hard rule:** every change in this repo bumps the package version in the same change. No “docs-only / skills-only / tiny fix” exceptions. Agents: see [AGENTS.md](AGENTS.md).
+
+Check the installed CLI:
+
+```bash
+w2c --version
+# or: w2c -V
+```
+
+Each project's `.w2c/config.toml` records:
+
+| Field | Meaning |
+| --- | --- |
+| `schema_version` | Integer ledger format. Bumped only when the on-disk `.w2c/` shape changes. |
+| `w2c_version` | CLI semver that last wrote the config (informational). |
+
+`w2c init` / `migrate` (and other config writes) stamp both fields. `w2c smoke` compares `schema_version` to this install's supported range and fails with upgrade or migrate guidance on drift.
+
+### What level to bump (major / minor / patch)
+
+| Bump | Use when |
+| --- | --- |
+| **MAJOR** `X.0.0` | Breaking change: CLI contract breaks, required config removed/renamed, older installs cannot use the ledger without migrate, or existing skills/workflows break. |
+| **MINOR** `x.Y.0` | Backward-compatible feature: new command/flag, optional config, new template/section, new skill capability, new smoke rules for newly invalid ledgers. |
+| **PATCH** `x.y.Z` | Bug fix, docs, tests, or internal refactor with **no** user-facing behavior change. |
+
+Unsure minor vs patch → prefer **minor** if users/skills must learn new behavior. Unsure major vs minor → prefer **major** (or while on `0.x`, **minor** plus an explicit BREAKING note in the changelog).
+
+### Releasing a new version (required every change)
+
+1. Choose major / minor / patch (table above).
+2. Bump `version` in `pyproject.toml` and `__version__` in `src/w2c/__init__.py` to the **same** semver.
+3. Add a Keep a Changelog entry at the top of `CHANGELOG.md`.
+4. If a skill newly depends on this release, update `Requires: w2c >= X.Y.Z` in that `SKILL.md`.
+5. If the `.w2c/` file format changed, bump `CURRENT_SCHEMA_VERSION` in `src/w2c/local.py` (and raise `MIN_SUPPORTED_SCHEMA_VERSION` only when older schemas are no longer readable without migrate). Schema bumps are **in addition to** the package semver bump.
+
+### Skills: required CLI version
+
+When a skill depends on a CLI feature introduced in a specific release, add a body line near the top of its `SKILL.md`:
+
+```text
+Requires: w2c >= X.Y.Z
+```
+
+Consumers compare that against `w2c --version`. There is no separate capabilities command — semver is the capability map.
 
 ## License
 

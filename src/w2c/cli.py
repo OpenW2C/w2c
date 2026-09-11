@@ -11,6 +11,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Iterable
 
+from w2c import __version__
 from w2c import local as w2c_local
 from w2c import git_delivery as w2c_gd
 from w2c.skills_install import install_skills, write_copilot_instructions
@@ -1242,6 +1243,31 @@ def run_smoke(root: Path) -> Report:
         return report
     report.add("w2c-present", "PASS")
 
+    cfg = w2c_local.load_repo_config(root)
+    schema = int(cfg.get("schema_version") or 1)
+    if schema > w2c_local.CURRENT_SCHEMA_VERSION:
+        report.add(
+            "schema-version",
+            "FAIL",
+            f"this project's ledger requires a newer w2c (has schema {schema}, "
+            f"this install supports up to {w2c_local.CURRENT_SCHEMA_VERSION}); "
+            f"upgrade your w2c install",
+        )
+    elif schema < w2c_local.MIN_SUPPORTED_SCHEMA_VERSION:
+        report.add(
+            "schema-version",
+            "FAIL",
+            f"this project's ledger predates what this w2c supports "
+            f"(has schema {schema}, minimum {w2c_local.MIN_SUPPORTED_SCHEMA_VERSION}); "
+            f"run `w2c migrate adopt` / see CHANGELOG for manual steps",
+        )
+    else:
+        report.add(
+            "schema-version",
+            "PASS",
+            f"schema {schema} (written by w2c {cfg.get('w2c_version', 'unknown')})",
+        )
+
     road = read_text(wdir / "ROADMAP.md")
     state = read_text(wdir / "STATE.md")
     queue = read_text(wdir / "QUEUE.md")
@@ -1371,7 +1397,7 @@ def run_smoke(root: Path) -> Report:
     else:
         report.add("decisions-header", "FAIL", "missing table header")
 
-    gd = w2c_local.load_repo_config(root).get("git_delivery")
+    gd = cfg.get("git_delivery")
     if gd in w2c_local.GIT_DELIVERY_VALUES:
         report.add("git-delivery-config", "PASS", str(gd))
     else:
@@ -1593,6 +1619,12 @@ def cmd_unregister(root: Path) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="w2c", description="W2C ledger CLI")
+    p.add_argument(
+        "-V",
+        "--version",
+        action="version",
+        version=f"w2c {__version__}",
+    )
     p.add_argument("--root", type=Path, default=None, help="repo root (default: discover)")
     sub = p.add_subparsers(dest="cmd", required=True)
 

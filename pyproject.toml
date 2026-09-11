@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "w2c"
-version = "0.1.0"
+version = "0.2.1"
 description = "Markdown planning CLI for work-to-chores / do-chores"
 readme = "README.md"
 requires-python = ">=3.11"

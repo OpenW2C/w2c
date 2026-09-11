@@ -8,6 +8,8 @@ description: >-
 
 # Do Chores
 
+Requires: w2c >= 0.2.0
+
 Execute planned work from `.w2c/`. Default: **one** next task.
 
 Read `USAGE.md` in this folder for the plain-English invocation.

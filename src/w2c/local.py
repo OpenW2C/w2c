@@ -122,6 +122,11 @@ GIT_DELIVERY_MILESTONE = "milestone-commit-milestone-push-pr"
 GIT_DELIVERY_VALUES = frozenset({GIT_DELIVERY_SLICE, GIT_DELIVERY_MILESTONE})
 GIT_DELIVERY_RECOMMENDED = GIT_DELIVERY_SLICE
 
+# Bump CURRENT only when the .w2c/ on-disk format changes. MIN rises when older
+# schemas are no longer readable without migrate.
+CURRENT_SCHEMA_VERSION = 1
+MIN_SUPPORTED_SCHEMA_VERSION = 1
+
 
 class GitDeliveryError(ValueError):
     """Raised when git_delivery is missing or invalid."""
@@ -137,18 +142,39 @@ def normalize_git_delivery(value: object | None) -> str | None:
     return text if text in GIT_DELIVERY_VALUES else None
 
 
+def normalize_schema_version(value: object | None) -> int:
+    if value is None:
+        return 1
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 1
+
+
 def load_repo_config(root: Path) -> dict:
     path = repo_config_path(root)
     if not path.is_file():
-        return {"track": False, "worktree_ledger": "symlink", "git_delivery": None}
+        return {
+            "track": False,
+            "worktree_ledger": "symlink",
+            "git_delivery": None,
+            "schema_version": 1,
+            "w2c_version": "unknown",
+        }
     data = parse_toml(path.read_text(encoding="utf-8"))
     ledger = str(data.get("worktree_ledger") or "symlink")
     if ledger not in {"symlink", "copy"}:
         ledger = "symlink"
+    raw_version = data.get("w2c_version")
+    w2c_version = str(raw_version).strip() if raw_version is not None else ""
+    if not w2c_version:
+        w2c_version = "unknown"
     return {
         "track": bool(data.get("track", False)),
         "worktree_ledger": ledger,
         "git_delivery": normalize_git_delivery(data.get("git_delivery")),
+        "schema_version": normalize_schema_version(data.get("schema_version")),
+        "w2c_version": w2c_version,
     }
 
 
@@ -156,9 +182,17 @@ def dump_repo_config(
     track: bool,
     worktree_ledger: str = "symlink",
     git_delivery: str | None = None,
+    schema_version: int | None = None,
+    w2c_version: str | None = None,
 ) -> str:
     if worktree_ledger not in {"symlink", "copy"}:
         worktree_ledger = "symlink"
+    if schema_version is None:
+        schema_version = CURRENT_SCHEMA_VERSION
+    if w2c_version is None:
+        from w2c import __version__ as pkg_version
+
+        w2c_version = pkg_version
     flag = "true" if track else "false"
     q = chr(34)
     lines = [
@@ -169,6 +203,8 @@ def dump_repo_config(
     gd = normalize_git_delivery(git_delivery)
     if gd is not None:
         lines.append("git_delivery = " + q + gd + q)
+    lines.append("schema_version = " + str(int(schema_version)))
+    lines.append("w2c_version = " + q + str(w2c_version) + q)
     return chr(10).join(lines) + chr(10)
 
 
@@ -186,11 +222,19 @@ def write_repo_config(
         worktree_ledger = str(current.get("worktree_ledger") or "symlink")
     if git_delivery is None:
         git_delivery = current.get("git_delivery")
+    from w2c import __version__ as pkg_version
+
     path = repo_config_path(root)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(
-        dump_repo_config(bool(track), str(worktree_ledger), git_delivery),
+        dump_repo_config(
+            bool(track),
+            str(worktree_ledger),
+            git_delivery,
+            schema_version=CURRENT_SCHEMA_VERSION,
+            w2c_version=pkg_version,
+        ),
         encoding="utf-8",
     )
     tmp.replace(path)
