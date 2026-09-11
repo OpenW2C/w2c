@@ -6,6 +6,13 @@
 
 ## Slices
 
+<!-- REQUIRED literal format -- the w2c CLI's parse_slices() only recognizes this exact
+     checkbox line shape. A markdown table (or any other shape) here means w2c will see
+     ZERO slices, and slice-complete / milestone-complete will fail with
+     "slices still open" even after every task checkbox is [x]. Do not deviate. -->
+- [ ] **S01: <slice title>**
+- [ ] **S02: <slice title>**
+
 ## Boundary Map
 
 ## In scope

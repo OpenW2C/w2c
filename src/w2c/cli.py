@@ -984,8 +984,19 @@ def cmd_milestone_status(root: Path, mid: str, status: str) -> int:
             raise W2CError(f"plan folder not found for {mid}")
         mroad_path = d / f"{mid}-ROADMAP.md"
         slices = parse_slices(read_text(mroad_path)) if mroad_path.is_file() else []
-        if not slices or not all(done for _s, done, _t in slices):
-            raise W2CError(f"slices still open in {mid}")
+        if not slices:
+            on_disk = sorted(p.name for p in d.glob(f"{mid}-S*-PLAN.md"))
+            hint = (
+                f" (found {len(on_disk)} slice plan file(s) on disk: {', '.join(on_disk)}; "
+                f"{mid}-ROADMAP.md '## Slices' must list them as literal "
+                '"- [ ] **S##: <title>**" lines -- a table or other format parses as zero slices)'
+                if on_disk
+                else ""
+            )
+            raise W2CError(f"no slices found in {mid}-ROADMAP.md{hint}")
+        open_sids = [s for s, done, _t in slices if not done]
+        if open_sids:
+            raise W2CError(f"slices still open in {mid}: {', '.join(open_sids)}")
         require_report(milestone_validation_path(d, mid), f"{mid}-VALIDATION.md")
         require_report(milestone_summary_path(d, mid), f"{mid}-SUMMARY.md")
     road = w2c_dir(root) / "ROADMAP.md"
@@ -1271,6 +1282,39 @@ def run_smoke(root: Path) -> Report:
                 details.append(f"{mil.mid}/{sid} duplicate tasks")
     report.add("unique-slice-ids", "PASS" if slice_ok else "FAIL", "; ".join(details) if not slice_ok else "")
     report.add("unique-task-ids", "PASS" if task_ok else "FAIL", "; ".join(d for d in details if "task" in d))
+
+    # Catch the "table instead of checkbox lines" class of bug: on-disk slice plan
+    # files exist, but parse_slices() sees none/fewer of them in the milestone
+    # ROADMAP's "## Slices" section (e.g. because it was written as a markdown
+    # table instead of the required "- [ ] **S01: <title>**" lines). Without this
+    # check, milestone-complete only surfaces the mismatch as a confusing
+    # "slices still open" error after all task work is already done.
+    roadmap_ok = True
+    roadmap_detail = []
+    for mil in mils:
+        d = plan_dir_for(root, mil.mid)
+        if d is None:
+            continue
+        slices = parse_slices(read_text(d / f"{mil.mid}-ROADMAP.md"))
+        parsed_sids = {s[0] for s in slices}
+        on_disk_sids = {
+            m.group(1)
+            for p in d.glob(f"{mil.mid}-S*-PLAN.md")
+            if (m := re.search(r"-(S\d+)-PLAN\.md$", p.name))
+        }
+        missing = sorted(on_disk_sids - parsed_sids)
+        if missing:
+            roadmap_ok = False
+            roadmap_detail.append(
+                f"{mil.mid} has slice plan(s) {', '.join(missing)} on disk but "
+                f"{mil.mid}-ROADMAP.md '## Slices' does not list them as "
+                f'"- [ ] **S##: <title>**" lines (check for a table or other format)'
+            )
+    report.add(
+        "roadmap-slices-match-plans",
+        "PASS" if roadmap_ok else "FAIL",
+        "; ".join(roadmap_detail),
+    )
 
     active = parse_active_id(parse_state_field(state, "Active Milestone"))
     if not state:

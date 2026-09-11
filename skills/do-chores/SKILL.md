@@ -108,6 +108,12 @@ Every unit:
     - **Always ask** (separate prompt) to **push** to `origin/<Remote branch>` where Remote branch equals the planned Local branch. Decline → skip push and PR; continue.
     - If push was approved: **ask separately** to **open a PR**. Decline → skip PR; continue.
     Never invent a different remote name. Follow `## Commit and PR conventions`; **never** add `Co-authored-by` or similar AI co-author trailers.
+
+    **If `slice-complete` or `milestone-complete` errors with "slices still open" or "no slices found" despite every task checkbox already being `[x]`**, this is a `## Slices` section format bug, not an incomplete-work problem — `w2c smoke`'s `roadmap-slices-match-plans` check should have already caught it; run `w2c smoke` first to confirm. The CLI's `parse_slices()` only recognizes literal `- [ ] **S##: <title>**` checkbox lines; a markdown table or any other shape parses as zero slices. Recovery, in order:
+    1. Diff the `## Slices` section against `templates/M-ROADMAP.md` to confirm the mismatch.
+    2. Add the missing `- [ ] **S##: <title>**` line(s) for every slice plan file already on disk, in their **unchecked** `[ ]` state — never write `[x]` by hand.
+    3. Re-run `w2c slice-complete` / `w2c milestone-complete` so the CLI flips each checkbox itself once it can see the line.
+    4. Tell the user this happened (template/CLI mismatch, not a completion gap) before continuing, so they can decide whether to fix it upstream.
 14. **Report** — log `--stage report --event complete`. Then: task id/title, files changed, verify commands + outcomes, review result, which reports were written, isolation mode/branch used, git_delivery gates taken or skipped, blockers.
 15. If `--max-units` is set and units remain and the scope still has open tasks: go to step 1. Otherwise STOP.
 
@@ -151,3 +157,4 @@ Isolation is **ticket-scoped**: later milestones/slices with the same Remote bra
 - Adding `Co-authored-by:` or similar AI co-author trailers on commits or PRs
 - Blocking milestone closeout because `M###-MANUAL-TEST.md` steps were not run
 - Committing `.w2c/runtime/` or hand-editing `events.jsonl`
+- Hand-marking a `## Slices` checkbox `[x]` to work around a "slices still open" error instead of adding it unchecked and letting the CLI flip it

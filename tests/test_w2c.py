@@ -213,6 +213,48 @@ class W2CTests(unittest.TestCase):
         names = {c.name: c for c in report.checks}
         self.assertEqual(names["git-delivery-config"].status, "PASS")
 
+    def test_smoke_fails_when_slices_section_is_not_checkbox_format(self) -> None:
+        # Regression: an M###-ROADMAP.md "## Slices" section written as a
+        # markdown table (or anything other than "- [ ] **S##: <title>**"
+        # lines) makes parse_slices() see zero slices even though slice plan
+        # files exist on disk. This must fail smoke immediately, rather than
+        # only surfacing as a confusing "slices still open" error much later
+        # at milestone-complete time after all tasks are already done.
+        self._seed_open_tasks()
+        d = self.tmp / ".w2c/plans/M001-demo"
+        road = d / "M001-ROADMAP.md"
+        text = road.read_text(encoding="utf-8")
+        text = text.replace(
+            "\n- [ ] **S01: Foundation** `risk:low` `depends:[]`\n",
+            "\n\n| Slice | Title |\n| --- | --- |\n| S01 | demo |\n",
+            1,
+        )
+        road.write_text(text, encoding="utf-8")
+        report = w2c.run_smoke(self.tmp)
+        names = {c.name: c for c in report.checks}
+        self.assertEqual(names["roadmap-slices-match-plans"].status, "FAIL")
+        self.assertIn("S01", names["roadmap-slices-match-plans"].detail)
+        self.assertTrue(report.failed())
+
+    def test_milestone_complete_error_names_missing_slices_on_disk(self) -> None:
+        # Regression: the error raised by milestone-complete when parse_slices()
+        # finds nothing must point at the on-disk slice plan files and the
+        # required checkbox format, not just say "slices still open".
+        self._seed_open_tasks()
+        d = self.tmp / ".w2c/plans/M001-demo"
+        road = d / "M001-ROADMAP.md"
+        text = road.read_text(encoding="utf-8")
+        text = text.replace(
+            "\n- [ ] **S01: Foundation** `risk:low` `depends:[]`\n",
+            "\n\n| Slice | Title |\n| --- | --- |\n| S01 | demo |\n",
+            1,
+        )
+        road.write_text(text, encoding="utf-8")
+        with self.assertRaises(w2c.W2CError) as ctx:
+            w2c.cmd_milestone_status(self.tmp, "M001", "DONE")
+        self.assertIn("M001-S01-PLAN.md", str(ctx.exception))
+        self.assertIn("- [ ] **S##", str(ctx.exception))
+
     def test_smoke_fails_without_git_delivery(self) -> None:
         self._seed_open_tasks()
         cfg = self.tmp / ".w2c" / "config.toml"
