@@ -113,7 +113,7 @@ Every unit:
 
 No-args always stops after one completed or failed unit.
 
-Honor Delivery & Guardrails, **Git Operation Plan**, `git_delivery` from `.w2c/config.toml`, and **Commit and PR conventions**: ask every time before commit / push / PR; decline skips that action only; never AI `Co-authored-by` trailers.
+Honor Delivery & Guardrails, **Git Operation Plan**, `git_delivery` from `.w2c/config.toml`, and **Commit and PR conventions**: ask every time before commit / push / PR; decline skips that action only; never AI `Co-authored-by` trailers. When `.w2c/DELIVERY-PROFILE.md` is present, honor its Integration strategy / merge targets (`develop` vs `main` for gitflow); the CLI still does not run git mutations.
 
 ## Isolate step (required)
 

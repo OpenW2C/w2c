@@ -181,9 +181,24 @@ Isolation scope is always **ticket**: every milestone/slice for this ticket shar
 
 After isolation grilling, read `.w2c/config.toml` `git_delivery`. If missing or invalid: **STOP**. Tell the user to run `w2c init --git-delivery slice-commit-milestone-push-pr|milestone-commit-milestone-push-pr` (or `w2c migrate … --git-delivery …`). Do not invent a cadence.
 
+### DELIVERY-PROFILE (optional — no hard-stop)
+
+After the `git_delivery` check, read `.w2c/DELIVERY-PROFILE.md` if present:
+
+- Copy **Integration strategy** and **Integration branch (day-to-day)** (and Production branch when strategy is `gitflow`) into each milestone Delivery & Guardrails table.
+- If the file is **missing**: leave Integration strategy as `(from .w2c/DELIVERY-PROFILE.md)` or blank and continue — do **not** STOP. Existing trunk-direct repos stay valid until they re-configure.
+
+When creating the profile (configure-client or ad-hoc), interview **two independent** questions:
+
+1. **Integration strategy:** `trunk-direct` | `feature-branch` | `gitflow` (prefer `gitflow` for mobile store apps).
+2. **Use CI/CD pointers in DELIVERY-PROFILE?** `yes` | `no`. If yes, confirm path (default `ai-playbook/mobile/ci-cd/`).
+
+Compose with `templates/DELIVERY-PROFILE.md` or `w2c.delivery_profile.compose_delivery_profile`. Never put `git_delivery` enum values or store secrets in the profile.
+
 Default guardrails in each `M###-ROADMAP.md` Delivery and Guardrails table:
 
 - Isolation mode + Branch name filled from the grilled decisions
+- Integration strategy / branch from `.w2c/DELIVERY-PROFILE.md` when present
 - Commit cadence / Push rule leave pointing at config (`git_delivery` is source of truth — do not bake a milestone or slice default into the plan)
 - no commit / push / PR without explicit user approval for that action
 - no per-run git handshake

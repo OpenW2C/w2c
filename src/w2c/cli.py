@@ -87,7 +87,7 @@ M_ROADMAP_STUB = """# {mid}: {title}
 | Human-readable scope slug | {slug} |
 | Workstream name | |
 | External ticket ID | |
-| Integration strategy | trunk-direct |
+| Integration strategy | (from .w2c/DELIVERY-PROFILE.md) |
 | Integration branch | |
 | Commit cadence | (from .w2c/config.toml git_delivery) |
 | Review unit | none |

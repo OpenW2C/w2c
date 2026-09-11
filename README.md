@@ -86,6 +86,15 @@ Every milestone `M###-ROADMAP.md` and slice `M###-S##-PLAN.md` must include a **
 - **Approvals:** every commit, push, and PR needs its own explicit yes; no skips that action only (ledger still closes). Never auto-commit / auto-push / auto-PR.
 - **Push / PR:** push only to `origin/<Remote branch>` exactly; PR is a separate ask after a successful push approval.
 
+### DELIVERY-PROFILE vs `git_delivery`
+
+| Concern | Source of truth |
+| --- | --- |
+| When to ask commit / push / PR | `.w2c/config.toml` `git_delivery` (cadence only) |
+| How code integrates (trunk / feature branch / gitflow) and optional CI doc pointers | `.w2c/DELIVERY-PROFILE.md` (optional) |
+
+`w2c init` does **not** create `DELIVERY-PROFILE.md`. Configure-client or agents write it after interviewing **Integration strategy** (`trunk-direct` \| `feature-branch` \| `gitflow`) and, separately, whether to include **CI/CD pointers** (default path `ai-playbook/mobile/ci-cd/`). Ship template: `templates/DELIVERY-PROFILE.md`; compose helper: `w2c.delivery_profile.compose_delivery_profile`. Absence of the profile does **not** fail `w2c smoke`.
+
 `w2c smoke` **FAIL**s when `git_delivery` is missing/invalid in `.w2c/config.toml`, the Git Operation Plan is missing, Isolation mode is invalid, Local≠Remote, branch is empty/`N/A`, worktree mode lacks `using-git-worktrees` in the Worktree skill field, a slice disagrees with its milestone, `## Commit and PR conventions` is missing/empty or does not forbid `Co-authored-by`, `Manual test guide` is missing or not `yes`/`no`, or that field is `yes` without a non-empty `M###-MANUAL-TEST.md`. Older plans without these sections must be updated (re-run work-to-chores or add the sections manually) before smoke/handoff will pass.
 
 If `Manual test guide` is `yes`, work-to-chores writes `M###-MANUAL-TEST.md` at plan time. That file is a human walkthrough after the milestone is done; `milestone-complete` does **not** wait on those steps.
