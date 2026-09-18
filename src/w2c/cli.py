@@ -124,17 +124,23 @@ M_ROADMAP_STUB = """# {mid}: {title}
 - **Status writes** — never hand-edit STATE.md, QUEUE.md, ROADMAP status emojis, or task checkboxes. Use `.w2c/scripts/w2c.sh`.
 - **Verify loop** — a task is not complete until its Verify commands pass and requesting-code-review is clean.
 - **Closeout reports** — write `S##-T##-SUMMARY.md` before `complete`; `S##-UAT.md` + `S##-SUMMARY.md` before `slice-complete`; `M###-VALIDATION.md` + `M###-SUMMARY.md` before milestone DONE.
-- **Commit and PR** — honor `## Commit and PR conventions`. Never add `Co-authored-by:` or similar AI co-author trailers.
+- **Commit and PR** — honor `## Commit and PR conventions`. Never add `Co-authored-by:` or similar AI co-author trailers. Never stage deny-listed paths on product commits. Never mention any `.w2c/` path or artifact in commit or PR text.
 
 ## Commit and PR conventions
 
-Planner: inspect this repo (`CONTRIBUTING*`, `.github/*PULL_REQUEST_TEMPLATE*`, recent `git log` title/body) and fill this section. Do not leave TBD.
+Planner: inspect this repo (`CONTRIBUTING*`, `.github/*PULL_REQUEST_TEMPLATE*`, recent `git log` title/body, `.gitignore`, `.w2c/config.toml` `track`) and fill this section. Do not leave TBD.
 
 **Commit title:**
 
 **Commit body:**
 
 **Pull request:**
+
+**Do not stage / commit:**
+Planner: fill a deny-list. Always include `.w2c/runtime/`. When `track = false`, include all of `.w2c/` and Copilot W2C instruction files. Add notable paths from client `.gitignore` (e.g. `.env*`, credentials, local IDE junk). Product commits must never stage these paths. Plan-commit (only when `track = true`) may stage ledger/plan files under `.w2c/` except `runtime/`.
+
+**Do not mention:**
+Never name any `.w2c/` path, ledger file, closeout report (`*-SUMMARY.md` / `*-UAT.md` / `*-VALIDATION.md` under `.w2c/`), or other W2C artifact in the commit title/body or PR title/body/description. Prefer “W2C ledger” / “planning artifacts” with no paths.
 
 **AI attribution — forbidden:**
 Do not add `Co-authored-by:` trailers or similar AI co-author / “assisted by Cursor, Copilot, Claude, or Codex” lines.
@@ -1217,17 +1223,36 @@ def section_under_heading(text: str, heading: str) -> str | None:
 
 
 def validate_commit_pr_conventions(text: str) -> list[str]:
-    """Return problems; empty list means the section is present, non-empty, and forbids Co-authored-by."""
+    """Return problems; empty list means section is present with Co-authored-by, deny-list, and do-not-mention rules."""
     body = section_under_heading(text, "Commit and PR conventions")
     if body is None:
         return ["missing ## Commit and PR conventions section"]
     if not body.strip():
         return ["empty ## Commit and PR conventions section"]
-    if "co-authored-by" not in body.lower():
-        return ["Commit and PR conventions must mention Co-authored-by"]
-    if not _PROHIBITION_RE.search(body):
-        return ["Commit and PR conventions must forbid Co-authored-by"]
-    return []
+    problems: list[str] = []
+    lower = body.lower()
+    if "co-authored-by" not in lower:
+        problems.append("Commit and PR conventions must mention Co-authored-by")
+    elif not _PROHIBITION_RE.search(body):
+        problems.append("Commit and PR conventions must forbid Co-authored-by")
+    if ".w2c" not in lower:
+        problems.append("Commit and PR conventions must mention .w2c path/artifact exclusion")
+    # Do not stage / commit deny-list
+    if "do not stage" not in lower and "don't stage" not in lower and "never stage" not in lower:
+        if not (
+            _PROHIBITION_RE.search(body)
+            and ("stage" in lower or ("deny" in lower and "commit" in lower))
+        ):
+            problems.append(
+                "Commit and PR conventions must forbid staging/committing deny-listed paths"
+            )
+    # Do not mention .w2c artifacts
+    if "do not mention" not in lower and "don't mention" not in lower and "never mention" not in lower:
+        if not (_PROHIBITION_RE.search(body) and "mention" in lower and ".w2c" in lower):
+            problems.append(
+                "Commit and PR conventions must forbid mentioning .w2c artifacts"
+            )
+    return problems
 
 
 def parse_manual_test_guide(text: str) -> str:

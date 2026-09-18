@@ -8,7 +8,7 @@ description: >-
 
 # Do Chores
 
-Requires: w2c >= 0.2.0
+Requires: w2c >= 0.3.0
 
 Execute planned work from `.w2c/`. Default: **one** next task.
 
@@ -104,12 +104,12 @@ Every unit:
 9. **Review** — log `--stage review --event started`, then invoke requesting-code-review. On findings: log `--stage review --event retry`, find root cause, fix, re-verify, re-review. Loop until clean, then `--stage review --event pass`.
 10. **Task summary** — write `.w2c/plans/M###-<slug>/S##-T##-SUMMARY.md` using the task-summary shape below. Do not call `complete` until this file exists and is non-empty. Log `--stage report --event complete --detail task-summary`.
 11. **Complete** — `w2c complete --milestone … --slice … --task …`. The CLI refuses without the task summary. It does **not** mark the slice or milestone done.
-12. **Slice closeout** — if stdout contains `NEED_SLICE_REPORTS` or `NEED_SLICE_COMPLETE`: re-run every task Verify command in that slice plus the slice Verification section. On failure: fix, re-verify, log `--stage verify --event retry`. Then write `S##-UAT.md` (human checklist, leave boxes unchecked) and `S##-SUMMARY.md` (automated results). Then `w2c slice-complete --milestone … --slice …`. Read `git_delivery` from `.w2c/config.toml`. If it is `slice-commit-milestone-push-pr`: **ask** for explicit approval to make a **local commit** of the product changes (honor `## Commit and PR conventions`; never AI co-author trailers). If the user declines: skip the commit and continue. Do **not** push or open a PR at slice closeout.
+12. **Slice closeout** — if stdout contains `NEED_SLICE_REPORTS` or `NEED_SLICE_COMPLETE`: re-run every task Verify command in that slice plus the slice Verification section. On failure: fix, re-verify, log `--stage verify --event retry`. Then write `S##-UAT.md` (human checklist, leave boxes unchecked) and `S##-SUMMARY.md` (automated results). Then `w2c slice-complete --milestone … --slice …`. Read `git_delivery` from `.w2c/config.toml`. If it is `slice-commit-milestone-push-pr`: **ask** for explicit approval to make a **local commit** of the product changes (honor `## Commit and PR conventions`: stage only product paths — never deny-listed paths; never mention any `.w2c/` path or artifact in the message; never AI co-author trailers). If the user declines: skip the commit and continue. Do **not** push or open a PR at slice closeout.
 13. **Milestone closeout** — if stdout contains `NEED_MILESTONE_REPORTS` or `NEED_MILESTONE_COMPLETE`: run milestone Validation commands and check success criteria. Write `M###-VALIDATION.md` (audit/verdict) and `M###-SUMMARY.md` (what shipped). Then `w2c milestone-complete M###`. Do **not** require `M###-MANUAL-TEST.md` or that the human ran those steps. If Delivery & Guardrails `Manual test guide` is `yes`, print the path to `M###-MANUAL-TEST.md` and say it is for the user to run after closeout — unread/unchecked steps are not a failure. Then honor `git_delivery`:
-    - If `milestone-commit-milestone-push-pr`: **ask** for a local commit (same conventions / co-author ban). Decline → skip commit and continue.
+    - If `milestone-commit-milestone-push-pr`: **ask** for a local commit (same conventions: deny-list staging, no `.w2c/` mentions, co-author ban). Decline → skip commit and continue.
     - **Always ask** (separate prompt) to **push** to `origin/<Remote branch>` where Remote branch equals the planned Local branch. Decline → skip push and PR; continue.
     - If push was approved: **ask separately** to **open a PR**. Decline → skip PR; continue.
-    Never invent a different remote name. Follow `## Commit and PR conventions`; **never** add `Co-authored-by` or similar AI co-author trailers.
+    Never invent a different remote name. Follow `## Commit and PR conventions`; **never** stage deny-listed paths on product commits; **never** mention any `.w2c/` path or artifact in commit or PR text; **never** add `Co-authored-by` or similar AI co-author trailers.
 
     **If `slice-complete` or `milestone-complete` errors with "slices still open" or "no slices found" despite every task checkbox already being `[x]`**, this is a `## Slices` section format bug, not an incomplete-work problem — `w2c smoke`'s `roadmap-slices-match-plans` check should have already caught it; run `w2c smoke` first to confirm. The CLI's `parse_slices()` only recognizes literal `- [ ] **S##: <title>**` checkbox lines; a markdown table or any other shape parses as zero slices. Recovery, in order:
     1. Diff the `## Slices` section against `templates/M-ROADMAP.md` to confirm the mismatch.
@@ -121,7 +121,7 @@ Every unit:
 
 No-args always stops after one completed or failed unit.
 
-Honor Delivery & Guardrails, **Git Operation Plan**, `git_delivery` from `.w2c/config.toml`, and **Commit and PR conventions**: ask every time before commit / push / PR; decline skips that action only; never AI `Co-authored-by` trailers. When `.w2c/DELIVERY-PROFILE.md` is present, honor its Integration strategy / merge targets (`develop` vs `main` for gitflow); the CLI still does not run git mutations.
+Honor Delivery & Guardrails, **Git Operation Plan**, `git_delivery` from `.w2c/config.toml`, and **Commit and PR conventions**: ask every time before commit / push / PR; decline skips that action only; never stage deny-listed paths on product commits; never mention `.w2c/` artifacts in commit/PR text; never AI `Co-authored-by` trailers. Plan-commit (when `track = true`) may stage ledger/plan files except `runtime/`, still without naming `.w2c/` paths in the message. When `.w2c/DELIVERY-PROFILE.md` is present, honor its Integration strategy / merge targets (`develop` vs `main` for gitflow); the CLI still does not run git mutations.
 
 ## Isolate step (required)
 
@@ -157,6 +157,8 @@ Isolation is **ticket-scoped**: later milestones/slices with the same Remote bra
 - Committing without explicit user approval
 - Auto-commit / auto-push / auto-PR when the user declined that gate
 - Adding `Co-authored-by:` or similar AI co-author trailers on commits or PRs
+- Staging deny-listed paths (including `.w2c/` when `track = false`, or `.w2c/runtime/` always) on product commits
+- Naming any `.w2c/` path or W2C artifact in commit messages or PR descriptions
 - Blocking milestone closeout because `M###-MANUAL-TEST.md` steps were not run
 - Committing `.w2c/runtime/` or hand-editing `events.jsonl`
 - Hand-marking a `## Slices` checkbox `[x]` to work around a "slices still open" error instead of adding it unchecked and letting the CLI flip it

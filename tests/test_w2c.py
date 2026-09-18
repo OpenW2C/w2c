@@ -58,6 +58,12 @@ SLICE ID: S01
 
 **Pull request:** follow this repo's PR template when opening a PR; no push without approval.
 
+
+**Do not stage / commit:**
+Never stage `.w2c/runtime/`, `.w2c/` when track is false, Copilot W2C instruction files, or paths from `.gitignore` such as `.env*`. Product commits must never stage these. Plan-commit when track is true may stage ledger/plan files except runtime.
+
+**Do not mention:**
+Never mention any `.w2c/` path or W2C artifact in commit or PR text.
 **AI attribution — forbidden:**
 Do not add `Co-authored-by:` trailers or similar AI co-author lines for Cursor, Copilot, Claude, or Codex.
 """
@@ -94,6 +100,12 @@ M_ROADMAP = """# M001: demo
 
 **Pull request:** follow this repo's PR template when opening a PR; no push without approval.
 
+
+**Do not stage / commit:**
+Never stage `.w2c/runtime/`, `.w2c/` when track is false, Copilot W2C instruction files, or paths from `.gitignore` such as `.env*`. Product commits must never stage these. Plan-commit when track is true may stage ledger/plan files except runtime.
+
+**Do not mention:**
+Never mention any `.w2c/` path or W2C artifact in commit or PR text.
 **AI attribution — forbidden:**
 Do not add `Co-authored-by:` trailers or similar AI co-author lines for Cursor, Copilot, Claude, or Codex.
 """
@@ -443,6 +455,56 @@ class W2CTests(unittest.TestCase):
         report = w2c.run_smoke(self.tmp)
         names = {c.name: c for c in report.checks}
         self.assertEqual(names["commit-pr-conventions-milestone"].status, "FAIL")
+        self.assertTrue(report.failed())
+
+    def test_smoke_fails_commit_pr_without_denylist_mention_rules(self) -> None:
+        self._seed_open_tasks()
+        d = self.tmp / ".w2c/plans/M001-demo"
+        # Co-authored-by ban only — missing deny-list and do-not-mention .w2c rules
+        thin = """# M001: demo
+
+## Slices
+
+- [ ] **S01: Foundation** `risk:low` `depends:[]`
+
+## Delivery & Guardrails
+| Field | Value |
+| --- | --- |
+| Manual test guide | no |
+
+## Git Operation Plan
+| Field | Value |
+| --- | --- |
+| Isolation mode | branch |
+| Local branch | DEMO-1 |
+| Remote branch | DEMO-1 |
+| Isolation scope | ticket |
+| Setup when | first-do-chores |
+| Plan commit | required-before-isolation |
+| Reuse policy | reuse-if-same-ticket-else-stop |
+| Worktree skill | n/a |
+| Push rule | after milestone verification + explicit user approval; push ref must equal Remote branch |
+
+## Commit and PR conventions
+
+**Commit title:** short imperative subject.
+
+**Commit body:** optional body after a blank line.
+
+**Pull request:** follow this repo's PR template when opening a PR; no push without approval.
+
+**AI attribution — forbidden:**
+Do not add `Co-authored-by:` trailers or similar AI co-author lines for Cursor, Copilot, Claude, or Codex.
+"""
+        write(d / "M001-ROADMAP.md", thin)
+        report = w2c.run_smoke(self.tmp)
+        names = {c.name: c for c in report.checks}
+        self.assertEqual(names["commit-pr-conventions-milestone"].status, "FAIL")
+        detail = names["commit-pr-conventions-milestone"].detail.lower()
+        self.assertTrue(
+            ".w2c" in detail or "mention" in detail or "stage" in detail or "deny" in detail,
+            detail,
+        )
         self.assertTrue(report.failed())
 
     def test_smoke_fails_manual_test_yes_without_file(self) -> None:

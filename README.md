@@ -73,7 +73,7 @@ Cursor and Claude pick the skills up from `~/.agents/skills` after `install.sh` 
 
 ## Git isolation
 
-Every milestone `M###-ROADMAP.md` and slice `M###-S##-PLAN.md` must include a **`## Git Operation Plan`** table and a filled **`## Commit and PR conventions`** section (this repo's commit title/body and PR rules, plus an explicit ban on AI `Co-authored-by` trailers).
+Every milestone `M###-ROADMAP.md` and slice `M###-S##-PLAN.md` must include a **`## Git Operation Plan`** table and a filled **`## Commit and PR conventions`** section (this repo's commit title/body and PR rules, a deny-list from `.gitignore` + fixed W2C rules, a ban on mentioning any `.w2c/` artifact in commit/PR text, plus an explicit ban on AI `Co-authored-by` trailers).
 
 - **Modes:** `worktree` or `branch` only (no in-place).
 - **Branch names:** Local branch == Remote branch == external ticket id (e.g. `MOR-252`) or a confirmed slug when there is no ticket.
@@ -95,7 +95,7 @@ Every milestone `M###-ROADMAP.md` and slice `M###-S##-PLAN.md` must include a **
 
 `w2c init` does **not** create `DELIVERY-PROFILE.md`. Configure-client or agents write it after interviewing **Integration strategy** (`trunk-direct` \| `feature-branch` \| `gitflow`) and, separately, whether to include **CI/CD pointers** (default path `ai-playbook/mobile/ci-cd/`). Ship template: `templates/DELIVERY-PROFILE.md`; compose helper: `w2c.delivery_profile.compose_delivery_profile`. Absence of the profile does **not** fail `w2c smoke`.
 
-`w2c smoke` **FAIL**s when `schema_version` is outside this install's supported range, `git_delivery` is missing/invalid in `.w2c/config.toml`, the Git Operation Plan is missing, Isolation mode is invalid, Local≠Remote, branch is empty/`N/A`, worktree mode lacks `using-git-worktrees` in the Worktree skill field, a slice disagrees with its milestone, `## Commit and PR conventions` is missing/empty or does not forbid `Co-authored-by`, `Manual test guide` is missing or not `yes`/`no`, or that field is `yes` without a non-empty `M###-MANUAL-TEST.md`. Older plans without these sections must be updated (re-run work-to-chores or add the sections manually) before smoke/handoff will pass.
+`w2c smoke` **FAIL**s when `schema_version` is outside this install's supported range, `git_delivery` is missing/invalid in `.w2c/config.toml`, the Git Operation Plan is missing, Isolation mode is invalid, Local≠Remote, branch is empty/`N/A`, worktree mode lacks `using-git-worktrees` in the Worktree skill field, a slice disagrees with its milestone, `## Commit and PR conventions` is missing/empty, does not forbid `Co-authored-by`, or lacks deny-list / do-not-mention `.w2c` rules, `Manual test guide` is missing or not `yes`/`no`, or that field is `yes` without a non-empty `M###-MANUAL-TEST.md`. Older plans without these sections must be updated (re-run work-to-chores or add the sections manually) before smoke/handoff will pass.
 
 If `Manual test guide` is `yes`, work-to-chores writes `M###-MANUAL-TEST.md` at plan time. That file is a human walkthrough after the milestone is done; `milestone-complete` does **not** wait on those steps.
 
