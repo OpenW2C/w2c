@@ -79,6 +79,7 @@ Every milestone `M###-ROADMAP.md` and slice `M###-S##-PLAN.md` must include a **
 - **Branch names:** Local branch == Remote branch == external ticket id (e.g. `MOR-252`) or a confirmed slug when there is no ticket.
 - **Scope:** one isolation per ticket; reuse across milestones.
 - **Timing:** plan in the current checkout; create/reuse isolation on the **first `do-chores`**. For `worktree`, the executor must invoke **using-git-worktrees** (hard stop if missing).
+- **Base dirt (branch mode):** `work-to-chores` runs `w2c base-dirt` after the user picks a branch. A clean tree records `clean-at-plan` with no question. Other untracked files get a choice, including leaving them untouched. Application code or service config gets a warning first; a choice on that first turn is rejected. The stored choice is reused when the branch is created, unless a new critical path appeared. A missing `Base dirt policy` still passes `w2c smoke`; branch creation asks then.
 - **Plan commit:** after writing plans, if `.w2c/config.toml` has `track = true`, `work-to-chores` asks approval to commit only `.w2c/` ledger/plan files onto the ticket branch (never `runtime/`, never product code, no push). Default is untracked; worktrees get `.w2c/` via symlink or copy.
 - **`git_delivery` (required in `.w2c/config.toml`):** set at `w2c init` / `migrate` via `--git-delivery` or a TTY prompt (cannot skip). Values:
   - `slice-commit-milestone-push-pr` — ask for a local commit after each slice closeout; after milestone closeout ask to push, then ask to open a PR
@@ -95,7 +96,7 @@ Every milestone `M###-ROADMAP.md` and slice `M###-S##-PLAN.md` must include a **
 
 `w2c init` does **not** create `DELIVERY-PROFILE.md`. Configure-client or agents write it after interviewing **Integration strategy** (`trunk-direct` \| `feature-branch` \| `gitflow`) and, separately, whether to include **CI/CD pointers** (default path `ai-playbook/mobile/ci-cd/`). Ship template: `templates/DELIVERY-PROFILE.md`; compose helper: `w2c.delivery_profile.compose_delivery_profile`. Absence of the profile does **not** fail `w2c smoke`.
 
-`w2c smoke` **FAIL**s when `schema_version` is outside this install's supported range, `git_delivery` is missing/invalid in `.w2c/config.toml`, the Git Operation Plan is missing, Isolation mode is invalid, Local≠Remote, branch is empty/`N/A`, worktree mode lacks `using-git-worktrees` in the Worktree skill field, a slice disagrees with its milestone, `## Commit and PR conventions` is missing/empty, does not forbid `Co-authored-by`, or lacks deny-list / do-not-mention `.w2c` rules, `Manual test guide` is missing or not `yes`/`no`, or that field is `yes` without a non-empty `M###-MANUAL-TEST.md`. Older plans without these sections must be updated (re-run work-to-chores or add the sections manually) before smoke/handoff will pass.
+`w2c smoke` **FAIL**s when `schema_version` is outside this install's supported range, `git_delivery` is missing/invalid in `.w2c/config.toml`, the Git Operation Plan is missing, Isolation mode is invalid, Local≠Remote, branch is empty/`N/A`, worktree mode lacks `using-git-worktrees` in the Worktree skill field, a slice disagrees with its milestone, `## Commit and PR conventions` is missing/empty, does not forbid `Co-authored-by`, or lacks deny-list / do-not-mention `.w2c` rules, `Manual test guide` is missing or not `yes`/`no`, or that field is `yes` without a non-empty `M###-MANUAL-TEST.md`. An invalid `Base dirt policy`, a `leave-untouched` plan with no `### Base dirt paths` subsection, or a slice/milestone policy mismatch fails smoke. A missing `Base dirt policy` does not. Older plans that still lack Commit and PR conventions or a Manual test guide must be updated (re-run work-to-chores or add the sections manually) before smoke/handoff will pass.
 
 If `Manual test guide` is `yes`, work-to-chores writes `M###-MANUAL-TEST.md` at plan time. That file is a human walkthrough after the milestone is done; `milestone-complete` does **not** wait on those steps.
 
@@ -131,7 +132,8 @@ w2c <command>
 | `event --skill … --stage … --event …` | Append one local runtime event |
 | `events [--tail N] [--skill …]` | Print last N local events (`0` = all) |
 | `--version` / `-V` | Print installed CLI semver |
-| `smoke` | Ledger coherence checks (`schema_version`, `git_delivery`, Git Operation Plan, Commit and PR conventions, optional manual-test guide) |
+| `base-dirt` | Classify untracked and modified files before a milestone branch is created (`w2c --root PATH base-dirt`) |
+| `smoke` | Ledger coherence checks (`schema_version`, `git_delivery`, Git Operation Plan, Commit and PR conventions, optional manual-test guide, optional base-dirt policy) |
 
 Agents must not hand-edit STATE.md, QUEUE.md, ROADMAP status emojis, roadmap milestone order, or `[ ]` / `[x]` on tasks. Execution order is the `ROADMAP.md` line order that `w2c next` walks. Use `w2c milestone-order`, `w2c milestone-swap`, or `w2c milestone-move`. An in-progress or done milestone stays put until it is paused, stopped, or marked error (`ERROR` is rejected).
 

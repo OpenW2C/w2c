@@ -614,5 +614,100 @@ Do not add `Co-authored-by:` trailers or similar AI co-author lines for Cursor, 
 
 
 
+    def _with_base_dirt_policy(self, filename: str, policy: str, *, paths: bool = False) -> None:
+        plan = self.tmp / ".w2c/plans/M001-demo" / filename
+        body = plan.read_text(encoding="utf-8")
+        row = "| Remote branch | DEMO-1 |"
+        if row not in body:
+            raise AssertionError(f"missing remote branch row in {filename}")
+        body = body.replace(row, row + f"\n| Base dirt policy | {policy} |", 1)
+        if paths:
+            block = (
+                "### Base dirt paths\n\n"
+                "Critical:\n"
+                "(none)\n\n"
+                "Other (do not stage):\n"
+                "- NOTES.md\n\n"
+            )
+            body = body.replace("## Commit and PR conventions", block + "## Commit and PR conventions", 1)
+        plan.write_text(body, encoding="utf-8")
+
+    def test_smoke_legacy_plan_without_base_dirt_policy_passes(self) -> None:
+        self._seed_open_tasks()
+        report = w2c.run_smoke(self.tmp)
+        names = {c.name: c for c in report.checks}
+        self.assertEqual(names["git-operation-plan-milestone"].status, "PASS")
+        self.assertEqual(names["git-operation-plan-slice"].status, "PASS")
+
+    def test_smoke_fails_unknown_base_dirt_policy(self) -> None:
+        self._seed_open_tasks()
+        self._with_base_dirt_policy("M001-ROADMAP.md", "shrug")
+        report = w2c.run_smoke(self.tmp)
+        names = {c.name: c for c in report.checks}
+        self.assertEqual(names["git-operation-plan-milestone"].status, "FAIL")
+        self.assertIn("Base dirt policy", names["git-operation-plan-milestone"].detail)
+        self.assertTrue(report.failed())
+
+    def test_smoke_fails_leave_untouched_without_paths(self) -> None:
+        self._seed_open_tasks()
+        self._with_base_dirt_policy("M001-ROADMAP.md", "leave-untouched")
+        self._with_base_dirt_policy("M001-S01-PLAN.md", "leave-untouched")
+        report = w2c.run_smoke(self.tmp)
+        names = {c.name: c for c in report.checks}
+        self.assertEqual(names["git-operation-plan-milestone"].status, "FAIL")
+        self.assertIn("Base dirt paths", names["git-operation-plan-milestone"].detail)
+        self.assertEqual(names["git-operation-plan-slice"].status, "FAIL")
+        self.assertTrue(report.failed())
+
+    def test_smoke_passes_leave_untouched_with_empty_critical_list(self) -> None:
+        self._seed_open_tasks()
+        self._with_base_dirt_policy("M001-ROADMAP.md", "leave-untouched", paths=True)
+        self._with_base_dirt_policy("M001-S01-PLAN.md", "leave-untouched", paths=True)
+        report = w2c.run_smoke(self.tmp)
+        names = {c.name: c for c in report.checks}
+        self.assertEqual(names["git-operation-plan-milestone"].status, "PASS", names["git-operation-plan-milestone"].detail)
+        self.assertEqual(names["git-operation-plan-slice"].status, "PASS", names["git-operation-plan-slice"].detail)
+
+    def test_smoke_fails_when_slice_base_dirt_policy_mismatches(self) -> None:
+        self._seed_open_tasks()
+        self._with_base_dirt_policy("M001-ROADMAP.md", "leave-untouched", paths=True)
+        self._with_base_dirt_policy("M001-S01-PLAN.md", "clean-at-plan")
+        report = w2c.run_smoke(self.tmp)
+        names = {c.name: c for c in report.checks}
+        self.assertEqual(names["git-operation-plan-milestone"].status, "PASS")
+        self.assertEqual(names["git-operation-plan-slice"].status, "FAIL")
+        self.assertIn("Base dirt policy", names["git-operation-plan-slice"].detail)
+        self.assertTrue(report.failed())
+
+    def test_smoke_fails_worktree_with_branch_dirt_policy(self) -> None:
+        self._seed_open_tasks()
+        d = self.tmp / ".w2c/plans/M001-demo"
+        road = (d / "M001-ROADMAP.md").read_text(encoding="utf-8")
+        road = road.replace("| Isolation mode | branch |", "| Isolation mode | worktree |")
+        road = road.replace("| Worktree skill | n/a |", "| Worktree skill | using-git-worktrees |")
+        (d / "M001-ROADMAP.md").write_text(road, encoding="utf-8")
+        plan = (d / "M001-S01-PLAN.md").read_text(encoding="utf-8")
+        (d / "M001-S01-PLAN.md").write_text(
+            plan.replace("| Isolation mode | branch |", "| Isolation mode | worktree |"),
+            encoding="utf-8",
+        )
+        self._with_base_dirt_policy("M001-ROADMAP.md", "leave-untouched", paths=True)
+        self._with_base_dirt_policy("M001-S01-PLAN.md", "leave-untouched", paths=True)
+        report = w2c.run_smoke(self.tmp)
+        names = {c.name: c for c in report.checks}
+        self.assertEqual(names["git-operation-plan-milestone"].status, "FAIL")
+        self.assertIn("n/a-worktree", names["git-operation-plan-milestone"].detail)
+
+    def test_smoke_fails_branch_with_worktree_dirt_policy(self) -> None:
+        self._seed_open_tasks()
+        self._with_base_dirt_policy("M001-ROADMAP.md", "n/a-worktree")
+        self._with_base_dirt_policy("M001-S01-PLAN.md", "n/a-worktree")
+        report = w2c.run_smoke(self.tmp)
+        names = {c.name: c for c in report.checks}
+        self.assertEqual(names["git-operation-plan-milestone"].status, "FAIL")
+        self.assertIn("must not be n/a-worktree", names["git-operation-plan-milestone"].detail)
+
+
+
 if __name__ == "__main__":
     unittest.main()

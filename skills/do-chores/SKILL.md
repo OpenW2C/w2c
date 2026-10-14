@@ -8,7 +8,7 @@ description: >-
 
 # Do Chores
 
-Requires: w2c >= 0.3.0
+Requires: w2c >= 0.5.0
 
 Execute planned work from `.w2c/`. Default: **one** next task.
 
@@ -130,13 +130,35 @@ Honor Delivery & Guardrails, **Git Operation Plan**, `git_delivery` from `.w2c/c
 Read **Git Operation Plan** from the milestone `M###-ROADMAP.md` **and** the slice `M###-S##-PLAN.md`.
 
 - If either is missing, or Isolation mode / Local branch / Remote branch disagree between them: **STOP**. Tell the user to re-run work-to-chores or fix the plans. Do not invent values.
+- If both plans set `Base dirt policy` and the values differ: **STOP**.
 - Local branch must equal Remote branch. If not: **STOP** (smoke should already have failed).
 
 Then:
 
 1. **Reuse policy** — if a worktree or local branch already exists with the exact planned name and clearly belongs to this ticket: reuse it. If dirty with unrelated files, or history looks unexpected: **STOP** and ask. Never force-reset, force-push, or delete worktrees/branches.
 2. **Mode `worktree`** — confirm using-git-worktrees is invocable; if missing, STOP. Invoke **using-git-worktrees** and follow it exactly to create or reuse an isolated worktree for Local branch (project `.worktrees/<branch>` when that convention applies). Continue all subsequent work for this ticket in that worktree path. Do not nest a worktree inside an existing linked worktree (skill Step 0).
-3. **Mode `branch`** — ensure the current checkout is on Local branch. Create the branch from current HEAD only if it is missing and the tree is clean (or only expected `.w2c` plan dirt after asking). Never force.
+3. **Mode `branch`** — ensure the current checkout is on Local branch. If that branch already exists, check it out without force. If it is missing, create it from current HEAD by applying the stored base-dirt policy below. Never force.
+
+   Run `w2c base-dirt`. Non-zero exit: **STOP** and show the error. `.w2c/` and gitignored files are already excluded.
+
+   - `n/a-worktree` does not apply in this mode. If the field is `n/a-worktree` while Isolation mode is `branch`: **STOP**.
+   - `clean-at-plan` and `status` `clean`: create the branch. Do not ask.
+   - `clean-at-plan` and `status` `noncritical` or `critical`: there was no choice yet. Ask. For `noncritical`, options are below and **Leave untouched** is `[recommended]`. For `critical`, the first turn is a warning only: list every `critical` path, say they will ride into the milestone checkout as uncommitted changes and can be committed by mistake, include `note` when it is non-empty, and do not show options. If the user answers with an option on that turn, reject it and repeat the warning. Only after an explicit “show me the choices” confirmation, ask the options. On that question **Pause and clean** is `[recommended]`.
+   - `leave-untouched` and every current `critical` path is already a list item under `### Base dirt paths`: create the branch. Do not ask again. Do not add, commit, stash, delete, or gitignore those files. New paths in `other` stay under this choice.
+   - `leave-untouched` and a new `critical` path is present: same warning turn, reject the first attempt, then ask. If the new choice is `leave-untouched`, replace `### Base dirt paths` on the milestone and slice plans with the latest `critical` and `other` lists (use `(none)` for an empty list), `w2c decide --decision "base branch dirt" --choice leave-untouched`, then create the branch. Pause or abort: do not create the branch.
+   - Field missing: ask the same way (`critical` uses the warning turn first), write the execution policy onto the milestone and slice plans, then create the branch only for `clean-at-plan` or `leave-untouched`.
+
+   Options when a choice is allowed:
+
+   1. **Leave untouched** — “Unrelated untracked files are intentional; leave them untouched.” Choice `leave-untouched`.
+   2. **Pause and clean** — choice `pause-and-clean`. Do not create the branch.
+   3. **Pause for the base branch** — choice `pause-for-base`. Do not create the branch. This step does not commit.
+   4. **Abort branch setup** — choice `abort-branch-setup`. Stop.
+
+   Pause and abort are not `Base dirt policy` values. Record them with `w2c decide` only.
+
+   On later product commits, do not stage paths from the latest `w2c base-dirt` `critical` or `other` arrays, or from `### Base dirt paths`.
+
 4. **Ledger visible** — before the first product edit, verify `.w2c/plans/...` for this milestone is present in the isolation workspace. If not:
    - Read `worktree_ledger` from `.w2c/config.toml` (`symlink` default, or `copy`).
    - Find the primary checkout `.w2c/` (the repo you started from).
@@ -155,6 +177,10 @@ Isolation is **ticket-scoped**: later milestones/slices with the same Remote bra
 - Ignoring Git Operation Plan mode/branch or creating a differently named branch
 - Implementing from the wrong tree when mode is `worktree`
 - Force-reset, force-push, or deleting worktrees/branches
+- Accepting a base-dirt choice on the critical-file warning turn
+- Creating the ticket branch while a new critical path is still unconfirmed
+- Asking the base-dirt question again when `leave-untouched` already covers every current critical path
+- Staging base-dirt paths on a product commit
 - Pushing or opening a PR without explicit user approval
 - Committing without explicit user approval
 - Auto-commit / auto-push / auto-PR when the user declined that gate

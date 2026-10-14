@@ -10,7 +10,7 @@ description: >-
 
 # Work to Chores
 
-Requires: w2c >= 0.4.0
+Requires: w2c >= 0.5.0
 
 **Plan only.** Interview, review, plan, validate, write `.w2c/` artifacts. Never implement product code.
 
@@ -208,6 +208,49 @@ During Stage 3, grill these decisions **before** the draft plan is marked ready.
    - If no ticket: propose 2–3 slug options plus custom; confirm the exact string.
    - Save with `w2c decide`.
 
+3. **Base dirt policy** — only after Isolation mode is saved.
+   - If mode is `worktree`: do not ask. Save with `w2c decide --scope M### --decision "base branch dirt" --choice "n/a-worktree" --rationale "worktree leaves untracked files in the original checkout"`. Set `Base dirt policy` to `n/a-worktree`. Do not write `### Base dirt paths`.
+   - If mode is `branch`: run `w2c base-dirt`. If it exits non-zero, **STOP** and show the error. Do not invent a classification.
+     - `status` `clean`: do not ask. Save choice `clean-at-plan`. Set `Base dirt policy` to `clean-at-plan`. Do not write `### Base dirt paths`.
+     - `status` `noncritical`: ask the option question in this turn. Mark **Leave untouched** `[recommended]`.
+     - `status` `critical`: this turn is a warning only. List every `critical` path. Say these files will ride into the milestone checkout as uncommitted changes and can be committed by mistake. If `note` is non-empty, include it. Do **not** show the four options. If the user answers with an option on this turn, reject it and repeat the warning. Only after they explicitly confirm they want to see the choices, ask the option question. On that question, mark **Pause and clean** `[recommended]`.
+
+   The option question follows the Interview question contract. Evidence is the `w2c base-dirt` JSON, including `note` when it is non-empty. Options, in this order:
+
+   1. **Leave untouched** — “Unrelated untracked files are intentional; leave them untouched.” Choice `leave-untouched`. The branch may be created later. Do not add, commit, stash, delete, or gitignore those paths. Later product commits must not stage them.
+   2. **Pause and clean** — choice `pause-and-clean`. Do not create the branch. The user removes or moves the files, then says to continue. Re-run `w2c base-dirt`. A clean re-scan becomes `clean-at-plan`. If still dirty, run this step again, including the critical warning when `status` is `critical`.
+   3. **Pause for the base branch** — choice `pause-for-base`. Do not create the ticket branch. Those files stay on the base branch. Any commit there is a separate explicit approval. This step does not commit. Resume the same way as pause and clean.
+   4. **Abort branch setup** — choice `abort-branch-setup`. Stop. Do not create the branch and do not continue isolation for this milestone until the user starts planning again.
+
+   Pause and abort are not `Base dirt policy` values. Record them with `w2c decide` only. Do not write them into the Git Operation Plan.
+
+   When the choice is `leave-untouched`, set `Base dirt policy` to `leave-untouched` and write this subsection under `## Git Operation Plan`, before the next `##`:
+
+   ```markdown
+   ### Base dirt paths
+
+   Critical:
+   (none)
+
+   Other (do not stage):
+   - NOTES.md
+   ```
+
+   Copy `critical` and `other` from that scan. Use `(none)` when a list is empty. The critical list may be empty. The subsection body must not be empty. Slice plans copy the same field and the same subsection.
+
+   ```mermaid
+   flowchart TD
+     scan[w2c base-dirt]
+     scan -->|clean| clean[clean-at-plan]
+     scan -->|noncritical| menu[Four options]
+     scan -->|critical| warn[Warning only]
+     warn -->|confirmed| menu
+     menu -->|leave untouched| saved[leave-untouched plus paths]
+     menu -->|pause or abort| stopNode[Do not create the branch]
+   ```
+
+   Show that diagram with the option question.
+
 Isolation scope is always **ticket**: every milestone/slice for this ticket shares the same mode and branch. Setup happens on **first `do-chores`**, not during planning. Do **not** create a worktree in this skill.
 
 After isolation grilling, read `.w2c/config.toml` `git_delivery`. If missing or invalid: **STOP**. Tell the user to run `w2c init --git-delivery slice-commit-milestone-push-pr|milestone-commit-milestone-push-pr` (or `w2c migrate … --git-delivery …`). Do not invent a cadence.
@@ -234,7 +277,7 @@ Default guardrails in each `M###-ROADMAP.md` Delivery and Guardrails table:
 - no commit / push / PR without explicit user approval for that action
 - no per-run git handshake
 
-Every `M###-ROADMAP.md` and every `M###-S##-PLAN.md` must include a filled **`## Git Operation Plan`** table (see templates). Slice plans must mirror the same Isolation mode, Local branch, and Remote branch as the milestone — do not invent a different branch.
+Every `M###-ROADMAP.md` and every `M###-S##-PLAN.md` must include a filled **`## Git Operation Plan`** table (see templates). Slice plans must mirror the same Isolation mode, Local branch, Remote branch, and Base dirt policy as the milestone — do not invent a different branch.
 
 Required Git Operation Plan fields (milestone is canonical):
 
@@ -249,6 +292,7 @@ Required Git Operation Plan fields (milestone is canonical):
 | Reuse policy | `reuse-if-same-ticket-else-stop` |
 | Worktree skill | `using-git-worktrees` if mode is `worktree`; `n/a` if `branch` |
 | Push rule | from config + explicit approval; push ref must equal Remote branch |
+| Base dirt policy | `n/a-worktree`, `clean-at-plan`, or `leave-untouched` |
 
 Do not implement product code in this skill.
 
@@ -279,7 +323,7 @@ Log `--stage plan --event complete` when the draft plan is ready for validation.
 
 Log `--stage validate --event started`. Until there are no pending issues or gaps, loop Stages 1-4. Never rewrite an existing CONTEXT; `w2c context-new --major` or `--minor`. Save decisions with `w2c decide`. Log `--stage validate --event retry` on each loop back, then `--stage validate --event complete` when clean.
 
-Confirm Git Operation Plan is present and consistent across all milestones/slices for the ticket (same mode and branch). Confirm `.w2c/config.toml` has a valid `git_delivery`. Confirm every ROADMAP and slice PLAN has a filled `## Commit and PR conventions` section (repo-detected title/body/PR rules, deny-list + do-not-mention `.w2c/` artifacts, plus the Co-authored-by ban). Confirm each milestone Delivery & Guardrails `Manual test guide` is `yes` or `no`, and if `yes` that `M###-MANUAL-TEST.md` exists and is non-empty. When grilled decisions exist, confirm each milestone `M###-CONTEXT.md` has a filled **Decision Rationale** (choice, why, pros, cons, expected outcome, diagram) — not only Key Decisions bullets. Do not require plan cells to duplicate the chosen cadence — config is source of truth.
+Confirm Git Operation Plan is present and consistent across all milestones/slices for the ticket (same mode, branch, and Base dirt policy when both sides set it). Confirm `.w2c/config.toml` has a valid `git_delivery`. Confirm every ROADMAP and slice PLAN has a filled `## Commit and PR conventions` section (repo-detected title/body/PR rules, deny-list + do-not-mention `.w2c/` artifacts, plus the Co-authored-by ban). Confirm each milestone Delivery & Guardrails `Manual test guide` is `yes` or `no`, and if `yes` that `M###-MANUAL-TEST.md` exists and is non-empty. When grilled decisions exist, confirm each milestone `M###-CONTEXT.md` has a filled **Decision Rationale** (choice, why, pros, cons, expected outcome, diagram) — not only Key Decisions bullets. Do not require plan cells to duplicate the chosen cadence — config is source of truth.
 
 ## Stage 5 - User review
 
@@ -322,7 +366,22 @@ Use `w2c milestone-new` then fill ROADMAP/CONTEXT/slice plan content (including 
 
 When filling each `M###-CONTEXT.md`, copy every Stage 1–3 grilled decision into **Decision Rationale** (not only a one-line Key Decisions bullet): choice, why we chose it, pros, cons, expected outcome, and the mermaid diagram. `w2c decide` rationale may stay short; the rich write-up lives here.
 
-`w2c milestone-status` / `w2c set` for pointers. `w2c smoke` before handing off to do-chores — smoke **fails** if `git_delivery` is missing/invalid in `.w2c/config.toml`, Git Operation Plan is missing, Isolation mode is not `worktree`/`branch`, Local≠Remote, branch is empty/`N/A`, worktree mode lacks `using-git-worktrees` in Worktree skill, `## Commit and PR conventions` is missing/empty, does not forbid `Co-authored-by`, or lacks deny-list / do-not-mention `.w2c` rules, `Manual test guide` is missing or not `yes`/`no`, or that field is `yes` without a non-empty `M###-MANUAL-TEST.md`. Log `--stage write --event complete` when smoke is clean.
+`w2c milestone-status` / `w2c set` for pointers. `w2c smoke` before handing off to do-chores — smoke **fails** if `git_delivery` is missing/invalid in `.w2c/config.toml`, Git Operation Plan is missing, Isolation mode is not `worktree`/`branch`, Local≠Remote, branch is empty/`N/A`, worktree mode lacks `using-git-worktrees` in Worktree skill, `## Commit and PR conventions` is missing/empty, does not forbid `Co-authored-by`, or lacks deny-list / do-not-mention `.w2c` rules, `Manual test guide` is missing or not `yes`/`no`, or that field is `yes` without a non-empty `M###-MANUAL-TEST.md`, `Base dirt policy` is set to anything other than `clean-at-plan` / `leave-untouched` / `n/a-worktree`, `leave-untouched` lacks a non-empty `### Base dirt paths` subsection, or a slice `Base dirt policy` disagrees with the milestone when both are set. A missing `Base dirt policy` does not fail smoke. Log `--stage write --event complete` when smoke is clean.
+
+### Applying Base dirt policy
+
+Use this when the ticket branch does not exist yet and this skill is about to create it (`track = true` plan-commit, or a later re-scan during planning). `do-chores` uses the same rules when isolation mode is `branch` and the branch is missing.
+
+1. Run `w2c base-dirt`. Non-zero exit: **STOP** and show the error.
+2. Read `Base dirt policy` from the milestone Git Operation Plan and from each slice plan that sets it. If two values are set and they differ: **STOP**.
+3. `n/a-worktree`: do not use the four-option menu. Create or check out the branch only when `status` is `clean` (`.w2c/` is already excluded). Otherwise **STOP** and ask the user to clean product dirt first. Do not stash, reset, or delete.
+4. `clean-at-plan` and `status` `clean`: create the branch. Do not ask.
+5. `clean-at-plan` and `status` `noncritical` or `critical`: there was no choice yet. Ask the base-dirt option question. `critical` still starts with the warning turn, and a choice on that turn is rejected.
+6. `leave-untouched` and every current `critical` path is already a list item under `### Base dirt paths`: create the branch. Do not ask. Do not add, commit, stash, delete, or gitignore current dirt. New paths in `other` stay under this choice.
+7. `leave-untouched` and a `critical` path is missing from that subsection: warning turn, reject a choice on that turn, then ask. If the new choice is `leave-untouched`, replace `### Base dirt paths` on the milestone and every slice plan with the latest lists, `w2c decide` that choice, then create the branch. Pause or abort: do not create the branch.
+8. Field missing: ask the same question (`critical` uses the warning turn first). Write the resulting execution policy onto the milestone and slice plans before creating the branch.
+
+Never force-checkout, force-reset, or delete branches/worktrees. Product commits must not stage paths from the latest `critical` or `other` arrays, or from `### Base dirt paths`. A plan commit may stage `.w2c/` plan and ledger files except `runtime/`.
 
 ### Plan-commit gate (only when `track = true`)
 
@@ -330,9 +389,9 @@ If `.w2c/config.toml` has `track = false` (default): **skip this gate**. Do not 
 
 If `track = true`: after smoke PASS, ask for explicit approval to put plan artifacts on the ticket branch so first `do-chores` isolation can see `.w2c/`:
 
-1. If the local branch named Remote branch does not exist: create it from current HEAD only when the working tree is clean **or** dirty only with the new `.w2c/` plan/ledger files. Otherwise **STOP** and ask.
-2. Check out that branch under the same clean/dirty rules. Never force-checkout, force-reset, or delete branches/worktrees.
-3. Commit **only** `.w2c/` plan and ledger files (plans, STATE/QUEUE/ROADMAP/DECISIONS/contexts as needed). Never product code. Never `.w2c/runtime/`.
+1. If the local branch named Remote branch does not exist: create it from current HEAD by following **Applying Base dirt policy**. Do not ask the base-dirt question again when that section says the stored choice still applies.
+2. Check out that branch under the same rules. Never force-checkout, force-reset, or delete branches/worktrees.
+3. Commit **only** `.w2c/` plan and ledger files (plans, STATE/QUEUE/ROADMAP/DECISIONS/contexts as needed). Never product code. Never `.w2c/runtime/`. Never stage paths from `w2c base-dirt` or from `### Base dirt paths`.
 4. **Do not push.**
 
 Log `--stage plan-commit --event complete` (or `stop` / `fail`) with the branch name in `--detail`.
@@ -354,6 +413,9 @@ Then tell the user: run `do-chores` next; isolation setup (worktree create or br
 - Committing `.w2c/runtime/` or hand-editing `events.jsonl`
 - Skipping branch confirmation or writing `N/A` / unequal Local vs Remote branch
 - Creating a worktree during planning (setup is first `do-chores` only)
+- Accepting a base-dirt choice on the critical-file warning turn
+- Creating the ticket branch while a new critical path is still unconfirmed
+- Staging base-dirt paths on a product commit after the user chose leave untouched
 - Pushing or opening a PR from this skill
 - Inventing commit cadence when `git_delivery` is missing from `.w2c/config.toml`
 - Committing product code without explicit user approval

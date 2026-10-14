@@ -53,6 +53,9 @@
 | Reuse policy | reuse-if-same-ticket-else-stop |
 | Worktree skill | |
 | Push rule | from config + explicit approval; push ref must equal Remote branch |
+| Base dirt policy | |
+
+`Base dirt policy` is `n/a-worktree` (worktree), or `clean-at-plan` / `leave-untouched` (branch). Omit the field on older plans. `leave-untouched` needs a non-empty `### Base dirt paths` subsection under this heading (the critical list inside it may be empty).
 
 ### Guardrails
 - **Commit cadence** — read `git_delivery` from `.w2c/config.toml`. Never commit, push, or open a PR without explicit user approval for that action.

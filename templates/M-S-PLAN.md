@@ -32,8 +32,9 @@ SLICE ID: SXX
 | Local branch | |
 | Remote branch | |
 | Follow | milestone Git Operation Plan — do not invent a different branch |
+| Base dirt policy | |
 
-Must match the parent `M###-ROADMAP.md` Git Operation Plan (same Isolation mode, Local branch, and Remote branch).
+Must match the parent `M###-ROADMAP.md` Git Operation Plan (same Isolation mode, Local branch, Remote branch, and Base dirt policy). When the milestone policy is `leave-untouched`, copy its `### Base dirt paths` subsection here.
 
 ### Guardrails
 - Do not mark tasks complete by editing checkboxes. Use `w2c complete`.

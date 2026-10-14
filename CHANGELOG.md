@@ -5,6 +5,19 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] — 2026-10-14
+
+### Added
+
+- `w2c base-dirt` classifies untracked and modified files before a milestone branch is created. Application source and service config are `critical`. Notes and other local files are `noncritical`. `.w2c/` and gitignored files are excluded.
+- `work-to-chores` asks what to do with that dirt when isolation is `branch`, including leaving unrelated untracked files untouched. Critical files get a warning first; a choice on that turn is rejected.
+- The choice is stored as Git Operation Plan `Base dirt policy` (`clean-at-plan`, `leave-untouched`, or `n/a-worktree`). Branch creation reuses it. A new critical path asks again.
+- `w2c smoke` fails an invalid policy, `leave-untouched` without a non-empty `### Base dirt paths` subsection, or a slice/milestone mismatch when both plans set the field. A missing field still passes.
+
+### Changed
+
+- `work-to-chores` and `do-chores` require `w2c >= 0.5.0`.
+
 ## [0.4.0] — 2026-10-14
 
 ### Added

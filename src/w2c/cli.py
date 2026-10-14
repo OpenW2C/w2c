@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Iterable
 
 from w2c import __version__
+from w2c import base_dirt
 from w2c import local as w2c_local
 from w2c import git_delivery as w2c_gd
 from w2c.skills_install import install_skills, write_copilot_instructions
@@ -116,6 +117,7 @@ M_ROADMAP_STUB = """# {mid}: {title}
 | Reuse policy | reuse-if-same-ticket-else-stop |
 | Worktree skill | |
 | Push rule | from config + explicit approval; push ref must equal Remote branch |
+| Base dirt policy | |
 
 ### Guardrails
 - **Commit cadence** — read `git_delivery` from `.w2c/config.toml`. Never commit, push, or open a PR without explicit user approval for that action.
@@ -1365,7 +1367,30 @@ def parse_git_operation_fields(text: str) -> dict[str, str]:
     return parse_table_under_heading(text, "Git Operation Plan")
 
 
-def validate_git_operation_plan(fields: dict[str, str], *, require_worktree_skill: bool = True) -> list[str]:
+BASE_DIRT_POLICIES = frozenset({"clean-at-plan", "leave-untouched", "n/a-worktree"})
+
+
+def base_dirt_paths_body(text: str) -> str | None:
+    """Body of ### Base dirt paths inside ## Git Operation Plan, or None if absent."""
+    plan = section_under_heading(text, "Git Operation Plan")
+    if plan is None:
+        return None
+    match = re.search(r"^### Base dirt paths\s*$", plan, re.M)
+    if not match:
+        return None
+    rest = plan[match.end() :]
+    nxt = re.search(r"^### ", rest, re.M)
+    if nxt:
+        rest = rest[: nxt.start()]
+    return rest
+
+
+def validate_git_operation_plan(
+    fields: dict[str, str],
+    *,
+    require_worktree_skill: bool = True,
+    plan_text: str | None = None,
+) -> list[str]:
     """Return human-readable problems; empty list means OK."""
     problems: list[str] = []
     if not fields:
@@ -1385,6 +1410,23 @@ def validate_git_operation_plan(fields: dict[str, str], *, require_worktree_skil
         skill = fields.get("Worktree skill", "")
         if "using-git-worktrees" not in skill:
             problems.append("worktree mode requires Worktree skill mentioning using-git-worktrees")
+    policy = fields.get("Base dirt policy", "").strip()
+    if policy:
+        if policy not in BASE_DIRT_POLICIES:
+            problems.append(
+                "Base dirt policy must be clean-at-plan|leave-untouched|n/a-worktree "
+                f"(got {policy!r})"
+            )
+        elif mode == "worktree" and policy != "n/a-worktree":
+            problems.append("worktree mode Base dirt policy must be n/a-worktree")
+        elif mode == "branch" and policy == "n/a-worktree":
+            problems.append("branch mode Base dirt policy must not be n/a-worktree")
+        elif policy == "leave-untouched":
+            body = None if plan_text is None else base_dirt_paths_body(plan_text)
+            if body is None or not body.strip():
+                problems.append(
+                    "leave-untouched requires a non-empty ### Base dirt paths subsection"
+                )
     return problems
 
 
@@ -1640,7 +1682,7 @@ def run_smoke(root: Path) -> Report:
             continue
         mtext = read_text(mroad)
         mfields = parse_git_operation_fields(mtext)
-        mprobs = validate_git_operation_plan(mfields)
+        mprobs = validate_git_operation_plan(mfields, plan_text=mtext)
         if mprobs:
             git_m_ok = False
             git_m_detail.append(f"{mil.mid}: {'; '.join(mprobs)}")
@@ -1648,14 +1690,17 @@ def run_smoke(root: Path) -> Report:
             p = d / f"{mil.mid}-{sid}-PLAN.md"
             if not p.is_file():
                 continue
-            sfields = parse_git_operation_fields(read_text(p))
+            stext = read_text(p)
+            sfields = parse_git_operation_fields(stext)
             # Slice mirror: mode/branches required; Worktree skill optional on slice
-            sprobs = validate_git_operation_plan(sfields, require_worktree_skill=False)
+            sprobs = validate_git_operation_plan(
+                sfields, require_worktree_skill=False, plan_text=stext
+            )
             if sprobs:
                 git_s_ok = False
                 git_s_detail.append(f"{mil.mid}/{sid}: {'; '.join(sprobs)}")
             elif mfields and sfields:
-                for key in ("Isolation mode", "Local branch", "Remote branch"):
+                for key in ("Isolation mode", "Local branch", "Remote branch", "Base dirt policy"):
                     mv = mfields.get(key, "").strip()
                     sv = sfields.get(key, "").strip()
                     if mv and sv and mv != sv:
@@ -1860,6 +1905,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sub.add_parser("status", help="print STATE.md")
     sub.add_parser("smoke", help="ledger coherence checks")
+    sub.add_parser(
+        "base-dirt",
+        help="classify untracked and modified files before creating a branch",
+    )
     sub.add_parser("next-milestone-id", help="print next unused M###")
 
     n = sub.add_parser("next", help="next open task")
@@ -1987,6 +2036,11 @@ def dispatch(args: argparse.Namespace) -> int:
         return cmd_status(root)
     if cmd == "smoke":
         return cmd_smoke(root)
+    if cmd == "base-dirt":
+        try:
+            return base_dirt.cmd_base_dirt(str(root))
+        except base_dirt.BaseDirtError as exc:
+            raise W2CError(str(exc)) from exc
     if cmd == "next":
         return cmd_next(root, args.milestone, args.slice_id, args.task_id)
     if cmd == "complete":
