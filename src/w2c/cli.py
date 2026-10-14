@@ -32,6 +32,9 @@ for _name, _emo in STATUS_EMOJI.items():
 
 VALID_STATUSES = tuple(STATUS_EMOJI)
 
+# In progress and done stay put. Paused, stopped, and rejected (ERROR) may be displaced.
+FROZEN_STATUSES = frozenset({"INPROGRESS", "DONE"})
+
 _EMOJI_ALT = "|".join(
     re.escape(e)
     for e in dict.fromkeys(
@@ -1084,6 +1087,183 @@ def cmd_milestone_new(root: Path, slug: str) -> int:
     return 0
 
 
+def canonical_mid(raw: str) -> str:
+    text = raw.strip().upper()
+    if not re.fullmatch(r"M\d+", text):
+        raise W2CError(f"invalid milestone id {raw}")
+    return text
+
+
+def roadmap_milestone_rows(text: str) -> tuple[list[str], list[tuple[int, str, Milestone]]]:
+    """Return file lines and each milestone row as (line index, raw line, parsed)."""
+    lines = text.splitlines(keepends=True)
+    rows: list[tuple[int, str, Milestone]] = []
+    for i, line in enumerate(lines):
+        parsed = parse_milestones(line)
+        if not parsed:
+            continue
+        if len(parsed) != 1:
+            raise W2CError("milestone line parsed as more than one milestone")
+        raw = line if line.endswith("\n") else line + "\n"
+        rows.append((i, raw, parsed[0]))
+    return lines, rows
+
+
+def assert_reorder_allowed(before: list[Milestone], after: list[Milestone]) -> None:
+    """Pending milestones may not take the place of an in-progress or done milestone.
+
+    A milestone that already sits after an in-progress or done line may move
+    among other lines in that same tail. PAUSED, STOP, and ERROR may be
+    displaced, because they are no longer in progress.
+    """
+    before_ids = [m.mid for m in before]
+    after_ids = [m.mid for m in after]
+    if before_ids == after_ids:
+        return
+    if set(before_ids) != set(after_ids) or len(before_ids) != len(set(before_ids)):
+        raise W2CError("reorder changed the milestone set")
+    b_idx = {mid: i for i, mid in enumerate(before_ids)}
+    a_idx = {mid: i for i, mid in enumerate(after_ids)}
+    status_of = {m.mid: m.status for m in before}
+    for mid, status in status_of.items():
+        if status not in FROZEN_STATUSES:
+            continue
+        if a_idx[mid] != b_idx[mid]:
+            raise W2CError(
+                f"{mid} is {status}; a pending milestone cannot swap with it or take its place. "
+                "Set it to PAUSED, STOP, or ERROR first."
+            )
+        for other in before_ids:
+            if other == mid:
+                continue
+            if b_idx[other] > b_idx[mid] and a_idx[other] < a_idx[mid]:
+                raise W2CError(
+                    f"{other} cannot move ahead of {mid} while {mid} is {status}. "
+                    "Set it to PAUSED, STOP, or ERROR first."
+                )
+
+
+def print_milestone_order(milestones: list[Milestone]) -> None:
+    for m in milestones:
+        print(f"{m.mid} {m.status} {m.title}")
+
+
+def load_milestone_rows(root: Path) -> list[tuple[int, str, Milestone]]:
+    text = read_text(w2c_dir(root) / "ROADMAP.md")
+    if not text:
+        raise W2CError("ROADMAP.md missing — run `w2c init`")
+    _lines, rows = roadmap_milestone_rows(text)
+    ids = [row[2].mid for row in rows]
+    dupes = sorted({mid for mid in ids if ids.count(mid) > 1})
+    if dupes:
+        raise W2CError(f"duplicate milestone id {', '.join(dupes)}")
+    return rows
+
+
+def write_milestone_line_order(root: Path, ordered_raw: list[str], detail: str) -> list[Milestone]:
+    road_path = w2c_dir(root) / "ROADMAP.md"
+    text = read_text(road_path)
+    if not text:
+        raise W2CError("ROADMAP.md missing — run `w2c init`")
+    lines, rows = roadmap_milestone_rows(text)
+    if len(ordered_raw) != len(rows):
+        raise W2CError("internal reorder size mismatch")
+    before = [row[2] for row in rows]
+    after: list[Milestone] = []
+    normalized: list[str] = []
+    for raw in ordered_raw:
+        parsed = parse_milestones(raw)
+        if len(parsed) != 1:
+            raise W2CError("reorder produced a line that is not a milestone")
+        after.append(parsed[0])
+        normalized.append(raw if raw.endswith("\n") else raw + "\n")
+    assert_reorder_allowed(before, after)
+    for (index, _old, _mil), raw in zip(rows, normalized):
+        lines[index] = raw
+    new_text = "".join(lines)
+    if not new_text.endswith("\n"):
+        new_text += "\n"
+    atomic_write(road_path, new_text)
+    rebuild_ledger(root)
+    append_event(
+        root,
+        skill="work-to-chores",
+        stage="reorder",
+        event="complete",
+        detail=detail,
+    )
+    return after
+
+
+def cmd_milestone_order(root: Path, mids: list[str]) -> int:
+    rows = load_milestone_rows(root)
+    if not mids:
+        print_milestone_order([row[2] for row in rows])
+        return 0
+    named = [canonical_mid(mid) for mid in mids]
+    if len(named) != len(set(named)):
+        raise W2CError("duplicate milestone id in order list")
+    by_mid = {row[2].mid: row for row in rows}
+    for mid in named:
+        if mid not in by_mid:
+            raise W2CError(f"unknown milestone {mid}")
+        status = by_mid[mid][2].status
+        if status in FROZEN_STATUSES:
+            raise W2CError(
+                f"{mid} is {status}; a pending milestone cannot take its place. "
+                "Set it to PAUSED, STOP, or ERROR first."
+            )
+    named_set = set(named)
+    positions = [i for i, row in enumerate(rows) if row[2].mid in named_set]
+    raws = [row[1] for row in rows]
+    for pos, mid in zip(positions, named):
+        raws[pos] = by_mid[mid][1]
+    after = write_milestone_line_order(root, raws, detail="order " + " ".join(named))
+    print_milestone_order(after)
+    return 0
+
+
+def cmd_milestone_swap(root: Path, left: str, right: str) -> int:
+    rows = load_milestone_rows(root)
+    a = canonical_mid(left)
+    b = canonical_mid(right)
+    if a == b:
+        raise W2CError("cannot swap a milestone with itself")
+    by_mid = {row[2].mid: i for i, row in enumerate(rows)}
+    for mid in (a, b):
+        if mid not in by_mid:
+            raise W2CError(f"unknown milestone {mid}")
+    raws = [row[1] for row in rows]
+    i, j = by_mid[a], by_mid[b]
+    raws[i], raws[j] = raws[j], raws[i]
+    after = write_milestone_line_order(root, raws, detail=f"swap {a} {b}")
+    print_milestone_order(after)
+    return 0
+
+
+def cmd_milestone_move(root: Path, mid: str, before: str | None, after: str | None) -> int:
+    if (before is None) == (after is None):
+        raise W2CError("pass exactly one of --before or --after")
+    rows = load_milestone_rows(root)
+    src = canonical_mid(mid)
+    dest = canonical_mid(before if before else after or "")
+    if src == dest:
+        raise W2CError("cannot move a milestone relative to itself")
+    by_mid = {row[2].mid: i for i, row in enumerate(rows)}
+    for item in (src, dest):
+        if item not in by_mid:
+            raise W2CError(f"unknown milestone {item}")
+    raws = [row[1] for row in rows]
+    src_raw = raws.pop(by_mid[src])
+    dest_i = next(i for i, raw in enumerate(raws) if parse_milestones(raw)[0].mid == dest)
+    insert_at = dest_i if before else dest_i + 1
+    raws.insert(insert_at, src_raw)
+    place = "before" if before else "after"
+    ordered = write_milestone_line_order(root, raws, detail=f"move {src} {place} {dest}")
+    print_milestone_order(ordered)
+    return 0
+
+
 def cmd_decide(
     root: Path,
     scope: str,
@@ -1390,6 +1570,20 @@ def run_smoke(root: Path) -> Report:
             q_ok = False
             q_detail.append(f"{q.mid} status {q.status}!={road_map[q.mid].status}")
     report.add("queue-agrees-roadmap", "PASS" if q_ok else "FAIL", "; ".join(q_detail))
+
+    road_open = [m.mid for m in mils if m.status != "DONE"]
+    q_ids = [q.mid for q in q_mils]
+    if q_ids != road_open:
+        report.add(
+            "queue-order-matches-roadmap",
+            "FAIL",
+            "non-DONE queue order "
+            + " ".join(q_ids)
+            + " != roadmap "
+            + " ".join(road_open),
+        )
+    else:
+        report.add("queue-order-matches-roadmap", "PASS")
 
     # STATE registry vs ROADMAP
     reg_ok = True
@@ -1737,6 +1931,25 @@ def build_parser() -> argparse.ArgumentParser:
     gi = sub.add_parser("gitignore-ensure", help="ensure W2C gitignore entries")
     gi.add_argument("--track", action="store_true")
 
+    mv = sub.add_parser(
+        "milestone-move",
+        help="move a milestone before or after another in execution order",
+    )
+    mv.add_argument("mid")
+    place = mv.add_mutually_exclusive_group(required=True)
+    place.add_argument("--before", default=None)
+    place.add_argument("--after", default=None)
+
+    mo = sub.add_parser(
+        "milestone-order",
+        help="print execution order, or set relative order of pending milestones",
+    )
+    mo.add_argument("mids", nargs="*", help="relative order of these milestone ids")
+
+    sw = sub.add_parser("milestone-swap", help="swap two milestones in execution order")
+    sw.add_argument("left")
+    sw.add_argument("right")
+
     sub.add_parser("projects", help="list registered project roots")
     sub.add_parser("register", help="register this repo in global config")
     sub.add_parser("unregister", help="remove this repo from global config")
@@ -1790,6 +2003,12 @@ def dispatch(args: argparse.Namespace) -> int:
         return cmd_next_milestone_id(root)
     if cmd == "milestone-new":
         return cmd_milestone_new(root, args.slug)
+    if cmd == "milestone-order":
+        return cmd_milestone_order(root, args.mids)
+    if cmd == "milestone-swap":
+        return cmd_milestone_swap(root, args.left, args.right)
+    if cmd == "milestone-move":
+        return cmd_milestone_move(root, args.mid, args.before, args.after)
     if cmd == "decide":
         return cmd_decide(
             root,

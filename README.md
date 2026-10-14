@@ -123,6 +123,9 @@ w2c <command>
 | `milestone-status M### PLANNING|TODO|PAUSED|INPROGRESS|DONE|ERROR|STOP` | Set milestone emoji/status |
 | `next-milestone-id` | Next unused `M###` |
 | `milestone-new --slug SLUG` | Allocate id and create plan folder stubs |
+| `milestone-order [M### ...]` | Print execution order, or set the relative order of those pending milestones |
+| `milestone-swap M### M###` | Swap two milestones in execution order |
+| `milestone-move M### --before M###` or `--after M###` | Move one milestone. Refuses taking an in-progress or done place |
 | `decide --scope … --decision … --choice … --rationale …` | Append a DECISIONS.md row |
 | `context-new --major|--minor` | New `contexts/CONTEXTvX.Y.md` (never overwrite) |
 | `event --skill … --stage … --event …` | Append one local runtime event |
@@ -130,7 +133,7 @@ w2c <command>
 | `--version` / `-V` | Print installed CLI semver |
 | `smoke` | Ledger coherence checks (`schema_version`, `git_delivery`, Git Operation Plan, Commit and PR conventions, optional manual-test guide) |
 
-Agents must not hand-edit STATE.md, QUEUE.md, ROADMAP status emojis, or `[ ]` / `[x]` on tasks.
+Agents must not hand-edit STATE.md, QUEUE.md, ROADMAP status emojis, roadmap milestone order, or `[ ]` / `[x]` on tasks. Execution order is the `ROADMAP.md` line order that `w2c next` walks. Use `w2c milestone-order`, `w2c milestone-swap`, or `w2c milestone-move`. An in-progress or done milestone stays put until it is paused, stopped, or marked error (`ERROR` is rejected).
 
 **Closeout reports** live with the plan folder. Commit them only when `track = true`. The CLI will not flip the matching status bit until those files exist.
 

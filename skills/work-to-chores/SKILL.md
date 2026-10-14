@@ -3,13 +3,14 @@ name: work-to-chores
 description: >-
   Use when turning a ticket, spec, or work description into an implementation
   plan of milestones, slices, and tasks before any product code is written.
-  Triggers: work to chores, work-to-chores, /work-to-chores. Not for executing
-  planned tasks (use do-chores).
+  Also use to reorder or swap already planned pending milestones.
+  Triggers: work to chores, work-to-chores, /work-to-chores, reorder milestones.
+  Not for executing planned tasks (use do-chores).
 ---
 
 # Work to Chores
 
-Requires: w2c >= 0.3.0
+Requires: w2c >= 0.4.0
 
 **Plan only.** Interview, review, plan, validate, write `.w2c/` artifacts. Never implement product code.
 
@@ -51,9 +52,12 @@ w2c context-new --minor   # or --major
 w2c next-milestone-id
 w2c milestone-new --slug ...
 w2c milestone-status M001 PLANNING
+w2c milestone-order
+w2c milestone-swap M011 M012
+w2c milestone-move M012 --before M011
 ```
 
-Never hand-edit those status bits. Authoring plan content (vision, tasks, verify commands, Git Operation Plan, Commit and PR conventions) is allowed after Stage 5 approval.
+Never hand-edit those status bits, and never hand-edit roadmap milestone order. Authoring plan content (vision, tasks, verify commands, Git Operation Plan, Commit and PR conventions) is allowed after Stage 5 approval.
 
 ## Events (local only)
 
@@ -117,9 +121,24 @@ Include **one mermaid diagram** that compares the options or shows the recommend
 
 Save with `w2c decide` (short rationale is fine). Keep the rich write-up (why, pros/cons, outcome, diagram) for `M###-CONTEXT.md` **Decision Rationale** at plan-write time.
 
+## Reorder pending milestones (no new plan)
+
+If the user asks to reorder, swap, or change which pending milestone runs next, and they are not bringing a new ticket or spec, do **not** start Stage 1 and do **not** author a new milestone.
+
+Log `--stage reorder --event started`.
+
+1. Run `w2c milestone-order` and show that execution order (id, status, title). That is the Evidence block. `ROADMAP.md` line order is what `w2c next` walks. The numeric id is not the queue.
+2. Grill one placement question with the interview contract. Options come from the real pending list. Recommended default when they did not name a target: leave the order unchanged. Other real choices: `w2c milestone-move M### --before OTHER` or `--after OTHER`, `w2c milestone-swap`, or `w2c milestone-order` with the relative ids.
+3. Refuse a placement that swaps with an `INPROGRESS` milestone, moves ahead of it, or takes a `DONE` milestone's place. The way through is `w2c milestone-status M### PAUSED`, `STOP`, or `ERROR` (rejected), then reorder. Pending milestones that already sit after an in-progress milestone may be reordered among themselves.
+4. Run the matching CLI command. Do not hand-edit `ROADMAP.md`, `QUEUE.md`, or `STATE.md`.
+5. `w2c decide --scope <ids> --decision "execution order" --choice "<resulting order>" --rationale "<why>"`.
+6. `w2c smoke`. Log `--stage reorder --event complete`.
+
+Then stop. Do not write product code.
+
 ## Stage 1 - Gather context
 
-Always run this stage, even when a ticket or spec is pasted.
+Always run this stage, even when a ticket or spec is pasted. A reorder-only request is handled above and does not enter this stage.
 
 Log `--stage gather --event started` before interviewing.
 
@@ -160,6 +179,16 @@ If no issue: log `--stage review --event complete`.
 Log `--stage plan --event started`.
 
 Break work into milestones `M###` (unique; `w2c next-milestone-id` / `w2c milestone-new --slug`). Each milestone has slices `S01`, `S02`, ... and tasks `T01`, `T02`, ... fully specified with a Verify line.
+
+### Execution order of a new milestone
+
+`w2c milestone-new` appends the new id at the end of `ROADMAP.md`. `w2c next` follows that line order, not the numeric id.
+
+After `w2c milestone-new`, run `w2c milestone-order`. If another milestone that is not `INPROGRESS` or `DONE` can be reordered with this one without crossing an in-progress or done line, grill where the new milestone should run. Follow the interview contract. Recommended: leave it at the end. Other options are the real ones: `w2c milestone-move NEW --before OTHER`, `w2c milestone-swap`, or `w2c milestone-order` with the relative ids. Do not offer a move that takes an `INPROGRESS` or `DONE` place. If the user needs to jump an in-progress milestone, they must `w2c milestone-status` it to `PAUSED`, `STOP`, or `ERROR` first (`ERROR` means rejected).
+
+Save with `w2c decide --scope M### --decision "execution order" --choice "..." --rationale "..."`.
+
+When the chosen place is not the end, fill this milestone's Delivery & Guardrails **Execution sequence** cell with a plain sentence such as `before M011`. The cell is a note. Line order remains what `w2c next` uses.
 
 Milestone states: PLANNING, TODO, PAUSED, INPROGRESS, DONE, ERROR, STOP.
 
@@ -333,3 +362,6 @@ Then tell the user: run `do-chores` next; isolation setup (worktree create or br
 - Adding `Co-authored-by:` or similar AI co-author trailers
 - Skipping the milestone manual-test-guide question
 - Treating unread `M###-MANUAL-TEST.md` steps as a milestone completeness failure
+- Renumbering milestone ids to change execution order
+- Hand-editing roadmap milestone order, queue order, or the state registry order
+- Swapping with or moving ahead of an `INPROGRESS` milestone. The way through is `w2c milestone-status` to `PAUSED`, `STOP`, or `ERROR`, then reorder

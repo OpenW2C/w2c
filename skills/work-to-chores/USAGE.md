@@ -6,6 +6,8 @@ Interviews are **evidence-first**: before each question the agent searches the r
 
 During planning it asks whether to use a **git worktree** or a **branch**, confirms the remote/local branch name (ticket id like `MOR-252`, or a slug if there is no ticket), reads **`git_delivery`** from `.w2c/config.toml` (set at `w2c init` / `migrate` — not invented during planning), writes a **Git Operation Plan** into every milestone and slice plan, fills **Commit and PR conventions** from this repo (deny-list from `.gitignore` + W2C rules, never mention `.w2c/` artifacts in commit/PR text, and forbids AI `Co-authored-by` trailers), and asks whether you want a milestone **manual test** file (`M###-MANUAL-TEST.md`) to run after the milestone is done. After you approve the plan it commits `.w2c/` only when `track = true`. Isolation itself starts on the first `do-chores`.
 
+Say `reorder milestones` (or `swap M012 before M011`) when the work is already planned and only the pending order should change. The agent shows the current execution order, asks where the pending milestones should sit, and runs `w2c milestone-order`, `w2c milestone-swap`, or `w2c milestone-move`. It will not renumber ids. An in-progress milestone stays put until it is paused, stopped, or marked error.
+
 **Need first:** grilling and brainstorming. If either is missing, the skill stops and tells you to add it. If you choose worktree mode, **using-git-worktrees** must also be invocable.
 
 **Need on this machine:** `w2c` on PATH (`curl install.sh` or `pipx install git+https://github.com/OpenW2C/w2c.git`). Need in the repo: a `.w2c/` ledger with valid `git_delivery` (`w2c init --git-delivery …`).

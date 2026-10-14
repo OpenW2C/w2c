@@ -31,6 +31,8 @@ do chores [M###] [S##] [T##] [--max-units N] [--dry-run]
 
 Scope only narrows the queue. It does not drain a milestone unless `--max-units` is set.
 
+With no milestone filter, `w2c next` follows `.w2c/ROADMAP.md` line order, not numeric id order. Reordering pending milestones changes which task this skill picks up.
+
 ## Prerequisites (hard stop)
 
 1. **requesting-code-review** must be invocable. If missing: STOP. Log `--stage prereq --event stop --detail "missing requesting-code-review"` and tell the user to add it.

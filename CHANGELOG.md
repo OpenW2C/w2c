@@ -5,6 +5,15 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] — 2026-10-14
+
+### Added
+
+- `w2c milestone-order`, `w2c milestone-swap`, and `w2c milestone-move` reorder pending milestones by moving `ROADMAP.md` lines. Ids and plan folders stay put. `w2c next` follows that line order.
+- An in-progress or done milestone cannot be swapped with or moved ahead of. Pause, stop, or mark it `ERROR` (rejected) first. Pending milestones that already sit after an in-progress milestone can still be reordered among themselves.
+- `w2c smoke` check `queue-order-matches-roadmap` fails when the non-done queue order drifts from the roadmap.
+- `work-to-chores` (`Requires: w2c >= 0.4.0`) can reorder pending milestones without a new ticket, and asks where a new milestone sits among other pending ones.
+
 ## [0.3.0] — 2026-09-18
 
 ### Added
