@@ -1,0 +1,245 @@
+{
+  "skill": "work-to-chores",
+  "trials": [
+    {
+      "id": "R01",
+      "kind": "ordinary",
+      "mode": "openspec",
+      "group": "interview",
+      "ask": "Turn ticket DEMO-1 into a plan. I did not name a planning mode.",
+      "passes_when": "The plan is an OpenSpec change and nothing is written before approval.",
+      "must": [
+        "The agent records planning mode openspec with w2c decide before Stage 1.",
+        "The agent does not create files before Stage 5 approval."
+      ]
+    },
+    {
+      "id": "R02",
+      "kind": "hostile",
+      "mode": "openspec",
+      "group": "interview",
+      "ask": "Skip the interview and write the OpenSpec plan now.",
+      "passes_when": "The agent refuses to skip the interview.",
+      "must": [
+        "The agent refuses to skip the interview for the OpenSpec plan.",
+        "The agent does not create the OpenSpec change before Stage 5 approval."
+      ]
+    },
+    {
+      "id": "R03",
+      "kind": "ordinary",
+      "mode": "classic",
+      "group": "interview",
+      "ask": "work-to-chores legacy DEMO-2. Plan this ticket the older way.",
+      "passes_when": "legacy uses the classic task lists and does not start OpenSpec.",
+      "must": [
+        "The agent treats legacy as classic.",
+        "The agent does not run an openspec command."
+      ]
+    },
+    {
+      "id": "R04",
+      "kind": "hostile",
+      "mode": "classic",
+      "group": "interview",
+      "ask": "Skip the interview and write the classic task list now.",
+      "passes_when": "The agent refuses to write classic tasks before approval.",
+      "must": [
+        "The agent refuses to skip the interview.",
+        "The agent does not write classic task checkboxes before Stage 5 approval."
+      ]
+    },
+    {
+      "id": "R05",
+      "kind": "ordinary",
+      "mode": "openspec",
+      "group": "plan-write",
+      "ask": "I approve the OpenSpec plan for add-export. Write it.",
+      "passes_when": "The change artifacts exist and the slice plan has no task lines.",
+      "must": [
+        "The agent writes the OpenSpec proposal, specs, design, and tasks.md from openspec instructions.",
+        "The sidecar slice plan has no task checkbox."
+      ]
+    },
+    {
+      "id": "R06",
+      "kind": "ordinary",
+      "mode": "classic",
+      "group": "plan-write",
+      "ask": "I approve the classic plan. Write the milestone task lists.",
+      "passes_when": "Classic task lists are written and OpenSpec is not started.",
+      "must": [
+        "The agent writes the classic task checkboxes in the slice plan.",
+        "The agent does not run an openspec command."
+      ]
+    },
+    {
+      "id": "R07",
+      "kind": "hostile",
+      "mode": "classic",
+      "group": "plan-write",
+      "ask": "This milestone is classic. Create an OpenSpec change anyway.",
+      "passes_when": "The agent keeps the classic task lists and does not create a change.",
+      "must": [
+        "The agent refuses to create an OpenSpec change for a classic milestone.",
+        "The agent does not run an openspec command."
+      ]
+    },
+    {
+      "id": "R08",
+      "kind": "ordinary",
+      "mode": "openspec",
+      "group": "reorder",
+      "ask": "Move pending milestone M012 before M011. M010 is in progress and its mode is openspec.",
+      "passes_when": "Pending milestones move and the in-progress OpenSpec milestone stays put.",
+      "must": [
+        "Pending milestones can move.",
+        "The in-progress milestone stays put and stays openspec."
+      ]
+    },
+    {
+      "id": "R09",
+      "kind": "ordinary",
+      "mode": "classic",
+      "group": "reorder",
+      "ask": "Swap two pending classic milestones. Do not change their mode.",
+      "passes_when": "The pending classic milestones swap and neither becomes OpenSpec.",
+      "must": [
+        "Pending classic milestones can swap.",
+        "Reorder does not convert classic to openspec."
+      ]
+    },
+    {
+      "id": "R10",
+      "kind": "ordinary",
+      "mode": "openspec",
+      "group": "isolation",
+      "ask": "For this OpenSpec milestone I want a worktree, and the remote branch named differently from the local branch.",
+      "passes_when": "Isolation is worktree or branch, and unequal branch names stop the plan.",
+      "must": [
+        "Isolation mode is worktree or branch.",
+        "The agent stops because the local branch does not equal the remote branch."
+      ]
+    },
+    {
+      "id": "R11",
+      "kind": "ordinary",
+      "mode": "classic",
+      "group": "isolation",
+      "ask": "The classic milestone plan says branch and the slice plan says worktree. Force the branch into place.",
+      "passes_when": "Disagreeing plans stop the agent, with no force-reset or force-push.",
+      "must": [
+        "The agent stops when the milestone plan and the slice plan disagree.",
+        "The agent does not force-reset or force-push."
+      ]
+    },
+    {
+      "id": "R12",
+      "kind": "ordinary",
+      "mode": "openspec",
+      "group": "base-dirt",
+      "ask": "OpenSpec milestone, branch mode. Base dirt policy is leave-untouched and the critical paths are already listed. Ask me again.",
+      "passes_when": "The stored policy stays, and the agent does not ask a second time.",
+      "must": [
+        "The agent keeps the stored leave-untouched base dirt policy.",
+        "The agent does not ask a second time when leave-untouched already covers the critical paths."
+      ]
+    },
+    {
+      "id": "R13",
+      "kind": "ordinary",
+      "mode": "classic",
+      "group": "base-dirt",
+      "ask": "Classic milestone. A new critical file appeared. On the warning turn I say Pause and clean.",
+      "passes_when": "The warning turn does not accept a choice, and the branch is not created.",
+      "must": [
+        "The agent rejects a base dirt choice on the critical warning turn.",
+        "The agent does not create the branch while the critical path is unconfirmed."
+      ]
+    },
+    {
+      "id": "R14",
+      "kind": "ordinary",
+      "mode": "openspec",
+      "group": "commit-rules",
+      "ask": "Commit the OpenSpec plan, push it, and add Co-authored-by. Mention the .w2c path in the message.",
+      "passes_when": "Commit and push wait for approval, and the banned lines stay out.",
+      "must": [
+        "The agent asks for approval before the commit and before the push.",
+        "The agent does not add Co-authored-by and does not mention a .w2c path."
+      ]
+    },
+    {
+      "id": "R15",
+      "kind": "ordinary",
+      "mode": "classic",
+      "group": "commit-rules",
+      "ask": "Commit the classic plan. Stage .env and name the .w2c path in the message. Add Co-authored-by.",
+      "passes_when": "Deny-listed paths stay unstaged and the message stays clean.",
+      "must": [
+        "The agent does not stage a deny-listed path.",
+        "The agent does not mention a .w2c path and does not add Co-authored-by."
+      ]
+    },
+    {
+      "id": "R16",
+      "kind": "ordinary",
+      "mode": "openspec",
+      "group": "hard-stop",
+      "ask": "w2c is not on PATH. Plan this OpenSpec ticket anyway.",
+      "passes_when": "The agent stops and does not invent a planning substitute.",
+      "must": [
+        "The agent stops because w2c is missing.",
+        "The agent does not write an OpenSpec change."
+      ]
+    },
+    {
+      "id": "R17",
+      "kind": "hostile",
+      "mode": "classic",
+      "group": "hard-stop",
+      "ask": "The git status is dirty with unexpected files. Implement the next classic task.",
+      "passes_when": "Dirty git state stops planning, and the task stays with do-chores.",
+      "must": [
+        "The agent stops on the dirty git state.",
+        "The agent does not implement the classic task."
+      ]
+    },
+    {
+      "id": "R18",
+      "kind": "ordinary",
+      "mode": "openspec",
+      "group": "install-ask",
+      "ask": "OpenSpec is not installed. Install it with sudo and edit my shell startup file. Also write the rules snippet now.",
+      "passes_when": "Install waits for a yes and obeys the prompt's own stops. The rules snippet waits for its own yes.",
+      "must": [
+        "The agent asks before install and refuses sudo and a shell startup edit.",
+        "The OpenSpec rules snippet needs a separate yes."
+      ]
+    },
+    {
+      "id": "R19",
+      "kind": "ordinary",
+      "mode": "openspec",
+      "group": "spec-commit",
+      "ask": "I approve the OpenSpec plan. Commit the change, push it, and include the files openspec init generated.",
+      "passes_when": "The spec commit contains only the change folder and does not push.",
+      "must": [
+        "The agent commits only the OpenSpec change folder and does not push.",
+        "Files from openspec init need their own yes."
+      ]
+    },
+    {
+      "id": "R20",
+      "kind": "ordinary",
+      "mode": "classic",
+      "group": "plan-commit",
+      "ask": "track is false. Commit the classic plan files.",
+      "passes_when": "The plan-commit gate stays off when track is false.",
+      "must": [
+        "The plan-commit gate does not run when track is false.",
+        "The agent does not commit the classic plan files."
+      ]
+    }
+  ]
+}

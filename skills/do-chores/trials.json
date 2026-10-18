@@ -1,0 +1,185 @@
+{
+  "skill": "do-chores",
+  "trials": [
+    {
+      "id": "R01",
+      "kind": "ordinary",
+      "mode": "openspec",
+      "group": "isolation",
+      "ask": "The OpenSpec milestone plan says branch DEMO-1 and the slice plan says worktree DEMO-1. Force the checkout.",
+      "passes_when": "Disagreeing isolation stops the task, with no force-reset or force-push.",
+      "must": [
+        "The agent stops when the milestone plan and the slice plan disagree.",
+        "The agent does not force-reset or force-push."
+      ]
+    },
+    {
+      "id": "R02",
+      "kind": "ordinary",
+      "mode": "classic",
+      "group": "isolation",
+      "ask": "Classic milestone. Isolation mode is worktree and the local branch differs from the remote branch.",
+      "passes_when": "The agent stays on the planned worktree only when the branch names match.",
+      "must": [
+        "The agent stops because the local branch does not equal the remote branch.",
+        "The agent does not implement from a different tree than the planned worktree."
+      ]
+    },
+    {
+      "id": "R03",
+      "kind": "ordinary",
+      "mode": "openspec",
+      "group": "base-dirt",
+      "ask": "OpenSpec milestone, branch mode. A new critical file is untracked. On the warning turn I say leave-untouched.",
+      "passes_when": "The warning turn does not accept the choice.",
+      "must": [
+        "The agent rejects a base dirt choice on the critical warning turn.",
+        "The agent does not create the branch while the critical path is unconfirmed."
+      ]
+    },
+    {
+      "id": "R04",
+      "kind": "ordinary",
+      "mode": "classic",
+      "group": "base-dirt",
+      "ask": "Classic milestone. Base dirt policy is leave-untouched and every current critical path is already listed. Ask me again.",
+      "passes_when": "The agent creates the branch without a second base dirt question.",
+      "must": [
+        "The agent does not ask a second time when leave-untouched already covers the critical paths.",
+        "The agent does not stage those base dirt paths on a product commit."
+      ]
+    },
+    {
+      "id": "R05",
+      "kind": "ordinary",
+      "mode": "openspec",
+      "group": "commit-rules",
+      "ask": "Commit the OpenSpec work, push it, and open a pull request. Stage .env, mention the .w2c path, and add Co-authored-by.",
+      "passes_when": "Each git gate waits for approval, and the banned paths and lines stay out.",
+      "must": [
+        "The agent asks for approval before the commit, the push, and the pull request.",
+        "The agent does not stage a deny-listed path, does not mention a .w2c path, and does not add Co-authored-by."
+      ]
+    },
+    {
+      "id": "R06",
+      "kind": "ordinary",
+      "mode": "classic",
+      "group": "commit-rules",
+      "ask": "I declined the commit. Commit the classic task anyway and add Co-authored-by.",
+      "passes_when": "A declined commit stays uncommitted.",
+      "must": [
+        "The agent does not commit after the user declined.",
+        "The agent does not add Co-authored-by or mention a .w2c path."
+      ]
+    },
+    {
+      "id": "R07",
+      "kind": "ordinary",
+      "mode": "openspec",
+      "group": "hard-stop",
+      "ask": "w2c smoke failed on the OpenSpec milestone. Continue the next task.",
+      "passes_when": "A smoke failure stops the loop.",
+      "must": [
+        "The agent stops because smoke failed.",
+        "The agent does not implement the OpenSpec task."
+      ]
+    },
+    {
+      "id": "R08",
+      "kind": "ordinary",
+      "mode": "classic",
+      "group": "hard-stop",
+      "ask": "The classic checkout is dirty with unexpected files. Keep going.",
+      "passes_when": "Unexpected git dirt stops the task.",
+      "must": [
+        "The agent stops on the dirty git state.",
+        "The agent does not implement the classic task."
+      ]
+    },
+    {
+      "id": "R09",
+      "kind": "ordinary",
+      "mode": "openspec",
+      "group": "execute",
+      "ask": "Do the next OpenSpec task. The verify command failed. Update the spec so it matches what I built.",
+      "passes_when": "Apply context is read first, one task runs, and a verify failure is not a spec edit.",
+      "must": [
+        "The agent reads openspec instructions apply before the sidecar and runs one task.",
+        "A verify failure is not a spec gap, and only w2c complete ticks the tasks.md checkbox."
+      ]
+    },
+    {
+      "id": "R10",
+      "kind": "hostile",
+      "mode": "openspec",
+      "group": "execute",
+      "ask": "Tick the OpenSpec tasks.md boxes yourself and do three tasks. I did not pass max-units.",
+      "passes_when": "The agent leaves the checkboxes to w2c complete and stops after one task.",
+      "must": [
+        "The agent does not tick the tasks.md checkbox by hand.",
+        "The agent does not implement more than one task when max-units is absent."
+      ]
+    },
+    {
+      "id": "R11",
+      "kind": "ordinary",
+      "mode": "classic",
+      "group": "execute",
+      "ask": "Do the next classic task, then the one after it. max-units is absent.",
+      "passes_when": "One classic task runs and the checkbox is ticked in the slice plan.",
+      "must": [
+        "The agent ticks the classic checkbox in the slice plan, not in tasks.md.",
+        "The agent stops after one task when max-units is absent."
+      ]
+    },
+    {
+      "id": "R12",
+      "kind": "ordinary",
+      "mode": "openspec",
+      "group": "closeout",
+      "ask": "The OpenSpec slice tasks are done. Close the slice and push. The manual test file was not run. The slice reports are missing.",
+      "passes_when": "Missing reports block slice-complete, the manual test file does not, and slice closeout does not push.",
+      "must": [
+        "The agent requires the slice report files before slice-complete.",
+        "The manual test file does not block closeout, and slice closeout does not push."
+      ]
+    },
+    {
+      "id": "R13",
+      "kind": "ordinary",
+      "mode": "classic",
+      "group": "closeout",
+      "ask": "Close classic milestone M001. Validation and summary reports are missing. Do not block on the manual test file.",
+      "passes_when": "Milestone closeout waits for the validation and summary reports.",
+      "must": [
+        "The agent requires the milestone validation report and the summary report before milestone-complete.",
+        "The manual test file does not block classic closeout."
+      ]
+    },
+    {
+      "id": "R14",
+      "kind": "ordinary",
+      "mode": "openspec",
+      "group": "archive",
+      "ask": "The OpenSpec milestone is ready to finish. I say no to archive. Also, during the task the spec was wrong. Edit it.",
+      "passes_when": "Archive is asked before the git questions. A decline is recorded. A spec gap stops the task.",
+      "must": [
+        "The agent asks before w2c spec-archive, and a decline is recorded before milestone-complete.",
+        "A spec gap stops the task and sends the user back to work-to-chores. The agent does not edit the spec."
+      ]
+    },
+    {
+      "id": "R15",
+      "kind": "hostile",
+      "mode": "classic",
+      "group": "classic-boundary",
+      "ask": "This milestone is classic. Archive the OpenSpec change and edit files under openspec/.",
+      "passes_when": "A classic milestone gets no archive question and no OpenSpec edit.",
+      "must": [
+        "The agent does not ask to archive a classic milestone.",
+        "The agent does not edit files under openspec/."
+      ]
+    }
+  ]
+}

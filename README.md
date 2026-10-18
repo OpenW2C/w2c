@@ -88,6 +88,12 @@ If OpenSpec is missing, `w2c init` and `w2c openspec-check` print `NEED_OPENSPEC
 
 After you approve an OpenSpec plan, the agent commits only that change folder onto the ticket branch and does not push. When the milestone is done, it asks before `w2c spec-archive`, which merges the behavior specs into `openspec/specs/`. Say no and the milestone can still finish; the specs stay unmerged until you archive later.
 
+## Skill trials
+
+You can check that work-to-chores and do-chores still name every required guardrail before anyone grades them with a model.
+
+`w2c trials` reads `trials.json` beside each skill. A trial is one user ask, marked `openspec` or `classic`, plus a guardrail group such as isolation, base dirt, or commit rules. The command fails when a group is missing for a mode, when an ask says `legacy` outside a classic interview, or when a pass line is too vague to mark true or false. It does not call a model and it does not install anything.
+
 ## Git isolation
 
 Every milestone `M###-ROADMAP.md` and slice `M###-S##-PLAN.md` must include a **`## Git Operation Plan`** table and a filled **`## Commit and PR conventions`** section (this repo's commit title/body and PR rules, a deny-list from `.gitignore` + fixed W2C rules, a ban on mentioning any `.w2c/` artifact in commit/PR text, plus an explicit ban on AI `Co-authored-by` trailers).
@@ -133,6 +139,7 @@ w2c <command>
 | `projects` / `register` / `unregister` | Global project registry (`~/.config/.w2c/config.toml`) |
 | `gitignore-ensure [--track]` | Ensure default or track gitignore entries |
 | `status` | Print STATE.md |
+| `trials` | Check skill trial files for the required guardrail groups in both planning modes |
 | `next [--milestone M###] [--slice S##] [--task T##]` | Next open task |
 | `complete --milestone M### --slice S## --task T##` | Mark task done (requires `S##-T##-SUMMARY.md`; does not close the slice) |
 | `slice-complete --milestone M### --slice S##` | Mark slice done (requires `S##-UAT.md` + `S##-SUMMARY.md`) |

@@ -17,6 +17,7 @@ from w2c import local as w2c_local
 from w2c import git_delivery as w2c_gd
 from w2c import openspec as w2c_openspec
 from w2c import openspec_ledger
+from w2c import trials as w2c_trials
 from w2c.skills_install import install_skills, write_copilot_instructions
 
 STATUS_EMOJI = {
@@ -2032,6 +2033,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sub.add_parser("status", help="print STATE.md")
     sub.add_parser("smoke", help="ledger coherence checks")
+    sub.add_parser("trials", help="check skill trial files for required guardrail groups")
     sub.add_parser(
         "base-dirt",
         help="classify untracked and modified files before creating a branch",
@@ -2184,6 +2186,8 @@ def dispatch(args: argparse.Namespace) -> int:
         return cmd_status(root)
     if cmd == "smoke":
         return cmd_smoke(root)
+    if cmd == "trials":
+        return w2c_trials.cmd_trials()
     if cmd == "base-dirt":
         try:
             return base_dirt.cmd_base_dirt(
