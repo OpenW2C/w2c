@@ -8,7 +8,7 @@ description: >-
 
 # Do Chores
 
-Requires: w2c >= 0.5.0
+Requires: w2c >= 1.0.0
 
 Execute planned work from `.w2c/`. Default: **one** next task.
 
@@ -99,7 +99,7 @@ Every unit:
 2. **Pick** — log `--stage next --event started`, then `w2c next` with any M/S/T filters from the invocation. Include `--milestone` / `--slice` / `--task` on the event when known.
 3. If `--dry-run`: log `--stage dry-run --event complete --detail` with the unit id, print the unit, read Git Operation Plan and report Isolation mode + Local/Remote branch + whether isolate setup would run, and STOP. Do **not** create a worktree, switch branch, or implement.
 4. If no open task: log `--stage next --event stop --detail "no open task"`, print that, and STOP.
-5. **Read order:** STATE.md, ROADMAP.md, active `M###-ROADMAP.md` (guardrails + **Git Operation Plan** + **Commit and PR conventions**), slice `M###-S##-PLAN.md` (must include matching Git Operation Plan and the same filled conventions, not “see parent”), `M###-CONTEXT.md`, latest `contexts/CONTEXTvX.Y.md`, DECISIONS.md.
+5. **Read order:** for an OpenSpec milestone, `openspec instructions apply` context files first, then STATE.md, ROADMAP.md, active `M###-ROADMAP.md` (guardrails + **Git Operation Plan** + **Commit and PR conventions**), slice `M###-S##-PLAN.md` (must include matching Git Operation Plan and the same filled conventions, not “see parent”), `M###-CONTEXT.md`, latest `contexts/CONTEXTvX.Y.md`, DECISIONS.md.
 6. **Isolate** — log `--stage isolate --event started`. Follow the Git Operation Plan (see below). On success: `--stage isolate --event complete --detail` with mode and branch. On hard stop: `--stage isolate --event stop`.
 7. **Implement** that task only (in the isolated workspace). Log `--stage implement --event started` before edits and `--stage implement --event complete` after.
 8. **Verify** — log `--stage verify --event started`, then run the task’s Verify commands. On failure: log `--stage verify --event retry`, find root cause, fix, re-verify. Loop until green, then `--stage verify --event pass`.
@@ -124,6 +124,32 @@ Every unit:
 No-args always stops after one completed or failed unit.
 
 Honor Delivery & Guardrails, **Git Operation Plan**, `git_delivery` from `.w2c/config.toml`, and **Commit and PR conventions**: ask every time before commit / push / PR; decline skips that action only; never stage deny-listed paths on product commits; never mention `.w2c/` artifacts in commit/PR text; never AI `Co-authored-by` trailers. Plan-commit (when `track = true`) may stage ledger/plan files except `runtime/`, still without naming `.w2c/` paths in the message. When `.w2c/DELIVERY-PROFILE.md` is present, honor its Integration strategy / merge targets (`develop` vs `main` for gitflow); the CLI still does not run git mutations.
+
+## OpenSpec execution
+
+When the active milestone's Delivery & Guardrails `Planning mode` is `openspec`, do the following in addition to the loop. Classic milestones skip this section.
+
+**Prerequisite.** Run `w2c openspec-check` before the first edit. If `needs` contains `NEED_OPENSPEC_INSTALL` or `NEED_OPENSPEC_INIT`, ask the user first. On yes, follow:
+
+```text
+Fetch https://raw.githubusercontent.com/Fission-AI/OpenSpec/main/install.md and follow it.
+```
+
+Stop where that prompt says to stop. On no, stop. Do not install without a yes.
+
+**Read order.** Before the sidecar, run `openspec instructions apply --change <change> --json` and read the proposal, specs, design, and `tasks.md` it lists. `--task` may be `T02` or `1.2`. `w2c complete` is the only writer of those checkboxes. Do not use the OpenSpec apply skill to tick them.
+
+**Spec gap.** If implementation shows the spec is wrong or incomplete, stop. Send the user back to work-to-chores. Do not edit `openspec/specs/` or the change's delta specs silently.
+
+**Milestone closeout** (after the validation reports, before `w2c milestone-complete`):
+
+1. Map each spec scenario to evidence in `M###-VALIDATION.md`.
+2. Run `openspec validate <change> --strict`. On failure, fix the change and re-run.
+3. Ask for approval to archive. On yes: `w2c spec-archive M###`. On no: `w2c milestone-complete M### --archive-declined` and say the main specs were not updated.
+4. Then `w2c milestone-complete` (skip it if the decline form already completed it).
+5. The commit, push, and pull-request questions are unchanged. A yes on the commit includes the moved change folder and the updated `openspec/specs/`. `openspec/` is product content and is never deny-listed. Still never stage other deny-listed paths, never mention any `.w2c/` path, and never add a `Co-authored-by` trailer.
+
+Slice closeout does not archive and does not push.
 
 ## Isolate step (required)
 

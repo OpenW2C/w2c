@@ -115,7 +115,11 @@ class W2CTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = Path(tempfile.mkdtemp(prefix="w2c-test-"))
         self.addCleanup(lambda: shutil.rmtree(self.tmp, ignore_errors=True))
-        w2c.cmd_init(self.tmp, git_delivery="slice-commit-milestone-push-pr")
+        w2c.cmd_init(
+            self.tmp,
+            git_delivery="slice-commit-milestone-push-pr",
+            planning="classic",
+        )
 
     def test_next_milestone_id_starts_at_m001(self) -> None:
         self.assertEqual(w2c.next_milestone_id(self.tmp), "M001")
@@ -296,7 +300,11 @@ class W2CTests(unittest.TestCase):
 
         # Unique-id clash already asserted. Fresh tree for STATE vs ROADMAP mismatch.
         shutil.rmtree(self.tmp / ".w2c", ignore_errors=True)
-        w2c.cmd_init(self.tmp, git_delivery="slice-commit-milestone-push-pr")
+        w2c.cmd_init(
+            self.tmp,
+            git_delivery="slice-commit-milestone-push-pr",
+            planning="classic",
+        )
         self._seed_open_tasks()
         w2c.cmd_milestone_status(self.tmp, "M001", "INPROGRESS")
         state = self.tmp / ".w2c/STATE.md"
@@ -565,7 +573,10 @@ Do not add `Co-authored-by:` trailers or similar AI co-author lines for Cursor, 
         report = w2c.run_smoke(self.tmp)
         names = {c.name: c for c in report.checks}
         self.assertEqual(names["schema-version"].status, "PASS")
-        self.assertIn("schema 1", names["schema-version"].detail)
+        self.assertIn(
+            f"schema {w2c_local.CURRENT_SCHEMA_VERSION}",
+            names["schema-version"].detail,
+        )
 
     def test_smoke_fails_when_schema_newer_than_cli(self) -> None:
         self._seed_open_tasks()
@@ -587,7 +598,7 @@ Do not add `Co-authored-by:` trailers or similar AI co-author lines for Cursor, 
         self._seed_open_tasks()
         original = w2c_local.MIN_SUPPORTED_SCHEMA_VERSION
         try:
-            w2c_local.MIN_SUPPORTED_SCHEMA_VERSION = 2
+            w2c_local.MIN_SUPPORTED_SCHEMA_VERSION = w2c_local.CURRENT_SCHEMA_VERSION + 1
             report = w2c.run_smoke(self.tmp)
         finally:
             w2c_local.MIN_SUPPORTED_SCHEMA_VERSION = original

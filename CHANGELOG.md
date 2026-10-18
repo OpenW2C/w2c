@@ -5,6 +5,20 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0] — 2026-10-18
+
+### Added
+
+- OpenSpec is the default planning mode. One milestone is one standard spec-driven change under `openspec/changes/<name>/`, linked with `x-w2c-milestone`. Delivery rules stay in the `.w2c/plans/` sidecar.
+- `w2c init --planning openspec|classic` (`legacy` is an alias of classic). `w2c openspec-check` prints whether the OpenSpec program, the project folder, and the W2C task rules are present.
+- `w2c milestone-new --planning`, `w2c spec-archive`, and `w2c milestone-complete --archive-declined`.
+- `w2c next` and `w2c complete` read and tick `tasks.md` checkboxes (`N.M`, also accepted as `T##`). `w2c base-dirt` ignores that milestone's change folder.
+- `w2c smoke` adds OpenSpec checks: program version, milestone link, strict validation, artifact completion, slice groups, Verify lines, checkbox agreement, no task lines in slice plans, archive-on-done, and the rule that `openspec/` is product content.
+
+### Changed
+
+- **BREAKING:** a new ledger defaults to `planning = "openspec"` and `schema_version` 2. An existing config without `planning` still loads as classic. `work-to-chores` and `do-chores` require `w2c >= 1.0.0`.
+
 ## [0.5.0] — 2026-10-14
 
 ### Added

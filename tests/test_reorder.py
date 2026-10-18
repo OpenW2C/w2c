@@ -52,7 +52,11 @@ class ReorderTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = Path(tempfile.mkdtemp(prefix="w2c-reorder-test-"))
         self.addCleanup(lambda: shutil.rmtree(self.tmp, ignore_errors=True))
-        w2c.cmd_init(self.tmp, git_delivery="slice-commit-milestone-push-pr")
+        w2c.cmd_init(
+            self.tmp,
+            git_delivery="slice-commit-milestone-push-pr",
+            planning="classic",
+        )
 
     def _ids(self) -> list[str]:
         road = (self.tmp / ".w2c/ROADMAP.md").read_text(encoding="utf-8")
@@ -150,7 +154,11 @@ class ReorderTests(unittest.TestCase):
         for status in ("PAUSED", "STOP", "ERROR"):
             with self.subTest(status=status):
                 shutil.rmtree(self.tmp / ".w2c", ignore_errors=True)
-                w2c.cmd_init(self.tmp, git_delivery="slice-commit-milestone-push-pr")
+                w2c.cmd_init(
+            self.tmp,
+            git_delivery="slice-commit-milestone-push-pr",
+            planning="classic",
+        )
                 w2c.cmd_milestone_new(self.tmp, "held")
                 w2c.cmd_milestone_new(self.tmp, "pending")
                 self._set_status("M001", status)

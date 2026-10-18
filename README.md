@@ -71,6 +71,23 @@ w2c migrate adopt --git-delivery slice-commit-milestone-push-pr
 
 Cursor and Claude pick the skills up from `~/.agents/skills` after `install.sh` or `w2c install-skills`. Copilot only sees them after `w2c init` writes `.github/instructions/`.
 
+## Planning modes
+
+You can plan each new milestone as an OpenSpec change, or keep the older milestone files by choosing classic.
+
+OpenSpec is the spec-driven layout under `openspec/`: a proposal, behavior specs, a design, and `tasks.md`. W2C still stores delivery rules (git isolation, commit rules, closeout reports) in `.w2c/plans/`. The `w2c` command remains the only writer of task checkboxes.
+
+| Mode | How you ask | What gets written |
+| --- | --- | --- |
+| OpenSpec | default, or `work-to-chores` with no mode | `openspec/changes/<name>/` plus a `.w2c` sidecar linked by `x-w2c-milestone` |
+| Classic | `work-to-chores classic` or `legacy` | The existing `.w2c/plans/M###-*/` task lists only |
+
+A new `w2c init` writes `planning = "openspec"`. A config file that has no `planning` key stays classic, so an in-progress ledger is unchanged. `legacy` is another name for classic.
+
+If OpenSpec is missing, `w2c init` and `w2c openspec-check` print `NEED_OPENSPEC_INSTALL` or `NEED_OPENSPEC_INIT`. The agent asks you before it installs anything.
+
+After you approve an OpenSpec plan, the agent commits only that change folder onto the ticket branch and does not push. When the milestone is done, it asks before `w2c spec-archive`, which merges the behavior specs into `openspec/specs/`. Say no and the milestone can still finish; the specs stay unmerged until you archive later.
+
 ## Git isolation
 
 Every milestone `M###-ROADMAP.md` and slice `M###-S##-PLAN.md` must include a **`## Git Operation Plan`** table and a filled **`## Commit and PR conventions`** section (this repo's commit title/body and PR rules, a deny-list from `.gitignore` + fixed W2C rules, a ban on mentioning any `.w2c/` artifact in commit/PR text, plus an explicit ban on AI `Co-authored-by` trailers).
@@ -110,7 +127,7 @@ w2c <command>
 
 | Command | Purpose |
 | --- | --- |
-| `init [--track] --git-delivery …` | Create ledger stubs; require `git_delivery` (flag or TTY); Copilot files; register repo |
+| `init [--track] [--planning openspec or classic] --git-delivery …` | Create ledger stubs; require `git_delivery`; default planning is openspec on first init |
 | `install-skills [--force]` | Copy work-to-chores / do-chores into `~/.agents/skills` |
 | `migrate untrack|adopt [--git-delivery …]` | Untrack `.w2c/` from git (with backup) or restore after pull; require `git_delivery` if unset |
 | `projects` / `register` / `unregister` | Global project registry (`~/.config/.w2c/config.toml`) |
@@ -119,11 +136,13 @@ w2c <command>
 | `next [--milestone M###] [--slice S##] [--task T##]` | Next open task |
 | `complete --milestone M### --slice S## --task T##` | Mark task done (requires `S##-T##-SUMMARY.md`; does not close the slice) |
 | `slice-complete --milestone M### --slice S##` | Mark slice done (requires `S##-UAT.md` + `S##-SUMMARY.md`) |
-| `milestone-complete M###` | Mark milestone DONE (requires `M###-VALIDATION.md` + `M###-SUMMARY.md`) |
+| `milestone-complete M### [--archive-declined]` | Mark milestone DONE. OpenSpec mode also requires `w2c spec-archive` or `--archive-declined` |
+| `spec-archive M###` | Archive the OpenSpec change and record the archive path on the milestone |
+| `openspec-check` | Print JSON for the OpenSpec program, the `openspec/` folder, and the W2C rules marker |
 | `set --active-milestone M### [--active-slice S##] [--phase NAME]` | Update active pointer |
 | `milestone-status M### PLANNING|TODO|PAUSED|INPROGRESS|DONE|ERROR|STOP` | Set milestone emoji/status |
 | `next-milestone-id` | Next unused `M###` |
-| `milestone-new --slug SLUG` | Allocate id and create plan folder stubs |
+| `milestone-new --slug SLUG [--planning openspec or classic]` | Allocate id. OpenSpec mode also creates the change folder |
 | `milestone-order [M### ...]` | Print execution order, or set the relative order of those pending milestones |
 | `milestone-swap M### M###` | Swap two milestones in execution order |
 | `milestone-move M### --before M###` or `--after M###` | Move one milestone. Refuses taking an in-progress or done place |

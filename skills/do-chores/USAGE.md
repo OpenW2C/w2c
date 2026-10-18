@@ -1,6 +1,6 @@
 # How to use do-chores
 
-Say `do chores` to do the next small task in the `.w2c/` plan. Add `M011` or `S02` to stay inside that scope. Add `--max-units 5` to do several tasks in a row. Add `--dry-run` to see the next task and planned git isolation (worktree vs branch) without doing either.
+Say `do chores` to do the next small task. An OpenSpec milestone is driven from `tasks.md`; the command still ticks the checkbox, and milestone closeout asks before archiving the change.  Add `M011` or `S02` to stay inside that scope. Add `--max-units 5` to do several tasks in a row. Add `--dry-run` to see the next task and planned git isolation (worktree vs branch) without doing either.
 
 Scope only picks the queue. Without `--max-units` the skill always stops after one task.
 

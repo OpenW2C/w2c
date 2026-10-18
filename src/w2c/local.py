@@ -124,8 +124,12 @@ GIT_DELIVERY_RECOMMENDED = GIT_DELIVERY_SLICE
 
 # Bump CURRENT only when the .w2c/ on-disk format changes. MIN rises when older
 # schemas are no longer readable without migrate.
-CURRENT_SCHEMA_VERSION = 1
+CURRENT_SCHEMA_VERSION = 2
 MIN_SUPPORTED_SCHEMA_VERSION = 1
+
+PLANNING_OPENSPEC = "openspec"
+PLANNING_CLASSIC = "classic"
+PLANNING_VALUES = frozenset({PLANNING_OPENSPEC, PLANNING_CLASSIC})
 
 
 class GitDeliveryError(ValueError):
@@ -140,6 +144,20 @@ def normalize_git_delivery(value: object | None) -> str | None:
     if not text:
         return None
     return text if text in GIT_DELIVERY_VALUES else None
+
+
+def normalize_planning(value: object | None, *, missing: str = PLANNING_CLASSIC) -> str:
+    """Map config text to openspec or classic. ``legacy`` is an alias of classic."""
+    if value is None:
+        return missing
+    text = str(value).strip().lower()
+    if not text:
+        return missing
+    if text == "legacy":
+        return PLANNING_CLASSIC
+    if text in PLANNING_VALUES:
+        return text
+    raise LocalError(f"invalid planning {value!r}; use openspec|classic")
 
 
 def normalize_schema_version(value: object | None) -> int:
@@ -158,6 +176,7 @@ def load_repo_config(root: Path) -> dict:
             "track": False,
             "worktree_ledger": "symlink",
             "git_delivery": None,
+            "planning": PLANNING_CLASSIC,
             "schema_version": 1,
             "w2c_version": "unknown",
         }
@@ -169,10 +188,20 @@ def load_repo_config(root: Path) -> dict:
     w2c_version = str(raw_version).strip() if raw_version is not None else ""
     if not w2c_version:
         w2c_version = "unknown"
+    raw_planning = data.get("planning")
+    try:
+        planning = (
+            normalize_planning(raw_planning)
+            if raw_planning is not None
+            else PLANNING_CLASSIC
+        )
+    except LocalError:
+        planning = PLANNING_CLASSIC
     return {
         "track": bool(data.get("track", False)),
         "worktree_ledger": ledger,
         "git_delivery": normalize_git_delivery(data.get("git_delivery")),
+        "planning": planning,
         "schema_version": normalize_schema_version(data.get("schema_version")),
         "w2c_version": w2c_version,
     }
@@ -184,6 +213,7 @@ def dump_repo_config(
     git_delivery: str | None = None,
     schema_version: int | None = None,
     w2c_version: str | None = None,
+    planning: str | None = None,
 ) -> str:
     if worktree_ledger not in {"symlink", "copy"}:
         worktree_ledger = "symlink"
@@ -203,6 +233,7 @@ def dump_repo_config(
     gd = normalize_git_delivery(git_delivery)
     if gd is not None:
         lines.append("git_delivery = " + q + gd + q)
+    lines.append("planning = " + q + normalize_planning(planning) + q)
     lines.append("schema_version = " + str(int(schema_version)))
     lines.append("w2c_version = " + q + str(w2c_version) + q)
     return chr(10).join(lines) + chr(10)
@@ -214,6 +245,7 @@ def write_repo_config(
     track: bool | None = None,
     worktree_ledger: str | None = None,
     git_delivery: str | None = None,
+    planning: str | None = None,
 ) -> None:
     current = load_repo_config(root)
     if track is None:
@@ -222,6 +254,8 @@ def write_repo_config(
         worktree_ledger = str(current.get("worktree_ledger") or "symlink")
     if git_delivery is None:
         git_delivery = current.get("git_delivery")
+    if planning is None:
+        planning = str(current.get("planning") or PLANNING_CLASSIC)
     from w2c import __version__ as pkg_version
 
     path = repo_config_path(root)
@@ -234,6 +268,7 @@ def write_repo_config(
             git_delivery,
             schema_version=CURRENT_SCHEMA_VERSION,
             w2c_version=pkg_version,
+            planning=str(planning),
         ),
         encoding="utf-8",
     )

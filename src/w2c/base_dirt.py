@@ -110,10 +110,16 @@ def _norm(path: str) -> str:
     return path.replace("\\", "/").lstrip("/")
 
 
-def is_excluded(path: str) -> bool:
-    """Ledger paths are expected plan dirt, not base-branch product dirt."""
+def is_excluded(path: str, extra_prefixes: tuple[str, ...] | list[str] = ()) -> bool:
+    """Ledger paths and an active change folder are expected plan dirt."""
     norm = _norm(path)
-    return norm == ".w2c" or norm.startswith(".w2c/")
+    if norm == ".w2c" or norm.startswith(".w2c/"):
+        return True
+    for prefix in extra_prefixes:
+        cleaned = _norm(prefix).rstrip("/")
+        if cleaned and (norm == cleaned or norm.startswith(cleaned + "/")):
+            return True
+    return False
 
 
 def is_critical_path(path: str) -> bool:
@@ -160,7 +166,10 @@ def parse_porcelain_line(line: str) -> tuple[str, str] | None:
     return xy, path
 
 
-def classify_entries(entries: list[tuple[str, str]]) -> DirtReport:
+def classify_entries(
+    entries: list[tuple[str, str]],
+    extra_prefixes: tuple[str, ...] | list[str] = (),
+) -> DirtReport:
     critical: list[str] = []
     other: list[str] = []
     tracked: list[str] = []
@@ -168,7 +177,7 @@ def classify_entries(entries: list[tuple[str, str]]) -> DirtReport:
     seen_other: set[str] = set()
     seen_tracked: set[str] = set()
     for xy, path in entries:
-        if is_excluded(path):
+        if is_excluded(path, extra_prefixes):
             continue
         if is_critical_path(path):
             if path not in seen_critical:
@@ -207,16 +216,22 @@ def git_porcelain(root: str) -> str:
     return proc.stdout
 
 
-def scan_base_dirt(root: str) -> DirtReport:
+def scan_base_dirt(
+    root: str,
+    extra_prefixes: tuple[str, ...] | list[str] = (),
+) -> DirtReport:
     entries: list[tuple[str, str]] = []
     for line in git_porcelain(root).splitlines():
         parsed = parse_porcelain_line(line)
         if parsed is not None:
             entries.append(parsed)
-    return classify_entries(entries)
+    return classify_entries(entries, extra_prefixes)
 
 
-def cmd_base_dirt(root: str) -> int:
-    report = scan_base_dirt(root)
+def cmd_base_dirt(
+    root: str,
+    extra_prefixes: tuple[str, ...] | list[str] = (),
+) -> int:
+    report = scan_base_dirt(root, extra_prefixes)
     print(json.dumps(report.to_dict(), indent=2))
     return 0

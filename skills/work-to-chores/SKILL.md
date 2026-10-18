@@ -10,7 +10,7 @@ description: >-
 
 # Work to Chores
 
-Requires: w2c >= 0.5.0
+Requires: w2c >= 1.0.0
 
 **Plan only.** Interview, review, plan, validate, write `.w2c/` artifacts. Never implement product code.
 
@@ -40,6 +40,58 @@ If `.w2c/` ledger files are missing, run `w2c init`.
 Read `.w2c/config.toml`: `track = true` means plan artifacts are committed; default `track = false` keeps `.w2c/` gitignored.
 
 **Worktree skill (mode-dependent):** as soon as Isolation mode is chosen as `worktree` (Stage 3), confirm **using-git-worktrees** is invocable the same way other skills are checked. If missing: **STOP**. Log `--stage prereq --event stop --detail "missing using-git-worktrees"`. Tell the user to add the Superpowers using-git-worktrees skill. Do not invent a substitute worktree procedure. Re-check before Stage 5 handoff if mode is still `worktree`.
+
+## Planning mode
+
+Default is OpenSpec. Record the choice before Stage 1:
+
+```bash
+w2c decide --scope planning --decision "planning mode" --choice openspec --rationale "org standard"
+```
+
+Use `classic` when the user said `classic` or `legacy` (`legacy` is an alias of `classic`).
+
+- **OpenSpec** (default): one milestone is one OpenSpec change. Behavior specs stay in `openspec/changes/<slug>/`. W2C delivery rules stay in `.w2c/plans/M###-<slug>/`. Do not fork the spec-driven schema.
+- **Classic**: follow the stages below exactly as they stand. Do not run `openspec`. Do not create `openspec/`.
+
+### OpenSpec install (ask first)
+
+Skip this when the mode is classic.
+
+Run `w2c openspec-check`. Read the JSON. If `needs` contains `NEED_OPENSPEC_INSTALL` or `NEED_OPENSPEC_INIT`, stop and ask the user before changing the machine or the project. On no: stop, or offer classic. On yes, follow this prompt and stop where it tells you to stop:
+
+```text
+Fetch https://raw.githubusercontent.com/Fission-AI/OpenSpec/main/install.md and follow it.
+```
+
+That prompt's own stops still apply: confirm before installing, no sudo, never edit shell startup files, and list what `openspec init` will delete before it runs. Adding the W2C rules snippet to `openspec/config.yaml` (`rules.tasks` containing `W2C-OPENSPEC-RULES`, from `w2c.openspec.CONFIG_RULES_SNIPPET`) needs its own yes. Re-run `w2c openspec-check` after install or init.
+
+### OpenSpec additions to Stages 1–3
+
+Keep the interview contract. Also:
+
+- Evidence includes `openspec list --specs` and `openspec show <id> --type spec` before you name a capability. Reuse an existing capability path when the behavior already exists.
+- Stage 3 grills one capabilities question: which capabilities are new, which existing ones change, or `skip_specs` when behavior does not change. Save it with `w2c decide`.
+- A slice is one `## N.` group in `tasks.md`. A task is `- [ ] N.M` plus an indented `- Verify:` line. Slice plan files stay delivery envelopes and contain no task checkboxes. Copy `templates/openspec/M-S-PLAN.md`.
+- Isolation, base dirt, manual test, and commit conventions grilling are unchanged. Conventions must also say `openspec/` is product content and is never deny-listed.
+
+### OpenSpec write (only after Stage 5 approval)
+
+1. `w2c milestone-new --slug <change> --planning openspec`. That runs `openspec new change` and writes `x-w2c-milestone`.
+2. For each artifact, run `openspec instructions <artifact> --change <change> --json` and write the file it names. Order is proposal, then specs, then design, then tasks.
+3. Fill the sidecar: slices as `- [ ] **S0N: title**` matching `## N.` groups, Git Operation Plan, conventions, and Decision Rationale in `M###-CONTEXT.md`.
+4. `openspec validate <change> --strict` and `w2c smoke`. A format-only failure can be fixed in place. A content change goes back to Stage 1 with a new CONTEXT version.
+
+### Spec-commit gate (OpenSpec mode, always)
+
+After smoke passes, ask for approval to commit the change folder. This is not a push.
+
+1. Follow **Applying Base dirt policy**. `w2c base-dirt` ignores this milestone's `openspec/changes/<change>/`.
+2. Create or check out the ticket branch under those rules. Never force.
+3. Commit only `openspec/changes/<change>/`. When `track = true`, a separate plan commit may also include `.w2c/` plan files except `runtime/`. Files from `openspec init` need their own yes. Never stage deny-listed paths. Never mention any `.w2c/` path in the message. Never add a `Co-authored-by` trailer.
+4. Do not push.
+
+Log `--stage plan-commit --event complete` with the branch name. Then tell the user to run `do-chores`. Classic mode still uses the plan-commit gate below, and only when `track = true`.
 
 ## Status writes
 
@@ -135,6 +187,10 @@ Log `--stage reorder --event started`.
 6. `w2c smoke`. Log `--stage reorder --event complete`.
 
 Then stop. Do not write product code.
+
+## Classic planning stages
+
+OpenSpec mode follows these stages and the OpenSpec additions above. Classic mode (`work-to-chores classic` or `legacy`) follows only these stages.
 
 ## Stage 1 - Gather context
 

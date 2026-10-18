@@ -1,6 +1,6 @@
 # How to use work-to-chores
 
-Say `work to chores` (or `/work-to-chores`) and paste a ticket, spec, or a short description of the work. The agent will interview you, check the codebase, and write a plan under `.w2c/`. It will not change product code.
+Say `work to chores` (or `/work-to-chores`) and paste a ticket. Add `classic` or `legacy` to keep the older milestone task lists; otherwise the plan is an OpenSpec change. , spec, or a short description of the work. The agent will interview you, check the codebase, and write a plan under `.w2c/`. It will not change product code.
 
 Interviews are **evidence-first**: before each question the agent searches the repo and shows facts, then offers a recommended choice plus alternatives (~4 when useful; fewer or more as the situation needs) with pros, cons, examples, outcomes, and a mermaid diagram. Chosen approaches are written into each milestone `M###-CONTEXT.md` **Decision Rationale**.
 

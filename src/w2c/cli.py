@@ -15,6 +15,8 @@ from w2c import __version__
 from w2c import base_dirt
 from w2c import local as w2c_local
 from w2c import git_delivery as w2c_gd
+from w2c import openspec as w2c_openspec
+from w2c import openspec_ledger
 from w2c.skills_install import install_skills, write_copilot_instructions
 
 STATUS_EMOJI = {
@@ -176,6 +178,7 @@ class Task:
     done: bool
     plan_path: Path
     verify: str = ""
+    openspec_id: str = ""
 
 
 @dataclass
@@ -540,9 +543,7 @@ def all_tasks(root: Path, milestones: list[Milestone] | None = None) -> list[Tas
                 if sm:
                     slices.append((sm.group(1), False, ""))
         for sid, _done, _title in slices:
-            p = d / f"{mil.mid}-{sid}-PLAN.md"
-            if p.is_file():
-                found.extend(parse_tasks(p, mil.mid, sid))
+            found.extend(openspec_ledger.tasks_in_slice(root, mil.mid, sid, d))
     return found
 
 
@@ -558,7 +559,7 @@ def filter_tasks(
     if slice_id:
         out = [t for t in out if t.sid == slice_id]
     if task_id:
-        out = [t for t in out if t.tid == task_id]
+        out = [t for t in out if t.tid == task_id or t.openspec_id == task_id]
     return out
 
 
@@ -772,7 +773,12 @@ def resolve_git_delivery(
         raise W2CError(str(e)) from e
 
 
-def cmd_init(root: Path, track: bool | None = None, git_delivery: str | None = None) -> int:
+def cmd_init(
+    root: Path,
+    track: bool | None = None,
+    git_delivery: str | None = None,
+    planning: str | None = None,
+) -> int:
     wdir = w2c_dir(root)
     wdir.mkdir(parents=True, exist_ok=True)
     (wdir / "plans").mkdir(exist_ok=True)
@@ -800,12 +806,24 @@ def cmd_init(root: Path, track: bool | None = None, git_delivery: str | None = N
         created.append("contexts/CONTEXTv1.0.md")
     rebuild_ledger(root)
     gd = resolve_git_delivery(root, git_delivery)
-    if not w2c_local.repo_config_path(root).is_file():
-        w2c_local.write_repo_config(root, track=bool(track), git_delivery=gd)
+    creating = not w2c_local.repo_config_path(root).is_file()
+    if planning is None:
+        chosen_planning = w2c_local.PLANNING_OPENSPEC if creating else None
+    else:
+        chosen_planning = w2c_local.normalize_planning(planning)
+    if creating:
+        w2c_local.write_repo_config(
+            root,
+            track=bool(track),
+            git_delivery=gd,
+            planning=chosen_planning or w2c_local.PLANNING_OPENSPEC,
+        )
     else:
         kwargs: dict = {"git_delivery": gd}
         if track is True:
             kwargs["track"] = True
+        if chosen_planning is not None:
+            kwargs["planning"] = chosen_planning
         w2c_local.write_repo_config(root, **kwargs)
     track_flag = True if track is True else w2c_local.is_track_enabled(root)
     w2c_local.ensure_gitignore(root, track=track_flag)
@@ -819,6 +837,9 @@ def cmd_init(root: Path, track: bool | None = None, git_delivery: str | None = N
         detail=", ".join(created) or "already present",
     )
     print("initialized .w2c/" + (f" ({', '.join(created)})" if created else " (already present)"))
+    if w2c_local.load_repo_config(root).get("planning") == w2c_local.PLANNING_OPENSPEC:
+        for token in w2c_openspec.check(root)["needs"]:
+            print(token)
     return 0
 
 
@@ -840,6 +861,7 @@ def task_to_dict(t: Task) -> dict:
         "title": t.title,
         "plan_path": str(t.plan_path),
         "verify": t.verify,
+        "openspec_id": t.openspec_id,
     }
 
 
@@ -860,22 +882,42 @@ def cmd_next(
 
 
 def cmd_complete(root: Path, mid: str, sid: str, tid: str) -> int:
-    path = slice_plan_path(root, mid, sid)
-    if path is None:
-        raise W2CError(f"slice plan not found for {mid} {sid}")
     d = plan_dir_for(root, mid)
     if d is None:
         raise W2CError(f"plan folder not found for {mid}")
-    require_report(task_summary_path(d, sid, tid), f"{sid}-{tid}-SUMMARY.md")
-    tasks = parse_tasks(path, mid, sid)
-    match = [t for t in tasks if t.tid == tid]
-    if not match:
-        raise W2CError(f"unknown task {mid} {sid} {tid}")
-    if match[0].done:
-        raise W2CError(f"{tid} is already complete")
-    atomic_write(path, set_task_checked(read_text(path), tid, True))
+    mroad = d / f"{mid}-ROADMAP.md"
+    mtext = read_text(mroad) if mroad.is_file() else ""
+    if openspec_ledger.planning_mode(mtext) == w2c_local.PLANNING_OPENSPEC:
+        tasks = openspec_ledger.tasks_in_slice(root, mid, sid, d)
+        match = [t for t in tasks if t.tid == tid or t.openspec_id == tid]
+        if not match:
+            raise W2CError(f"unknown task {mid} {sid} {tid}")
+        task = match[0]
+        tid = task.tid
+        require_report(task_summary_path(d, sid, tid), f"{sid}-{tid}-SUMMARY.md")
+        if task.done:
+            raise W2CError(f"{tid} is already complete")
+        path = task.plan_path
+        atomic_write(
+            path,
+            openspec_ledger.set_task_checked(read_text(path), task.openspec_id, True),
+        )
+    else:
+        path = slice_plan_path(root, mid, sid)
+        if path is None:
+            raise W2CError(f"slice plan not found for {mid} {sid}")
+        require_report(task_summary_path(d, sid, tid), f"{sid}-{tid}-SUMMARY.md")
+        tasks = parse_tasks(path, mid, sid)
+        match = [t for t in tasks if t.tid == tid]
+        if not match:
+            raise W2CError(f"unknown task {mid} {sid} {tid}")
+        if match[0].done:
+            raise W2CError(f"{tid} is already complete")
+        atomic_write(path, set_task_checked(read_text(path), tid, True))
 
-    remaining = [t for t in parse_tasks(path, mid, sid) if not t.done]
+    remaining = [
+        t for t in openspec_ledger.tasks_in_slice(root, mid, sid, d) if not t.done
+    ]
     road_path = w2c_dir(root) / "ROADMAP.md"
     mils = parse_milestones(read_text(road_path))
     mil = next((m for m in mils if m.mid == mid), None)
@@ -917,7 +959,7 @@ def cmd_slice_complete(root: Path, mid: str, sid: str) -> int:
     path = slice_plan_path(root, mid, sid)
     if path is None:
         raise W2CError(f"slice plan not found for {mid} {sid}")
-    tasks = parse_tasks(path, mid, sid)
+    tasks = openspec_ledger.tasks_in_slice(root, mid, sid, d)
     if not tasks:
         raise W2CError(f"no tasks in {mid} {sid}")
     open_tasks = [t.tid for t in tasks if not t.done]
@@ -986,7 +1028,9 @@ def cmd_set(
     return 0
 
 
-def cmd_milestone_status(root: Path, mid: str, status: str) -> int:
+def cmd_milestone_status(
+    root: Path, mid: str, status: str, archive_declined: bool = False
+) -> int:
     status = status.upper()
     if status not in STATUS_EMOJI:
         raise W2CError(f"invalid status {status}; use {', '.join(VALID_STATUSES)}")
@@ -1011,6 +1055,7 @@ def cmd_milestone_status(root: Path, mid: str, status: str) -> int:
             raise W2CError(f"slices still open in {mid}: {', '.join(open_sids)}")
         require_report(milestone_validation_path(d, mid), f"{mid}-VALIDATION.md")
         require_report(milestone_summary_path(d, mid), f"{mid}-SUMMARY.md")
+        openspec_ledger.require_archive_for_done(root, mid, d, archive_declined)
     road = w2c_dir(root) / "ROADMAP.md"
     atomic_write(road, set_milestone_status_in_roadmap(read_text(road), mid, status))
     mils = parse_milestones(read_text(road))
@@ -1046,15 +1091,89 @@ def slugify(s: str) -> str:
     return s.strip("-") or "milestone"
 
 
-def cmd_milestone_new(root: Path, slug: str) -> int:
+def load_checkout_template(rel: str) -> str:
+    here = Path(__file__).resolve()
+    candidates: list[Path] = []
+    asset = _package_asset("templates")
+    if asset is not None:
+        candidates.append(asset / rel)
+    if len(here.parents) >= 3:
+        candidates.append(here.parents[2] / "templates" / rel)
+    candidates.append(w2c_local.data_home() / "templates" / rel)
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate.read_text(encoding="utf-8")
+    raise W2CError(f"missing template templates/{rel}")
+
+
+def cmd_spec_archive(root: Path, mid: str) -> int:
+    plan_dir = plan_dir_for(root, mid)
+    if plan_dir is None:
+        raise W2CError(f"plan folder not found for {mid}")
+    path = plan_dir / f"{mid}-ROADMAP.md"
+    if not path.is_file():
+        raise W2CError(f"missing {mid}-ROADMAP.md")
+    text = read_text(path)
+    if openspec_ledger.planning_mode(text) != w2c_local.PLANNING_OPENSPEC:
+        raise W2CError(f"{mid} is not an OpenSpec milestone")
+    name = openspec_ledger.change_name(text)
+    if not name:
+        raise W2CError(f"{mid} has no OpenSpec change name")
+    if openspec_ledger.is_archived(text):
+        raise W2CError(f"{mid} is already archived")
+    try:
+        data = w2c_openspec.archive(root, name)
+    except w2c_openspec.OpenSpecError as exc:
+        raise W2CError(str(exc)) from exc
+    info = data.get("archive") if isinstance(data, dict) else None
+    archived_as = str(info.get("archivedAs") or "") if isinstance(info, dict) else ""
+    raw_path = str(info.get("path") or "") if isinstance(info, dict) else ""
+    recorded = archived_as or raw_path
+    if raw_path:
+        try:
+            recorded = str(Path(raw_path).resolve().relative_to(root.resolve()))
+        except ValueError:
+            recorded = raw_path
+    atomic_write(path, openspec_ledger.set_guardrail_field(text, "OpenSpec archive", recorded))
+    print(f"archived {name} as {archived_as or recorded}")
+    return 0
+
+
+def cmd_openspec_check(root: Path) -> int:
+    print(json.dumps(w2c_openspec.check(root), indent=2))
+    return 0
+
+
+def cmd_milestone_new(root: Path, slug: str, planning: str | None = None) -> int:
     slug = slugify(slug)
+    if planning is None:
+        mode = str(
+            w2c_local.load_repo_config(root).get("planning") or w2c_local.PLANNING_CLASSIC
+        )
+    else:
+        mode = w2c_local.normalize_planning(planning)
     mid = next_milestone_id(root)
     title = slug.replace("-", " ")
+    if mode == w2c_local.PLANNING_OPENSPEC:
+        try:
+            created = w2c_openspec.new_change(root, slug, goal=title)
+        except w2c_openspec.OpenSpecError as exc:
+            raise W2CError(str(exc)) from exc
+        change = created.get("change") if isinstance(created, dict) else None
+        meta = str(change.get("metadataPath") or "") if isinstance(change, dict) else ""
+        if not meta:
+            raise W2CError("openspec new change did not return metadataPath")
+        w2c_openspec.link_milestone(Path(meta), mid)
+        roadmap_body = load_checkout_template("openspec/M-ROADMAP.md").format(
+            mid=mid, title=title, slug=slug
+        )
+    else:
+        roadmap_body = M_ROADMAP_STUB.format(mid=mid, title=title, slug=slug)
     d = w2c_dir(root) / "plans" / f"{mid}-{slug}"
     if d.exists():
         raise W2CError(f"already exists: {d}")
     d.mkdir(parents=True)
-    atomic_write(d / f"{mid}-ROADMAP.md", M_ROADMAP_STUB.format(mid=mid, title=title, slug=slug))
+    atomic_write(d / f"{mid}-ROADMAP.md", roadmap_body if roadmap_body.endswith("\n") else roadmap_body + "\n")
     atomic_write(d / f"{mid}-CONTEXT.md", M_CONTEXT_STUB.format(mid=mid, title=title))
     road = w2c_dir(root) / "ROADMAP.md"
     text = read_text(road) or ROADMAP_TEMPLATE
@@ -1547,9 +1666,9 @@ def run_smoke(root: Path) -> Report:
             details.append(f"{mil.mid} duplicate slices")
         for sid, _done, _t in slices:
             p = d / f"{mil.mid}-{sid}-PLAN.md"
-            if not p.is_file():
+            tids = [t.tid for t in openspec_ledger.tasks_in_slice(root, mil.mid, sid, d)]
+            if not tids and not p.is_file():
                 continue
-            tids = [t.tid for t in parse_tasks(p, mil.mid, sid)]
             if len(tids) != len(set(tids)):
                 task_ok = False
                 details.append(f"{mil.mid}/{sid} duplicate tasks")
@@ -1775,10 +1894,9 @@ def run_smoke(root: Path) -> Report:
         slices = parse_slices(read_text(mroad)) if mroad.is_file() else []
         for sid, done, _title in slices:
             p = d / f"{mil.mid}-{sid}-PLAN.md"
-            if p.is_file():
-                for t in parse_tasks(p, mil.mid, sid):
-                    if t.done and not report_present(task_summary_path(d, sid, t.tid)):
-                        missing.append(f"{sid}-{t.tid}-SUMMARY.md")
+            for t in openspec_ledger.tasks_in_slice(root, mil.mid, sid, d):
+                if t.done and not report_present(task_summary_path(d, sid, t.tid)):
+                    missing.append(f"{sid}-{t.tid}-SUMMARY.md")
             if done:
                 if not report_present(slice_uat_path(d, sid)):
                     missing.append(f"{sid}-UAT.md")
@@ -1794,6 +1912,9 @@ def run_smoke(root: Path) -> Report:
         "FAIL" if missing else "PASS",
         "; ".join(missing[:12]),
     )
+
+    for name, status, detail in openspec_ledger.smoke_checks(root, mils):
+        report.add(name, status, detail)
 
     return report
 
@@ -1897,6 +2018,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--track", action="store_true", help="commit .w2c ledger and Copilot W2C files"
     )
     init_p.add_argument(
+        "--planning",
+        choices=["openspec", "classic", "legacy"],
+        default=None,
+        help="planning backbone for new milestones (default openspec on first init)",
+    )
+    init_p.add_argument(
         "--git-delivery",
         dest="git_delivery",
         choices=sorted(w2c_local.GIT_DELIVERY_VALUES),
@@ -1909,6 +2036,15 @@ def build_parser() -> argparse.ArgumentParser:
         "base-dirt",
         help="classify untracked and modified files before creating a branch",
     )
+    sub.add_parser(
+        "openspec-check",
+        help="print JSON: OpenSpec CLI, project root, and W2C rules",
+    )
+    spec_archive = sub.add_parser(
+        "spec-archive",
+        help="archive an OpenSpec change and record it on the milestone",
+    )
+    spec_archive.add_argument("mid")
     sub.add_parser("next-milestone-id", help="print next unused M###")
 
     n = sub.add_parser("next", help="next open task")
@@ -1927,6 +2063,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     mcp = sub.add_parser("milestone-complete", help="mark milestone DONE (requires VALIDATION + SUMMARY)")
     mcp.add_argument("mid")
+    mcp.add_argument(
+        "--archive-declined",
+        action="store_true",
+        help="finish an OpenSpec milestone without archiving; prints a follow-up",
+    )
 
     s = sub.add_parser("set", help="update active pointer")
     s.add_argument("--active-milestone", default=None)
@@ -1939,6 +2080,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     mn = sub.add_parser("milestone-new", help="allocate M### and create stubs")
     mn.add_argument("--slug", required=True)
+    mn.add_argument(
+        "--planning",
+        choices=["openspec", "classic", "legacy"],
+        default=None,
+        help="openspec (default from config) or classic; legacy is an alias of classic",
+    )
 
     d = sub.add_parser("decide", help="append a decisions row")
     d.add_argument("--scope", required=True)
@@ -2031,6 +2178,7 @@ def dispatch(args: argparse.Namespace) -> int:
             root,
             track=True if getattr(args, "track", False) else None,
             git_delivery=getattr(args, "git_delivery", None),
+            planning=getattr(args, "planning", None),
         )
     if cmd == "status":
         return cmd_status(root)
@@ -2038,9 +2186,15 @@ def dispatch(args: argparse.Namespace) -> int:
         return cmd_smoke(root)
     if cmd == "base-dirt":
         try:
-            return base_dirt.cmd_base_dirt(str(root))
+            return base_dirt.cmd_base_dirt(
+                str(root), extra_prefixes=openspec_ledger.change_prefixes(root)
+            )
         except base_dirt.BaseDirtError as exc:
             raise W2CError(str(exc)) from exc
+    if cmd == "openspec-check":
+        return cmd_openspec_check(root)
+    if cmd == "spec-archive":
+        return cmd_spec_archive(root, args.mid)
     if cmd == "next":
         return cmd_next(root, args.milestone, args.slice_id, args.task_id)
     if cmd == "complete":
@@ -2048,7 +2202,9 @@ def dispatch(args: argparse.Namespace) -> int:
     if cmd == "slice-complete":
         return cmd_slice_complete(root, args.milestone, args.slice_id)
     if cmd == "milestone-complete":
-        return cmd_milestone_status(root, args.mid, "DONE")
+        return cmd_milestone_status(
+            root, args.mid, "DONE", archive_declined=bool(args.archive_declined)
+        )
     if cmd == "set":
         return cmd_set(root, args.active_milestone, args.active_slice, args.phase)
     if cmd == "milestone-status":
@@ -2056,7 +2212,7 @@ def dispatch(args: argparse.Namespace) -> int:
     if cmd == "next-milestone-id":
         return cmd_next_milestone_id(root)
     if cmd == "milestone-new":
-        return cmd_milestone_new(root, args.slug)
+        return cmd_milestone_new(root, args.slug, getattr(args, "planning", None))
     if cmd == "milestone-order":
         return cmd_milestone_order(root, args.mids)
     if cmd == "milestone-swap":
@@ -2107,7 +2263,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         return dispatch(args)
-    except (W2CError, w2c_local.GitDeliveryError) as e:
+    except (W2CError, w2c_local.GitDeliveryError, w2c_local.LocalError, w2c_openspec.OpenSpecError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
 
