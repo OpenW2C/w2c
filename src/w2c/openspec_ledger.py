@@ -18,6 +18,7 @@ TASK_RE = re.compile(
     r"^(?P<indent>\s*)(?:[-*+]|\d{1,9}[.)])\s+\[(?P<mark>[ xX])\]\s+"
     r"(?P<major>\d+)\.(?P<minor>\d+)\s+(?P<title>.*)$"
 )
+APPLY_TASK_ID_RE = re.compile(r"^(?P<major>\d+)\.(?P<minor>\d+)(?:\s|$)")
 VERIFY_RE = re.compile(r"^\s+- Verify:\s*(.*)$")
 LINK_RE = re.compile(r"(?m)^x-w2c-milestone\s*:\s*(\S+)\s*$")
 SLICE_NUM_RE = re.compile(r"^S(\d+)$")
@@ -231,6 +232,33 @@ def require_archive_for_done(root: Path, mid: str, plan_dir: Path, archive_decli
     )
 
 
+def apply_checkbox_progress(tasks: object) -> dict[str, bool] | None:
+    """Map each apply task's leading major.minor checkbox id to its done flag.
+
+    Returns None when ``tasks`` is not a list, an item is not an object, a
+    description does not start with that id, or the same id appears twice.
+    """
+    if tasks is None:
+        tasks = []
+    if not isinstance(tasks, list):
+        return None
+    progress: dict[str, bool] = {}
+    for item in tasks:
+        if not isinstance(item, dict):
+            return None
+        description = item.get("description")
+        if not isinstance(description, str):
+            return None
+        match = APPLY_TASK_ID_RE.match(description)
+        if match is None:
+            return None
+        openspec_id = f"{int(match.group('major'))}.{int(match.group('minor'))}"
+        if openspec_id in progress:
+            return None
+        progress[openspec_id] = bool(item.get("done"))
+    return progress
+
+
 def _slice_numbers(text: str) -> list[int]:
     numbers: list[int] = []
     for sid, _done, _title in _cli().parse_slices(text):
@@ -368,12 +396,8 @@ def smoke_checks(root: Path, milestones: list) -> list[tuple[str, str, str]]:
                 task.openspec_id: task.done
                 for task in parse_openspec_tasks(tasks_path, milestone.mid)
             }
-            theirs = {
-                str(item.get("id")): bool(item.get("done"))
-                for item in apply.get("tasks") or []
-                if item.get("id")
-            }
-            if ours != theirs:
+            theirs = apply_checkbox_progress(apply.get("tasks"))
+            if theirs is None or ours != theirs:
                 progress_problems.append(
                     f"{milestone.mid}: tasks.md checkboxes disagree with openspec instructions apply"
                 )

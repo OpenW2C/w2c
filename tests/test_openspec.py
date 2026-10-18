@@ -12,6 +12,7 @@ import sys
 import tempfile
 import unittest
 from contextlib import redirect_stdout
+from unittest.mock import patch
 from pathlib import Path
 
 SRC = Path(__file__).resolve().parents[1] / "src"
@@ -231,6 +232,68 @@ class OpenSpecTests(unittest.TestCase):
         report = w2c.run_smoke(self.tmp)
         names = {check.name: check for check in report.checks}
         self.assertEqual(names["openspec-progress-agrees"].status, "FAIL")
+
+    def test_progress_compares_dotted_ids_from_apply_descriptions(self) -> None:
+        w2c.cmd_milestone_new(self.tmp, "add-export", planning="openspec")
+        plan = self.tmp / ".w2c/plans/M001-add-export"
+        write(plan / "M001-ROADMAP.md", filled_roadmap("M001", "add-export"))
+        write(plan / "M001-S01-PLAN.md", filled_slice("M001"))
+        seed_artifacts(self.tmp, "add-export")
+        write(
+            self.tmp / "openspec/changes/add-export/tasks.md",
+            "# Tasks\n\n## 1. Export\n\n"
+            "- [ ] 1.1 Add a failing unit test for the exporter\n"
+            "  - Verify: python3 -c 'print(1)'\n"
+            "- [ ] 1.2 Implement the exporter\n"
+            "  - Verify: python3 -c 'print(2)'\n",
+        )
+        open_tasks = [
+            {
+                "id": "1",
+                "description": "1.1 Add a failing unit test for the exporter",
+                "done": False,
+            },
+            {
+                "id": "2",
+                "description": "1.2 Implement the exporter",
+                "done": False,
+            },
+        ]
+        flipped = [dict(open_tasks[0]), {**open_tasks[1], "done": True}]
+        cases = (
+            ("all open", open_tasks, "PASS"),
+            ("one done flipped", flipped, "FAIL"),
+            ("missing dotted id", [dict(open_tasks[0])], "FAIL"),
+            (
+                "extra dotted id",
+                [
+                    *open_tasks,
+                    {"id": "3", "description": "1.3 Leave a note", "done": False},
+                ],
+                "FAIL",
+            ),
+            (
+                "description without dotted id",
+                [
+                    {
+                        "id": "1",
+                        "description": "Add a failing unit test for the exporter",
+                        "done": False,
+                    },
+                    dict(open_tasks[1]),
+                ],
+                "FAIL",
+            ),
+        )
+        for label, tasks, expected in cases:
+            with self.subTest(label=label):
+                with patch(
+                    "w2c.openspec_ledger.osp.apply_info",
+                    return_value={"tasks": tasks},
+                ):
+                    report = w2c.run_smoke(self.tmp)
+                names = {check.name: check for check in report.checks}
+                self.assertEqual(names["openspec-progress-agrees"].status, expected)
 
     def test_spec_archive_records_path_and_decline_is_explicit(self) -> None:
         w2c.cmd_milestone_new(self.tmp, "add-export", planning="openspec")

@@ -59,10 +59,12 @@ def _tasks(path: Path) -> list[dict]:
         if not match:
             continue
         done = force_done or match.group(1).lower() == "x"
+        dotted = match.group(2)
+        title = match.group(3).strip()
         found.append(
             {
-                "id": match.group(2),
-                "description": match.group(3).strip(),
+                "id": str(len(found) + 1),
+                "description": f"{dotted} {title}".strip(),
                 "done": done,
                 "sourcePath": str(path.resolve()),
                 "line": number,
