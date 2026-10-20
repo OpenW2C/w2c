@@ -5,6 +5,19 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] — 2026-10-20
+
+### Added
+
+- An unfinished milestone, or one that has not started, can be changed in place. `w2c amend-begin` stores an amendment lock in `.w2c/config.toml`. If the milestone is in progress, it is paused first. `w2c next` skips a locked milestone, and asking for that milestone exits with `AMEND_LOCK`. `w2c complete` refuses the lock.
+- `w2c drop-task` and `w2c drop-slice` mark open work dropped (`[d]`) and append a record to `M###-AMENDMENTS.md`. A finished task cannot be dropped. A slice cannot be dropped when any task in it is finished. `w2c task-add`, `w2c slice-add`, and `w2c task-edit` change only open work and do not renumber ids.
+- `w2c follow-up` sets or replaces only the ticket link on a drop. `w2c amendments` prints the record. `w2c amend-end` runs smoke first. On failure the lock stays. On success the lock is cleared. If the milestone was in progress and the batch changed it, it stays paused until you set the status. If nothing changed, the saved status is restored.
+- `do-chores` stops on a blocker for a classic plan and for an Open Specification (OpenSpec) plan. It prints the milestone, slice, and task, and it does not edit the plan or finish the task. `work-to-chores` can amend that milestone only after one approval. Both skills require `w2c >= 2.0.0`.
+
+### Changed
+
+- **BREAKING:** `w2c amend-begin` stamps ledger schema 3. Smoke fails when `schema_version` is newer than this install, so `w2c` 1.1.1 cannot use an amended ledger. A new `w2c init` stamps schema 3. Rewriting an existing config keeps its schema. A ledger that has not been amended stays on its current schema. The oldest readable schema stays 1.
+
 ## [1.1.1] — 2026-10-18
 
 ### Fixed

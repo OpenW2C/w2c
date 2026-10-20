@@ -15,7 +15,7 @@ from w2c.local import PLANNING_CLASSIC, PLANNING_OPENSPEC, normalize_planning
 
 GROUP_RE = re.compile(r"^##\s+(\d+)\.\s+(.*?)\s*$")
 TASK_RE = re.compile(
-    r"^(?P<indent>\s*)(?:[-*+]|\d{1,9}[.)])\s+\[(?P<mark>[ xX])\]\s+"
+    r"^(?P<indent>\s*)(?:[-*+]|\d{1,9}[.)])\s+\[(?P<mark>[ xXdD])\]\s+"
     r"(?P<major>\d+)\.(?P<minor>\d+)\s+(?P<title>.*)$"
 )
 APPLY_TASK_ID_RE = re.compile(r"^(?P<major>\d+)\.(?P<minor>\d+)(?:\s|$)")
@@ -143,6 +143,7 @@ def parse_openspec_tasks(tasks_path: Path, mid: str) -> list:
                 plan_path=tasks_path,
                 verify=verify,
                 openspec_id=f"{major}.{minor}",
+                dropped=match.group("mark").lower() == "d",
             )
         )
     return tasks
@@ -153,6 +154,20 @@ def set_task_checked(text: str, openspec_id: str, checked: bool = True) -> str:
     mark = "x" if checked else " "
     pattern = re.compile(
         rf"^(\s*(?:[-*+]|\d{{1,9}}[.)])\s+\[)[ xX](\]\s+{re.escape(major)}\.{re.escape(minor)}(?:\s|$))",
+        re.M,
+    )
+    updated, count = pattern.subn(rf"\g<1>{mark}\g<2>", text, count=1)
+    if count != 1:
+        raise _cli().W2CError(f"task {openspec_id} not found in tasks.md")
+    return updated
+
+
+def set_task_mark(text: str, openspec_id: str, mark: str) -> str:
+    if mark not in {" ", "x", "d"}:
+        raise _cli().W2CError(f"invalid task mark {mark!r}")
+    major, minor = openspec_id.split(".", 1)
+    pattern = re.compile(
+        rf"^(\s*(?:[-*+]|\d{{1,9}}[.)])\s+\[)[ xXdD](\]\s+{re.escape(major)}\.{re.escape(minor)}(?:\s|$))",
         re.M,
     )
     updated, count = pattern.subn(rf"\g<1>{mark}\g<2>", text, count=1)
@@ -392,11 +407,20 @@ def smoke_checks(root: Path, milestones: list) -> list[tuple[str, str, str]]:
             progress_problems.append(f"{milestone.mid}: {exc}")
             apply = None
         if apply is not None and tasks_path is not None and tasks_path.is_file():
+            parsed = parse_openspec_tasks(tasks_path, milestone.mid)
+            dropped_ids = {task.openspec_id for task in parsed if task.dropped}
             ours = {
                 task.openspec_id: task.done
-                for task in parse_openspec_tasks(tasks_path, milestone.mid)
+                for task in parsed
+                if task.openspec_id not in dropped_ids
             }
             theirs = apply_checkbox_progress(apply.get("tasks"))
+            if theirs is not None:
+                theirs = {
+                    key: value
+                    for key, value in theirs.items()
+                    if key not in dropped_ids
+                }
             if theirs is None or ours != theirs:
                 progress_problems.append(
                     f"{milestone.mid}: tasks.md checkboxes disagree with openspec instructions apply"

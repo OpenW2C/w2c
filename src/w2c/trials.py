@@ -14,8 +14,8 @@ KINDS = ("ordinary", "hostile")
 
 SHARED_GROUPS = ("isolation", "base-dirt", "commit-rules", "hard-stop")
 GROUPS_BOTH: dict[str, tuple[str, ...]] = {
-    "work-to-chores": SHARED_GROUPS + ("interview", "plan-write", "reorder"),
-    "do-chores": SHARED_GROUPS + ("execute", "closeout"),
+    "work-to-chores": SHARED_GROUPS + ("interview", "plan-write", "reorder", "amend"),
+    "do-chores": SHARED_GROUPS + ("execute", "closeout", "blocker"),
 }
 GROUPS_ONE: dict[str, dict[str, tuple[str, ...]]] = {
     "work-to-chores": {
@@ -68,6 +68,9 @@ CONCRETE_TOKENS = (
     "sudo",
     "stage 5",
     "deny-listed",
+    "amend",
+    "dropped",
+    "lock",
 )
 
 

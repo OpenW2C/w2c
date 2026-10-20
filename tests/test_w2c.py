@@ -720,5 +720,221 @@ Do not add `Co-authored-by:` trailers or similar AI co-author lines for Cursor, 
 
 
 
+
+    def _decision(self) -> str:
+        w2c.cmd_decide(
+            self.tmp,
+            "M001",
+            "amendment",
+            "change the plan",
+            "the use case was wrong",
+            "Yes",
+            "collaborative",
+            "2026-10-20",
+        )
+        return "D001"
+
+    def test_drop_skips_next_and_refuses_finished_work(self) -> None:
+        from w2c import amend as w2c_amend
+
+        self._seed_open_tasks()
+        did = self._decision()
+        self.assertEqual(w2c_amend.cmd_amend_begin(self.tmp, "M001", did), 0)
+        self.assertEqual(w2c.cmd_next(self.tmp, "M001", None, None), 1)
+        with self.assertRaises(w2c.W2CError) as locked:
+            w2c.cmd_complete(self.tmp, "M001", "S01", "T01")
+        self.assertIn("AMEND_LOCK", str(locked.exception))
+        self.assertEqual(
+            w2c_amend.cmd_drop_task(self.tmp, "M001", "S01", "T01", "not needed", did),
+            0,
+        )
+        self.assertIsNone(w2c.next_open_task(self.tmp))
+        self.assertEqual(w2c_amend.cmd_amend_end(self.tmp, "M001"), 0)
+        nxt = w2c.next_open_task(self.tmp)
+        assert nxt is not None
+        self.assertEqual(nxt.tid, "T02")
+        self._write_task_summary("S01", "T02")
+        self.assertEqual(w2c.cmd_complete(self.tmp, "M001", "S01", "T02"), 0)
+        self.assertEqual(w2c_amend.cmd_amend_begin(self.tmp, "M001", did), 0)
+        with self.assertRaises(w2c.W2CError) as finished:
+            w2c_amend.cmd_drop_task(self.tmp, "M001", "S01", "T02", "no", did)
+        self.assertIn("finished", str(finished.exception))
+        with self.assertRaises(w2c.W2CError) as whole:
+            w2c_amend.cmd_drop_slice(self.tmp, "M001", "S01", "no", did)
+        self.assertIn("finished", str(whole.exception))
+        self.assertEqual(w2c_amend.cmd_amend_end(self.tmp, "M001"), 0)
+
+    def test_dropped_slice_does_not_block_milestone_complete(self) -> None:
+        from w2c import amend as w2c_amend
+
+        self._seed_open_tasks()
+        did = self._decision()
+        self.assertEqual(w2c_amend.cmd_amend_begin(self.tmp, "M001", did), 0)
+        self.assertEqual(
+            w2c_amend.cmd_drop_slice(self.tmp, "M001", "S01", "slice is unnecessary", did),
+            0,
+        )
+        self._write_milestone_reports("M001")
+        self.assertEqual(w2c_amend.cmd_amend_end(self.tmp, "M001"), 0)
+        self.assertEqual(w2c.cmd_milestone_status(self.tmp, "M001", "DONE"), 0)
+        self.assertFalse((self.tmp / ".w2c/plans/M001-demo/S01-UAT.md").exists())
+
+    def test_mixed_slice_requires_reports_that_name_the_drop(self) -> None:
+        from w2c import amend as w2c_amend
+
+        self._seed_open_tasks()
+        self._write_task_summary("S01", "T01")
+        self.assertEqual(w2c.cmd_complete(self.tmp, "M001", "S01", "T01"), 0)
+        did = self._decision()
+        self.assertEqual(w2c_amend.cmd_amend_begin(self.tmp, "M001", did), 0)
+        self.assertEqual(
+            w2c_amend.cmd_drop_task(self.tmp, "M001", "S01", "T02", "later", did),
+            0,
+        )
+        self.assertEqual(w2c_amend.cmd_amend_end(self.tmp, "M001"), 0)
+        with self.assertRaises(w2c.W2CError):
+            w2c.cmd_slice_complete(self.tmp, "M001", "S01")
+        folder = self.tmp / ".w2c/plans/M001-demo"
+        (folder / "S01-UAT.md").write_text("# S01 UAT\n\n- [ ] walk\n", encoding="utf-8")
+        (folder / "S01-SUMMARY.md").write_text("# S01\n\nshipped T01\n", encoding="utf-8")
+        with self.assertRaises(w2c.W2CError) as unnamed:
+            w2c.cmd_slice_complete(self.tmp, "M001", "S01")
+        self.assertIn("T02", str(unnamed.exception))
+        (folder / "S01-SUMMARY.md").write_text(
+            "# S01\n\nshipped T01\ndropped T02\n", encoding="utf-8"
+        )
+        self.assertEqual(w2c.cmd_slice_complete(self.tmp, "M001", "S01"), 0)
+
+    def test_empty_amend_restores_status_and_a_change_stays_paused(self) -> None:
+        from w2c import amend as w2c_amend
+
+        self._seed_open_tasks()
+        did = self._decision()
+        self.assertEqual(w2c.cmd_milestone_status(self.tmp, "M001", "INPROGRESS"), 0)
+        self.assertEqual(w2c_amend.cmd_amend_begin(self.tmp, "M001", did), 0)
+        status = w2c.parse_milestones(w2c.read_text(self.tmp / ".w2c/ROADMAP.md"))
+        self.assertEqual(status[0].status, "PAUSED")
+        self.assertEqual(w2c_amend.cmd_amend_end(self.tmp, "M001"), 0)
+        status = w2c.parse_milestones(w2c.read_text(self.tmp / ".w2c/ROADMAP.md"))
+        self.assertEqual(status[0].status, "INPROGRESS")
+        self.assertEqual(w2c_local.load_repo_config(self.tmp)["amend_lock"], "")
+        self.assertEqual(w2c_amend.cmd_amend_begin(self.tmp, "M001", did), 0)
+        self.assertEqual(
+            w2c_amend.cmd_drop_task(self.tmp, "M001", "S01", "T02", "defer", did),
+            0,
+        )
+        self.assertEqual(w2c_amend.cmd_amend_end(self.tmp, "M001"), 0)
+        status = w2c.parse_milestones(w2c.read_text(self.tmp / ".w2c/ROADMAP.md"))
+        self.assertEqual(status[0].status, "PAUSED")
+
+    def test_follow_up_replaces_only_the_ticket_link(self) -> None:
+        from w2c import amend as w2c_amend
+
+        self._seed_open_tasks()
+        did = self._decision()
+        self.assertEqual(w2c_amend.cmd_amend_begin(self.tmp, "M001", did), 0)
+        self.assertEqual(
+            w2c_amend.cmd_drop_task(
+                self.tmp,
+                "M001",
+                "S01",
+                "T02",
+                "use case was wrong",
+                did,
+                follow_up="pick up the export later",
+            ),
+            0,
+        )
+        self.assertEqual(
+            w2c_amend.cmd_follow_up(
+                self.tmp, "M001", "S01", "https://example.com/t/1", "T02"
+            ),
+            0,
+        )
+        path = self.tmp / ".w2c/plans/M001-demo/M001-AMENDMENTS.md"
+        text = path.read_text(encoding="utf-8")
+        self.assertIn("- reason: use case was wrong", text)
+        self.assertIn("- follow-up: pick up the export later", text)
+        self.assertIn("- ticket: https://example.com/t/1", text)
+        self.assertEqual(
+            w2c_amend.cmd_follow_up(
+                self.tmp, "M001", "S01", "https://example.com/t/2", "T02"
+            ),
+            0,
+        )
+        updated = path.read_text(encoding="utf-8")
+        self.assertIn("- reason: use case was wrong", updated)
+        self.assertIn("- ticket: https://example.com/t/2", updated)
+        self.assertNotIn("https://example.com/t/1", updated)
+        self.assertEqual(w2c_amend.cmd_amend_end(self.tmp, "M001"), 0)
+
+    def test_rewrite_keeps_schema_until_amend_begin(self) -> None:
+        from w2c import amend as w2c_amend
+
+        cfg = self.tmp / ".w2c/config.toml"
+        cfg.write_text(
+            cfg.read_text(encoding="utf-8").replace(
+                "schema_version = 3", "schema_version = 2"
+            ),
+            encoding="utf-8",
+        )
+        w2c_local.write_repo_config(self.tmp, track=False)
+        self.assertEqual(w2c_local.load_repo_config(self.tmp)["schema_version"], 2)
+        self._seed_open_tasks()
+        did = self._decision()
+        self.assertEqual(w2c.cmd_milestone_status(self.tmp, "M001", "STOP"), 0)
+        with self.assertRaises(w2c.W2CError) as closed:
+            w2c_amend.cmd_amend_begin(self.tmp, "M001", did)
+        self.assertIn("STOP", str(closed.exception))
+        self.assertEqual(w2c.cmd_milestone_status(self.tmp, "M001", "TODO"), 0)
+        self.assertEqual(w2c_amend.cmd_amend_begin(self.tmp, "M001", did), 0)
+        self.assertEqual(w2c_local.load_repo_config(self.tmp)["schema_version"], 3)
+        with self.assertRaises(w2c.W2CError) as second:
+            w2c_amend.cmd_amend_begin(self.tmp, "M001", did)
+        self.assertIn("already held", str(second.exception))
+
+    def test_task_edit_refuses_a_finished_task(self) -> None:
+        from w2c import amend as w2c_amend
+
+        self._seed_open_tasks()
+        did = self._decision()
+        self.assertEqual(w2c_amend.cmd_amend_begin(self.tmp, "M001", did), 0)
+        self.assertEqual(
+            w2c_amend.cmd_task_edit(
+                self.tmp,
+                "M001",
+                "S01",
+                "T02",
+                "Renamed task",
+                "python3 -c 'print(9)'",
+                "clearer title",
+                did,
+            ),
+            0,
+        )
+        plan = (self.tmp / ".w2c/plans/M001-demo/M001-S01-PLAN.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("**T02**: Renamed task", plan)
+        self.assertIn("Verify: python3 -c 'print(9)'", plan)
+        self.assertEqual(w2c_amend.cmd_amend_end(self.tmp, "M001"), 0)
+        self._write_task_summary("S01", "T02")
+        self.assertEqual(w2c.cmd_complete(self.tmp, "M001", "S01", "T02"), 0)
+        self.assertEqual(w2c_amend.cmd_amend_begin(self.tmp, "M001", did), 0)
+        with self.assertRaises(w2c.W2CError) as edited:
+            w2c_amend.cmd_task_edit(
+                self.tmp,
+                "M001",
+                "S01",
+                "T02",
+                "Again",
+                "python3 -c 'print(0)'",
+                "no",
+                did,
+            )
+        self.assertIn("finished", str(edited.exception))
+
+
+
 if __name__ == "__main__":
     unittest.main()

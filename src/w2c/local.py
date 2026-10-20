@@ -124,7 +124,9 @@ GIT_DELIVERY_RECOMMENDED = GIT_DELIVERY_SLICE
 
 # Bump CURRENT only when the .w2c/ on-disk format changes. MIN rises when older
 # schemas are no longer readable without migrate.
-CURRENT_SCHEMA_VERSION = 2
+# Schema 3 adds the dropped checkbox and the amendment lock. Rewriting an
+# existing config keeps its schema. `w2c amend-begin` is what stamps 3.
+CURRENT_SCHEMA_VERSION = 3
 MIN_SUPPORTED_SCHEMA_VERSION = 1
 
 PLANNING_OPENSPEC = "openspec"
@@ -179,6 +181,9 @@ def load_repo_config(root: Path) -> dict:
             "planning": PLANNING_CLASSIC,
             "schema_version": 1,
             "w2c_version": "unknown",
+            "amend_lock": "",
+            "amend_prior_status": "",
+            "amend_decision": "",
         }
     data = parse_toml(path.read_text(encoding="utf-8"))
     ledger = str(data.get("worktree_ledger") or "symlink")
@@ -204,6 +209,9 @@ def load_repo_config(root: Path) -> dict:
         "planning": planning,
         "schema_version": normalize_schema_version(data.get("schema_version")),
         "w2c_version": w2c_version,
+        "amend_lock": str(data.get("amend_lock") or "").strip(),
+        "amend_prior_status": str(data.get("amend_prior_status") or "").strip(),
+        "amend_decision": str(data.get("amend_decision") or "").strip(),
     }
 
 
@@ -214,6 +222,9 @@ def dump_repo_config(
     schema_version: int | None = None,
     w2c_version: str | None = None,
     planning: str | None = None,
+    amend_lock: str = "",
+    amend_prior_status: str = "",
+    amend_decision: str = "",
 ) -> str:
     if worktree_ledger not in {"symlink", "copy"}:
         worktree_ledger = "symlink"
@@ -236,6 +247,10 @@ def dump_repo_config(
     lines.append("planning = " + q + normalize_planning(planning) + q)
     lines.append("schema_version = " + str(int(schema_version)))
     lines.append("w2c_version = " + q + str(w2c_version) + q)
+    if amend_lock:
+        lines.append("amend_lock = " + q + str(amend_lock) + q)
+        lines.append("amend_prior_status = " + q + str(amend_prior_status) + q)
+        lines.append("amend_decision = " + q + str(amend_decision) + q)
     return chr(10).join(lines) + chr(10)
 
 
@@ -246,6 +261,8 @@ def write_repo_config(
     worktree_ledger: str | None = None,
     git_delivery: str | None = None,
     planning: str | None = None,
+    schema_version: int | None = None,
+    amend_update: dict | None = None,
 ) -> None:
     current = load_repo_config(root)
     if track is None:
@@ -256,9 +273,21 @@ def write_repo_config(
         git_delivery = current.get("git_delivery")
     if planning is None:
         planning = str(current.get("planning") or PLANNING_CLASSIC)
+    path = repo_config_path(root)
+    if schema_version is None:
+        schema_version = (
+            int(current["schema_version"]) if path.is_file() else CURRENT_SCHEMA_VERSION
+        )
+    if amend_update is None:
+        amend_lock = str(current.get("amend_lock") or "")
+        amend_prior_status = str(current.get("amend_prior_status") or "")
+        amend_decision = str(current.get("amend_decision") or "")
+    else:
+        amend_lock = str(amend_update.get("amend_lock") or "")
+        amend_prior_status = str(amend_update.get("amend_prior_status") or "")
+        amend_decision = str(amend_update.get("amend_decision") or "")
     from w2c import __version__ as pkg_version
 
-    path = repo_config_path(root)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(
@@ -266,9 +295,12 @@ def write_repo_config(
             bool(track),
             str(worktree_ledger),
             git_delivery,
-            schema_version=CURRENT_SCHEMA_VERSION,
+            schema_version=int(schema_version),
             w2c_version=pkg_version,
             planning=str(planning),
+            amend_lock=amend_lock,
+            amend_prior_status=amend_prior_status,
+            amend_decision=amend_decision,
         ),
         encoding="utf-8",
     )

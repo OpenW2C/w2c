@@ -12,4 +12,6 @@ Say `reorder milestones` (or `swap M012 before M011`) when the work is already p
 
 **Need on this machine:** `w2c` on PATH (`curl install.sh` or `pipx install git+https://github.com/OpenW2C/w2c.git`). Need in the repo: a `.w2c/` ledger with valid `git_delivery` (`w2c init --git-delivery …`).
 
+Say `amend milestone M001` when open work in an existing milestone should be dropped, edited, or added. The agent shows the finished tasks, proposes one batch, and waits for one approval. Finished tasks stay. If dropped work is still wanted later, you can allow the agent to create a ticket after you name the tracker, or you can create the ticket yourself. The link can be empty until then.
+
 Progress logs stay on the machine under `.w2c/runtime/` and are not committed.

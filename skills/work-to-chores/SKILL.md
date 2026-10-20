@@ -3,14 +3,16 @@ name: work-to-chores
 description: >-
   Use when turning a ticket, spec, or work description into an implementation
   plan of milestones, slices, and tasks before any product code is written.
-  Also use to reorder or swap already planned pending milestones.
-  Triggers: work to chores, work-to-chores, /work-to-chores, reorder milestones.
+  Also use to reorder or swap already planned pending milestones, and to amend
+  open work in an unfinished milestone.
+  Triggers: work to chores, work-to-chores, /work-to-chores, reorder milestones,
+  amend milestone.
   Not for executing planned tasks (use do-chores).
 ---
 
 # Work to Chores
 
-Requires: w2c >= 1.0.0
+Requires: w2c >= 2.0.0
 
 **Plan only.** Interview, review, plan, validate, write `.w2c/` artifacts. Never implement product code.
 
@@ -188,13 +190,33 @@ Log `--stage reorder --event started`.
 
 Then stop. Do not write product code.
 
+## Amend an unfinished milestone (no new plan)
+
+If the user wants to drop, change, or add open work in a milestone that already exists, do not start Stage 1 and do not author a new milestone. This is not a reorder.
+
+Allowed statuses are `PLANNING`, `TODO`, `PAUSED`, and `INPROGRESS`. Refused statuses are `DONE`, `STOP`, and `ERROR`.
+
+Log `--stage amend --event started`.
+
+1. Show which tasks are finished. Those stay as written. Do not drop a finished task. Do not drop a slice that has a finished task. Do not change behavior a finished task already implemented.
+2. Propose one batch: each drop, edit, or add, with the reason. For a drop, ask whether anything must be picked up later. If no, the record stores only the reason. If yes, show a short context: what was dropped, why, and what is left. Then ask the user either to allow ticket creation or to create the ticket themselves. `w2c` does not call a tracker. If the user says yes, they name the tracker in that moment and you may create the ticket with tools already available, then store the link. If the user will create it, the link may be empty.
+3. Wait for one approval of the whole batch. If the user says no, revise the batch and ask again. Do not run `w2c amend-begin` before that yes.
+4. After the yes, record one `w2c decide` row and one `w2c context-new`. Use `--major` when a drop or a change to the conditions that mark the work done alters scope. Use `--minor` when the wording changes and the scope stays the same.
+5. Run `w2c amend-begin M### --decision D###`. If the status is `INPROGRESS`, this pauses the milestone and sets the amendment lock so `w2c next` will not execute it. `PLANNING` and `TODO` stay as they are, and the lock is still set.
+6. Apply only the approved commands, each citing that same decision: `w2c drop-task`, `w2c drop-slice`, `w2c task-add`, `w2c slice-add`, and `w2c task-edit`. Append ids. Do not renumber. If `drop-task` prints `NEED_DROP_SLICE`, run `drop-slice` only when that slice drop was in the approved batch; otherwise stop and ask. If it prints `NEED_SLICE_REPORTS` or `NEED_SLICE_COMPLETE`, leave the slice in place. Its closeout still needs `S##-UAT.md` and `S##-SUMMARY.md`, and the summary must name the dropped task ids.
+7. After that same approval, you may edit spec prose: the Open Specification (OpenSpec) proposal, behavior specs, and design, or the classic success criteria. Do not change behavior a finished task already implemented. In OpenSpec mode, run `openspec validate --strict`.
+8. Run `w2c smoke`. On failure the amendment lock stays. On success run `w2c amend-end M###`. If the saved status was `INPROGRESS` and the batch changed the milestone, it stays `PAUSED` until the user sets the status. If there were no mutations, `amend-end` restores the saved status.
+9. `w2c follow-up` can set or replace only the ticket link later. The reason text stays fixed.
+
+Log `--stage amend --event complete` after `amend-end`. Then stop. Do not write product code.
+
 ## Classic planning stages
 
 OpenSpec mode follows these stages and the OpenSpec additions above. Classic mode (`work-to-chores classic` or `legacy`) follows only these stages.
 
 ## Stage 1 - Gather context
 
-Always run this stage, even when a ticket or spec is pasted. A reorder-only request is handled above and does not enter this stage.
+Always run this stage, even when a ticket or spec is pasted. A reorder-only request and an amend-only request are handled above and do not enter this stage.
 
 Log `--stage gather --event started` before interviewing.
 
@@ -483,3 +505,9 @@ Then tell the user: run `do-chores` next; isolation setup (worktree create or br
 - Renumbering milestone ids to change execution order
 - Hand-editing roadmap milestone order, queue order, or the state registry order
 - Swapping with or moving ahead of an `INPROGRESS` milestone. The way through is `w2c milestone-status` to `PAUSED`, `STOP`, or `ERROR`, then reorder
+- Amending a milestone before one approval of the whole batch
+- Dropping a finished task, or a slice that contains a finished task
+- Renumbering task or slice ids during an amendment
+- Hand-editing checkboxes, the amendment lock, or the amendments file
+- Changing behavior a finished task already implemented
+- Creating a ticket before the user allows it and names the tracker

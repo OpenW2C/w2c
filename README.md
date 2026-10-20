@@ -140,10 +140,19 @@ w2c <command>
 | `gitignore-ensure [--track]` | Ensure default or track gitignore entries |
 | `status` | Print STATE.md |
 | `trials` | Check skill trial files for the required guardrail groups in both planning modes |
-| `next [--milestone M###] [--slice S##] [--task T##]` | Next open task |
+| `next [--milestone M###] [--slice S##] [--task T##]` | Next open task. Skips a done task, a dropped task, and a locked milestone |
 | `complete --milestone M### --slice S## --task T##` | Mark task done (requires `S##-T##-SUMMARY.md`; does not close the slice) |
 | `slice-complete --milestone M### --slice S##` | Mark slice done (requires `S##-UAT.md` + `S##-SUMMARY.md`) |
 | `milestone-complete M### [--archive-declined]` | Mark milestone DONE. OpenSpec mode also requires `w2c spec-archive` or `--archive-declined` |
+| `amend-begin M### --decision D###` | Hold the amendment lock. Pause the milestone when it is in progress |
+| `amend-end M###` | Run smoke, then clear the lock. A changed in-progress milestone stays paused |
+| `amendments M###` | Print the amendment record |
+| `drop-task --milestone M### --slice S## --task T## --reason … --decision D### [--follow-up …] [--ticket …]` | Mark one unfinished task dropped (`[d]`) |
+| `drop-slice --milestone M### --slice S## --reason … --decision D### [--follow-up …] [--ticket …]` | Mark a slice dropped when every task in it is unfinished |
+| `task-add --milestone M### --slice S## --title … --verify … --reason … --decision D###` | Append an open task. Ids are not renumbered |
+| `task-edit --milestone M### --slice S## --task T## --title … --verify … --reason … --decision D###` | Change the title and Verify line of an unfinished task |
+| `slice-add --milestone M### --title … --reason … --decision D###` | Append an open slice. Ids are not renumbered |
+| `follow-up --milestone M### --slice S## [--task T##] --ticket …` | Set or replace only the ticket link on a drop |
 | `spec-archive M###` | Archive the OpenSpec change and record the archive path on the milestone |
 | `openspec-check` | Print JSON for the OpenSpec program, the `openspec/` folder, and the W2C rules marker |
 | `set --active-milestone M### [--active-slice S##] [--phase NAME]` | Update active pointer |
@@ -161,7 +170,7 @@ w2c <command>
 | `base-dirt` | Classify untracked and modified files before a milestone branch is created (`w2c --root PATH base-dirt`) |
 | `smoke` | Ledger coherence checks (`schema_version`, `git_delivery`, Git Operation Plan, Commit and PR conventions, optional manual-test guide, optional base-dirt policy) |
 
-Agents must not hand-edit STATE.md, QUEUE.md, ROADMAP status emojis, roadmap milestone order, or `[ ]` / `[x]` on tasks. Execution order is the `ROADMAP.md` line order that `w2c next` walks. Use `w2c milestone-order`, `w2c milestone-swap`, or `w2c milestone-move`. An in-progress or done milestone stays put until it is paused, stopped, or marked error (`ERROR` is rejected).
+Agents must not hand-edit STATE.md, QUEUE.md, ROADMAP status emojis, roadmap milestone order, the amendment lock, the amendments file, or `[ ]` / `[x]` / `[d]` on tasks and slices. Execution order is the `ROADMAP.md` line order that `w2c next` walks. Use `w2c milestone-order`, `w2c milestone-swap`, or `w2c milestone-move`. An in-progress or done milestone stays put until it is paused, stopped, or marked error (`ERROR` is rejected).
 
 **Closeout reports** live with the plan folder. Commit them only when `track = true`. The CLI will not flip the matching status bit until those files exist.
 
@@ -197,7 +206,7 @@ Each project's `.w2c/config.toml` records:
 | `schema_version` | Integer ledger format. Bumped only when the on-disk `.w2c/` shape changes. |
 | `w2c_version` | CLI semver that last wrote the config (informational). |
 
-`w2c init` / `migrate` (and other config writes) stamp both fields. `w2c smoke` compares `schema_version` to this install's supported range and fails with upgrade or migrate guidance on drift.
+`w2c init` stamps `schema_version` and `w2c_version`. A later config rewrite keeps the ledger schema and updates `w2c_version`. `w2c amend-begin` stamps schema 3. `w2c smoke` compares `schema_version` to this install's supported range and fails with upgrade or migrate guidance on drift.
 
 ### What level to bump (major / minor / patch)
 

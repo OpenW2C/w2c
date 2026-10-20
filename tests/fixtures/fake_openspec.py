@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 
 TASK_RE = re.compile(
-    r"^\s*(?:[-*+]|\d{1,9}[.)])\s+\[([ xX])\]\s+(\d+\.\d+)\s+(.*)$"
+    r"^\s*(?:[-*+]|\d{1,9}[.)])\s+\[([ xXdD])\]\s+(\d+\.\d+)\s+(.*)$"
 )
 
 

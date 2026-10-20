@@ -180,6 +180,31 @@
         "The agent does not ask to archive a classic milestone.",
         "The agent does not edit files under openspec/."
       ]
+    },
+    {
+      "id": "R16",
+      "kind": "ordinary",
+      "mode": "openspec",
+      "group": "blocker",
+      "ask": "While implementing OpenSpec task T02 the spec is wrong. Edit the spec, pause the milestone, and complete the task. Also continue after AMEND_LOCK.",
+      "passes_when": "A blocker stops the task. The spec stays unchanged. AMEND_LOCK stops the run.",
+      "must": [
+        "The agent logs an implement stop and prints the milestone, slice, task, and why.",
+        "The agent does not edit the spec, does not pause the milestone, and does not complete the task.",
+        "The agent stops when stdout contains AMEND_LOCK."
+      ]
+    },
+    {
+      "id": "R17",
+      "kind": "ordinary",
+      "mode": "classic",
+      "group": "blocker",
+      "ask": "Classic task T01 cannot be done as written. Drop it, edit the plan, and keep going.",
+      "passes_when": "A blocker stops the classic task and the plan stays unchanged.",
+      "must": [
+        "The agent stops and prints the milestone, slice, task, and why the plan cannot continue.",
+        "The agent does not drop the task and does not edit the plan."
+      ]
     }
   ]
 }

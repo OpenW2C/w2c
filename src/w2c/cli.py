@@ -48,8 +48,8 @@ _EMOJI_ALT = "|".join(
 MILESTONE_LINE_RE = re.compile(
     r"^- +(?P<emoji>" + _EMOJI_ALT + r")\s+\*\*(?P<id>M\d+):\s*(?P<title>.+?)\*\*"
 )
-SLICE_LINE_RE = re.compile(r"^- \[([ xX])\] \*\*(S\d+):")
-TASK_LINE_RE = re.compile(r"^- \[([ xX])\] \*\*(T\d+)\*\*")
+SLICE_LINE_RE = re.compile(r"^- \[([ xXdD])\] \*\*(S\d+):")
+TASK_LINE_RE = re.compile(r"^- \[([ xXdD])\] \*\*(T\d+)\*\*")
 DECISION_ROW_RE = re.compile(r"^\| (D\d+) \|", re.M)
 CONTEXT_FILE_RE = re.compile(r"^CONTEXTv(\d+)\.(\d+)\.md$")
 ID_M = re.compile(r"^M\d+$")
@@ -180,6 +180,25 @@ class Task:
     plan_path: Path
     verify: str = ""
     openspec_id: str = ""
+    dropped: bool = False
+
+
+@dataclass
+class Slice:
+    """One slice checkbox. Iteration yields sid, done, title for older callers."""
+
+    sid: str
+    done: bool
+    title: str
+    dropped: bool = False
+
+    def __iter__(self):
+        yield self.sid
+        yield self.done
+        yield self.title
+
+    def __getitem__(self, index: int):
+        return (self.sid, self.done, self.title)[index]
 
 
 @dataclass
@@ -485,13 +504,21 @@ def slice_plan_path(root: Path, mid: str, sid: str) -> Path | None:
     return p if p.is_file() else None
 
 
-def parse_slices(text: str) -> list[tuple[str, bool, str]]:
-    """Return (sid, done, title)."""
-    out: list[tuple[str, bool, str]] = []
+def parse_slices(text: str) -> list[Slice]:
+    """Return slice checkboxes. A ``d`` mark is dropped, not done and not open."""
+    out: list[Slice] = []
     for line in text.splitlines():
-        m = re.match(r"^- \[([ xX])\] \*\*(S\d+):\s*(.+?)\*\*", line)
+        m = re.match(r"^- \[([ xXdD])\] \*\*(S\d+):\s*(.+?)\*\*", line)
         if m:
-            out.append((m.group(2), m.group(1).lower() == "x", m.group(3).strip()))
+            mark = m.group(1).lower()
+            out.append(
+                Slice(
+                    sid=m.group(2),
+                    done=mark == "x",
+                    title=m.group(3).strip(),
+                    dropped=mark == "d",
+                )
+            )
     return out
 
 
@@ -503,7 +530,9 @@ def parse_tasks(plan_path: Path, mid: str, sid: str) -> list[Task]:
         m = TASK_LINE_RE.match(line)
         if not m:
             continue
-        done = m.group(1).lower() == "x"
+        mark = m.group(1).lower()
+        done = mark == "x"
+        dropped = mark == "d"
         rest = line.split("**" + m.group(2) + "**:", 1)
         title = rest[1].strip() if len(rest) == 2 else line
         title = re.sub(r"_\([^)]*\)_\s*$", "", title).strip().rstrip(".")
@@ -524,6 +553,7 @@ def parse_tasks(plan_path: Path, mid: str, sid: str) -> list[Task]:
                 done=done,
                 plan_path=plan_path,
                 verify=verify,
+                dropped=dropped,
             )
         )
     return tasks
@@ -570,11 +600,41 @@ def next_open_task(
     slice_id: str | None = None,
     task_id: str | None = None,
 ) -> Task | None:
+    locked = amend_lock_mid(root)
     tasks = filter_tasks(all_tasks(root), milestone, slice_id, task_id)
     for t in tasks:
-        if not t.done:
-            return t
+        if not task_is_open(t):
+            continue
+        if locked and t.mid == locked:
+            continue
+        return t
     return None
+
+
+def task_is_open(task: Task) -> bool:
+    return not task.done and not task.dropped
+
+
+def amend_lock_mid(root: Path) -> str:
+    raw = w2c_local.load_repo_config(root).get("amend_lock") or ""
+    return str(raw).strip()
+
+
+def refuse_if_amend_locked(root: Path, mid: str) -> None:
+    locked = amend_lock_mid(root)
+    if locked and locked == mid:
+        raise W2CError(f"AMEND_LOCK {mid}")
+
+
+def ledger_has_dropped(root: Path, milestones: list[Milestone]) -> bool:
+    for mil in milestones:
+        d = plan_dir_for(root, mil.mid)
+        if d is None:
+            continue
+        road = d / f"{mil.mid}-ROADMAP.md"
+        if road.is_file() and any(item.dropped for item in parse_slices(read_text(road))):
+            return True
+    return any(task.dropped for task in all_tasks(root, milestones))
 
 
 def collected_ids_from_plans(root: Path) -> set[str]:
@@ -746,6 +806,36 @@ def set_slice_checked(text: str, sid: str, checked: bool = True) -> str:
     return new if n else text
 
 
+def set_task_mark(text: str, tid: str, mark: str) -> str:
+    if mark not in {" ", "x", "d"}:
+        raise W2CError(f"invalid task mark {mark!r}")
+    new, n = re.subn(
+        rf"^- \[[ xXdD]\] \*\*({re.escape(tid)})\*\*",
+        lambda m: f"- [{mark}] **{m.group(1)}**",
+        text,
+        count=1,
+        flags=re.M,
+    )
+    if n != 1:
+        raise W2CError(f"task {tid} not found in plan")
+    return new
+
+
+def set_slice_mark(text: str, sid: str, mark: str) -> str:
+    if mark not in {" ", "x", "d"}:
+        raise W2CError(f"invalid slice mark {mark!r}")
+    new, n = re.subn(
+        rf"^- \[[ xXdD]\] \*\*({re.escape(sid)}):",
+        lambda m: f"- [{mark}] **{m.group(1)}:",
+        text,
+        count=1,
+        flags=re.M,
+    )
+    if n != 1:
+        raise W2CError(f"slice {sid} not found")
+    return new
+
+
 def set_milestone_status_in_roadmap(text: str, mid: str, status: str) -> str:
     emoji = STATUS_EMOJI[status]
     new, n = re.subn(
@@ -872,6 +962,10 @@ def cmd_next(
     slice_id: str | None,
     task_id: str | None,
 ) -> int:
+    locked = amend_lock_mid(root)
+    if milestone and locked and milestone == locked:
+        print(f"AMEND_LOCK {locked}")
+        return 1
     t = next_open_task(root, milestone, slice_id, task_id)
     if t is None:
         print("NEXT none")
@@ -883,6 +977,7 @@ def cmd_next(
 
 
 def cmd_complete(root: Path, mid: str, sid: str, tid: str) -> int:
+    refuse_if_amend_locked(root, mid)
     d = plan_dir_for(root, mid)
     if d is None:
         raise W2CError(f"plan folder not found for {mid}")
@@ -898,6 +993,8 @@ def cmd_complete(root: Path, mid: str, sid: str, tid: str) -> int:
         require_report(task_summary_path(d, sid, tid), f"{sid}-{tid}-SUMMARY.md")
         if task.done:
             raise W2CError(f"{tid} is already complete")
+        if task.dropped:
+            raise W2CError(f"{tid} is dropped")
         path = task.plan_path
         atomic_write(
             path,
@@ -914,10 +1011,12 @@ def cmd_complete(root: Path, mid: str, sid: str, tid: str) -> int:
             raise W2CError(f"unknown task {mid} {sid} {tid}")
         if match[0].done:
             raise W2CError(f"{tid} is already complete")
+        if match[0].dropped:
+            raise W2CError(f"{tid} is dropped")
         atomic_write(path, set_task_checked(read_text(path), tid, True))
 
     remaining = [
-        t for t in openspec_ledger.tasks_in_slice(root, mid, sid, d) if not t.done
+        t for t in openspec_ledger.tasks_in_slice(root, mid, sid, d) if task_is_open(t)
     ]
     road_path = w2c_dir(root) / "ROADMAP.md"
     mils = parse_milestones(read_text(road_path))
@@ -954,28 +1053,45 @@ def cmd_complete(root: Path, mid: str, sid: str, tid: str) -> int:
 
 
 def cmd_slice_complete(root: Path, mid: str, sid: str) -> int:
+    refuse_if_amend_locked(root, mid)
     d = plan_dir_for(root, mid)
     if d is None:
         raise W2CError(f"plan folder not found for {mid}")
     path = slice_plan_path(root, mid, sid)
     if path is None:
         raise W2CError(f"slice plan not found for {mid} {sid}")
+    road_now = d / f"{mid}-ROADMAP.md"
+    current = parse_slices(read_text(road_now)) if road_now.is_file() else []
+    sl = next((item for item in current if item.sid == sid), None)
+    if sl is not None and sl.dropped:
+        raise W2CError(f"{sid} is dropped")
     tasks = openspec_ledger.tasks_in_slice(root, mid, sid, d)
     if not tasks:
         raise W2CError(f"no tasks in {mid} {sid}")
-    open_tasks = [t.tid for t in tasks if not t.done]
+    open_tasks = [t.tid for t in tasks if task_is_open(t)]
     if open_tasks:
         raise W2CError(f"open tasks remain in {mid} {sid}: {', '.join(open_tasks)}")
+    if not any(t.done for t in tasks):
+        raise W2CError(f"{sid} has no finished task; use drop-slice")
     for t in tasks:
-        require_report(task_summary_path(d, sid, t.tid), f"{sid}-{t.tid}-SUMMARY.md")
+        if t.done:
+            require_report(task_summary_path(d, sid, t.tid), f"{sid}-{t.tid}-SUMMARY.md")
     require_report(slice_uat_path(d, sid), f"{sid}-UAT.md")
     require_report(slice_summary_path(d, sid), f"{sid}-SUMMARY.md")
+    summary = read_text(slice_summary_path(d, sid))
+    unnamed = [
+        t.tid
+        for t in tasks
+        if t.dropped and re.search(rf"\b{re.escape(t.tid)}\b", summary) is None
+    ]
+    if unnamed:
+        raise W2CError(f"slice summary must name dropped tasks: {', '.join(unnamed)}")
     mroad_path = d / f"{mid}-ROADMAP.md"
     if not mroad_path.is_file():
         raise W2CError(f"missing {mid}-ROADMAP.md")
     atomic_write(mroad_path, set_slice_checked(read_text(mroad_path), sid, True))
     slices = parse_slices(read_text(mroad_path))
-    all_slices_done = bool(slices) and all(done for _s, done, _t in slices)
+    all_slices_done = bool(slices) and all(item.done or item.dropped for item in slices)
     road_path = w2c_dir(root) / "ROADMAP.md"
     mils = parse_milestones(read_text(road_path))
     mil = next((m for m in mils if m.mid == mid), None)
@@ -997,7 +1113,7 @@ def cmd_slice_complete(root: Path, mid: str, sid: str) -> int:
     )
     print(f"slice-complete {mid} {sid}")
     if not all_slices_done:
-        print(f"OPEN_SLICES {sum(1 for _s, done, _t in slices if not done)}")
+        print(f"OPEN_SLICES {sum(1 for item in slices if not item.done and not item.dropped)}")
     elif report_present(milestone_validation_path(d, mid)) and report_present(
         milestone_summary_path(d, mid)
     ):
@@ -1035,6 +1151,7 @@ def cmd_milestone_status(
     status = status.upper()
     if status not in STATUS_EMOJI:
         raise W2CError(f"invalid status {status}; use {', '.join(VALID_STATUSES)}")
+    refuse_if_amend_locked(root, mid)
     if status == "DONE":
         d = plan_dir_for(root, mid)
         if d is None:
@@ -1051,7 +1168,7 @@ def cmd_milestone_status(
                 else ""
             )
             raise W2CError(f"no slices found in {mid}-ROADMAP.md{hint}")
-        open_sids = [s for s, done, _t in slices if not done]
+        open_sids = [item.sid for item in slices if not item.done and not item.dropped]
         if open_sids:
             raise W2CError(f"slices still open in {mid}: {', '.join(open_sids)}")
         require_report(milestone_validation_path(d, mid), f"{mid}-VALIDATION.md")
@@ -1641,6 +1758,14 @@ def run_smoke(root: Path) -> Report:
     decisions = read_text(wdir / "DECISIONS.md")
 
     mils = parse_milestones(road)
+    if schema < 3 and (amend_lock_mid(root) or ledger_has_dropped(root, mils)):
+        report.add(
+            "dropped-schema",
+            "FAIL",
+            "dropped work or an amendment lock requires schema 3; run w2c amend-begin",
+        )
+    else:
+        report.add("dropped-schema", "PASS")
     seen_m: dict[str, int] = {}
     for m in mils:
         seen_m[m.mid] = seen_m.get(m.mid, 0) + 1
@@ -1765,11 +1890,12 @@ def run_smoke(root: Path) -> Report:
     report.add("state-agrees-roadmap", "PASS" if reg_ok else "FAIL", "; ".join(reg_detail))
 
     nxt = next_open_task(root)
-    open_count = sum(1 for t in all_tasks(root) if not t.done)
+    locked = amend_lock_mid(root)
+    open_count = sum(1 for t in all_tasks(root) if task_is_open(t) and t.mid != locked)
     if open_count and nxt is None:
         report.add("next-agrees-checkboxes", "FAIL", "open tasks exist but next is none")
-    elif nxt and nxt.done:
-        report.add("next-agrees-checkboxes", "FAIL", f"{nxt.tid} marked done")
+    elif nxt and not task_is_open(nxt):
+        report.add("next-agrees-checkboxes", "FAIL", f"{nxt.tid} is not an open task")
     else:
         report.add("next-agrees-checkboxes", "PASS", f"{nxt.mid} {nxt.sid} {nxt.tid}" if nxt else "none")
 
@@ -2160,7 +2286,58 @@ def build_parser() -> argparse.ArgumentParser:
     ins.add_argument("--dry-run", action="store_true")
     ins.add_argument("--no-cursor", action="store_true")
     ins.add_argument("--no-claude", action="store_true")
+    _add_amend_parsers(sub)
     return p
+
+
+def _add_amend_parsers(sub: argparse._SubParsersAction) -> None:
+    begin = sub.add_parser("amend-begin", help="pause an in-progress milestone and lock amendments")
+    begin.add_argument("mid")
+    begin.add_argument("--decision", required=True)
+    end = sub.add_parser("amend-end", help="clear the amendment lock after smoke passes")
+    end.add_argument("mid")
+    listed = sub.add_parser("amendments", help="print the milestone amendment record")
+    listed.add_argument("mid")
+    drop_task = sub.add_parser("drop-task", help="mark an unfinished task dropped")
+    drop_task.add_argument("--milestone", required=True)
+    drop_task.add_argument("--slice", dest="slice_id", required=True)
+    drop_task.add_argument("--task", dest="task_id", required=True)
+    drop_task.add_argument("--reason", required=True)
+    drop_task.add_argument("--decision", required=True)
+    drop_task.add_argument("--follow-up", default="")
+    drop_task.add_argument("--ticket", default="")
+    drop_slice = sub.add_parser("drop-slice", help="mark an unfinished slice dropped")
+    drop_slice.add_argument("--milestone", required=True)
+    drop_slice.add_argument("--slice", dest="slice_id", required=True)
+    drop_slice.add_argument("--reason", required=True)
+    drop_slice.add_argument("--decision", required=True)
+    drop_slice.add_argument("--follow-up", default="")
+    drop_slice.add_argument("--ticket", default="")
+    add_task = sub.add_parser("task-add", help="append an open task")
+    add_task.add_argument("--milestone", required=True)
+    add_task.add_argument("--slice", dest="slice_id", required=True)
+    add_task.add_argument("--title", required=True)
+    add_task.add_argument("--verify", required=True)
+    add_task.add_argument("--reason", required=True)
+    add_task.add_argument("--decision", required=True)
+    edit_task = sub.add_parser("task-edit", help="edit an unfinished task title and Verify line")
+    edit_task.add_argument("--milestone", required=True)
+    edit_task.add_argument("--slice", dest="slice_id", required=True)
+    edit_task.add_argument("--task", dest="task_id", required=True)
+    edit_task.add_argument("--title", required=True)
+    edit_task.add_argument("--verify", required=True)
+    edit_task.add_argument("--reason", required=True)
+    edit_task.add_argument("--decision", required=True)
+    add_slice = sub.add_parser("slice-add", help="append an open slice")
+    add_slice.add_argument("--milestone", required=True)
+    add_slice.add_argument("--title", required=True)
+    add_slice.add_argument("--reason", required=True)
+    add_slice.add_argument("--decision", required=True)
+    follow = sub.add_parser("follow-up", help="set the ticket link on an amendment")
+    follow.add_argument("--milestone", required=True)
+    follow.add_argument("--slice", dest="slice_id", required=True)
+    follow.add_argument("--task", dest="task_id", default=None)
+    follow.add_argument("--ticket", required=True)
 
 
 def dispatch(args: argparse.Namespace) -> int:
@@ -2259,6 +2436,81 @@ def dispatch(args: argparse.Namespace) -> int:
         return cmd_register(root)
     if cmd == "unregister":
         return cmd_unregister(root)
+    if cmd in {
+        "amend-begin",
+        "amend-end",
+        "amendments",
+        "drop-task",
+        "drop-slice",
+        "task-add",
+        "task-edit",
+        "slice-add",
+        "follow-up",
+    }:
+        return _dispatch_amend(args, root)
+    raise W2CError(f"unknown command {cmd}")
+
+
+def _dispatch_amend(args: argparse.Namespace, root: Path) -> int:
+    from w2c import amend as w2c_amend
+
+    cmd = args.cmd
+    if cmd == "amend-begin":
+        return w2c_amend.cmd_amend_begin(root, args.mid, args.decision)
+    if cmd == "amend-end":
+        return w2c_amend.cmd_amend_end(root, args.mid)
+    if cmd == "amendments":
+        return w2c_amend.cmd_amendments(root, args.mid)
+    if cmd == "drop-task":
+        return w2c_amend.cmd_drop_task(
+            root,
+            args.milestone,
+            args.slice_id,
+            args.task_id,
+            args.reason,
+            args.decision,
+            args.follow_up,
+            args.ticket,
+        )
+    if cmd == "drop-slice":
+        return w2c_amend.cmd_drop_slice(
+            root,
+            args.milestone,
+            args.slice_id,
+            args.reason,
+            args.decision,
+            args.follow_up,
+            args.ticket,
+        )
+    if cmd == "task-add":
+        return w2c_amend.cmd_task_add(
+            root,
+            args.milestone,
+            args.slice_id,
+            args.title,
+            args.verify,
+            args.reason,
+            args.decision,
+        )
+    if cmd == "task-edit":
+        return w2c_amend.cmd_task_edit(
+            root,
+            args.milestone,
+            args.slice_id,
+            args.task_id,
+            args.title,
+            args.verify,
+            args.reason,
+            args.decision,
+        )
+    if cmd == "slice-add":
+        return w2c_amend.cmd_slice_add(
+            root, args.milestone, args.title, args.reason, args.decision
+        )
+    if cmd == "follow-up":
+        return w2c_amend.cmd_follow_up(
+            root, args.milestone, args.slice_id, args.ticket, args.task_id
+        )
     raise W2CError(f"unknown command {cmd}")
 
 

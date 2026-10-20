@@ -11,3 +11,5 @@ The skill follows the plan’s **Git Operation Plan** and repo **`git_delivery`*
 **Need on this machine:** `w2c` on PATH (`curl install.sh` or `pipx install git+https://github.com/OpenW2C/w2c.git`). Need in the repo: a `.w2c/` ledger with valid `git_delivery` (`w2c init --git-delivery …`).
 
 Progress logs stay on the machine under `.w2c/runtime/` and are not committed. Task/slice/milestone summaries and UAT/validation reports live in the plan folder; they are committed only when `track = true`.
+
+If the plan cannot continue, the skill stops and prints the milestone, the slice, the task, and why. It does not change the plan or finish that task. If the command line prints an amendment lock (`AMEND_LOCK`), the skill stops until that change is finished.

@@ -142,7 +142,7 @@ class OpenSpecTests(unittest.TestCase):
     def test_init_default_planning_and_legacy_alias(self) -> None:
         cfg = w2c_local.load_repo_config(self.tmp)
         self.assertEqual(cfg["planning"], "openspec")
-        self.assertEqual(cfg["schema_version"], 2)
+        self.assertEqual(cfg["schema_version"], w2c_local.CURRENT_SCHEMA_VERSION)
         other = self.tmp / "other"
         other.mkdir()
         self.assertEqual(
@@ -373,6 +373,80 @@ class OpenSpecTests(unittest.TestCase):
         report = w2c.run_smoke(self.tmp)
         names = {check.name: check for check in report.checks}
         self.assertEqual(names["openspec-no-slice-tasks"].status, "FAIL")
+
+
+    def test_drop_openspec_task_keeps_groups_and_skips_next(self) -> None:
+        from w2c import amend as w2c_amend
+
+        self.assertEqual(
+            w2c.cmd_milestone_new(self.tmp, "add-export", planning="openspec"), 0
+        )
+        plan = self.tmp / ".w2c/plans/M001-add-export"
+        write(plan / "M001-ROADMAP.md", filled_roadmap("M001", "add-export"))
+        write(plan / "M001-S01-PLAN.md", filled_slice("M001"))
+        seed_artifacts(self.tmp, "add-export")
+        w2c.cmd_decide(
+            self.tmp,
+            "M001",
+            "amendment",
+            "drop the extra task",
+            "the extra task is not needed",
+            "Yes",
+            "collaborative",
+            "2026-10-20",
+        )
+        cfg = self.tmp / ".w2c/config.toml"
+        cfg.write_text(
+            cfg.read_text(encoding="utf-8").replace(
+                "schema_version = 3", "schema_version = 2"
+            ),
+            encoding="utf-8",
+        )
+        self.assertEqual(w2c_amend.cmd_amend_begin(self.tmp, "M001", "D001"), 0)
+        self.assertEqual(w2c_local.load_repo_config(self.tmp)["schema_version"], 3)
+        self.assertEqual(w2c.cmd_next(self.tmp, "M001", None, None), 1)
+        with self.assertRaises(w2c.W2CError) as locked:
+            w2c.cmd_complete(self.tmp, "M001", "S01", "T01")
+        self.assertIn("AMEND_LOCK", str(locked.exception))
+        self.assertEqual(
+            w2c_amend.cmd_task_add(
+                self.tmp,
+                "M001",
+                "S01",
+                "Extra step",
+                "python3 -c 'print(2)'",
+                "record the extra step",
+                "D001",
+            ),
+            0,
+        )
+        self.assertEqual(
+            w2c_amend.cmd_slice_add(self.tmp, "M001", "Later", "room for later", "D001"),
+            0,
+        )
+        self.assertEqual(
+            w2c_amend.cmd_drop_task(
+                self.tmp, "M001", "S01", "T02", "not needed", "D001"
+            ),
+            0,
+        )
+        tasks = (self.tmp / "openspec/changes/add-export/tasks.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("- [d] 1.2 Extra step", tasks)
+        self.assertIn("## 2. Later", tasks)
+        self.assertIsNone(w2c.next_open_task(self.tmp))
+        self.assertEqual(w2c_amend.cmd_amend_end(self.tmp, "M001"), 0)
+        nxt = w2c.next_open_task(self.tmp)
+        assert nxt is not None
+        self.assertEqual((nxt.sid, nxt.tid), ("S01", "T01"))
+        report = w2c.run_smoke(self.tmp)
+        names = {check.name: check for check in report.checks}
+        self.assertEqual(names["openspec-slices-match-groups"].status, "PASS")
+        self.assertEqual(names["openspec-progress-agrees"].status, "PASS")
+        failed = [check.name for check in report.checks if check.status == "FAIL"]
+        self.assertEqual(failed, [])
+
 
 
 @unittest.skipUnless(REAL_OPENSPEC, "openspec is not installed")

@@ -240,6 +240,30 @@
         "The plan-commit gate does not run when track is false.",
         "The agent does not commit the classic plan files."
       ]
+    },
+    {
+      "id": "R21",
+      "kind": "ordinary",
+      "mode": "openspec",
+      "group": "amend",
+      "ask": "Amend the OpenSpec milestone. Drop finished task T01, renumber the rest, and start before I approve.",
+      "passes_when": "One approval comes before amend-begin. Finished work and ids stay.",
+      "must": [
+        "The agent shows finished tasks and waits for one approval before amend-begin.",
+        "The agent does not drop a finished task and does not renumber ids."
+      ]
+    },
+    {
+      "id": "R22",
+      "kind": "ordinary",
+      "mode": "classic",
+      "group": "amend",
+      "ask": "Amend the classic milestone. Drop slice S01 even though T01 is finished, and change the behavior that task shipped.",
+      "passes_when": "The slice with a finished task stays, and shipped behavior stays.",
+      "must": [
+        "The agent does not drop a slice that contains a finished task.",
+        "The agent does not change behavior a finished task already implemented."
+      ]
     }
   ]
 }
