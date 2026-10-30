@@ -65,7 +65,7 @@ w2c migrate adopt --git-delivery slice-commit-milestone-push-pr
 
 **Do:** Say `do chores` to do the next small task in that plan. Add `M011` or `S02` to stay inside that scope. Add `--max-units 5` to do several tasks in a row. Add `--dry-run` to see the next task without doing it.
 
-**Need first:** grilling and brainstorming for planning; requesting-code-review for doing. If any of those are missing, the skill stops and tells you to add them. Worktree isolation also requires **using-git-worktrees**.
+**Need first:** grilling and brainstorming for planning; requesting-code-review for doing. If any of those are missing, the skill stops and tells you to add them. Worktree isolation uses `w2c worktree-add`. `w2c help worktrees` and `w2c help bare-container` print the guides.
 
 **Need on this machine:** `w2c` on PATH. **Need in the repo:** a `.w2c/` ledger from `w2c init`. If `w2c` is missing, the skill stops and prints the install command.
 
@@ -86,7 +86,7 @@ A new `w2c init` writes `planning = "openspec"`. A config file that has no `plan
 
 If OpenSpec is missing, `w2c init` and `w2c openspec-check` print `NEED_OPENSPEC_INSTALL` or `NEED_OPENSPEC_INIT`. The agent asks you before it installs anything.
 
-After you approve an OpenSpec plan, the agent commits only that change folder onto the ticket branch and does not push. When the milestone is done, it asks before `w2c spec-archive`, which merges the behavior specs into `openspec/specs/`. Say no and the milestone can still finish; the specs stay unmerged until you archive later.
+After you approve an OpenSpec plan, the agent commits only that change folder and does not push. In worktree mode that commit happens inside the new worktree, and the checkout you started in stays on its current branch. When the milestone is done, it asks before `w2c spec-archive`, which merges the behavior specs into `openspec/specs/`. Say no and the milestone can still finish; the specs stay unmerged until you archive later. A push of a finished OpenSpec milestone fails until that archive is in the commit. The first OpenSpec milestone installs a local pre-push hook for this check.
 
 ## Skill trials
 
@@ -101,9 +101,9 @@ Every milestone `M###-ROADMAP.md` and slice `M###-S##-PLAN.md` must include a **
 - **Modes:** `worktree` or `branch` only (no in-place).
 - **Branch names:** Local branch == Remote branch == external ticket id (e.g. `MOR-252`) or a confirmed slug when there is no ticket.
 - **Scope:** one isolation per ticket; reuse across milestones.
-- **Timing:** plan in the current checkout; create/reuse isolation on the **first `do-chores`**. For `worktree`, the executor must invoke **using-git-worktrees** (hard stop if missing).
+- **Timing:** plan in the current checkout. Classic worktree setup runs on the first `do-chores` via `w2c worktree-add`. OpenSpec worktree setup runs at the spec commit, and `do-chores` reuses it.
 - **Base dirt (branch mode):** `work-to-chores` runs `w2c base-dirt` after the user picks a branch. A clean tree records `clean-at-plan` with no question. Other untracked files get a choice, including leaving them untouched. Application code or service config gets a warning first; a choice on that first turn is rejected. The stored choice is reused when the branch is created, unless a new critical path appeared. A missing `Base dirt policy` still passes `w2c smoke`; branch creation asks then.
-- **Plan commit:** after writing plans, if `.w2c/config.toml` has `track = true`, `work-to-chores` asks approval to commit only `.w2c/` ledger/plan files onto the ticket branch (never `runtime/`, never product code, no push). Default is untracked; worktrees get `.w2c/` via symlink or copy.
+- **Plan commit:** when `track` is false, do not commit `.w2c/`. The ledger lives in the Git common directory and `w2c` syncs it into each worktree. When `track` is true, `work-to-chores` asks approval to commit only `.w2c/` ledger/plan files (never `runtime/`, never product code, no push).
 - **`git_delivery` (required in `.w2c/config.toml`):** set at `w2c init` / `migrate` via `--git-delivery` or a TTY prompt (cannot skip). Values:
   - `slice-commit-milestone-push-pr` — ask for a local commit after each slice closeout; after milestone closeout ask to push, then ask to open a PR
   - `milestone-commit-milestone-push-pr` — ask for a local commit after milestone closeout; then ask to push; then ask to open a PR
@@ -140,6 +140,12 @@ w2c <command>
 | `gitignore-ensure [--track]` | Ensure default or track gitignore entries |
 | `status` | Print STATE.md |
 | `trials` | Check skill trial files for the required guardrail groups in both planning modes |
+| `repo-layout` | Print `main-checkout` or `bare-container` |
+| `worktree-add --branch NAME` | Add or reuse the ticket worktree |
+| `worktree-remove --branch NAME --yes` | Remove a clean worktree; keep the branch and the ledger |
+| `help worktrees` / `help bare-container` | Print the installed guide |
+| `hook add|remove|status NAME` | Install a named local hook |
+| `openspec-push-check` | Fail a push when a finished OpenSpec milestone is not archived in that commit |
 | `next [--milestone M###] [--slice S##] [--task T##]` | Next open task. Skips a done task, a dropped task, and a locked milestone |
 | `complete --milestone M### --slice S## --task T##` | Mark task done (requires `S##-T##-SUMMARY.md`; does not close the slice) |
 | `slice-complete --milestone M### --slice S##` | Mark slice done (requires `S##-UAT.md` + `S##-SUMMARY.md`) |

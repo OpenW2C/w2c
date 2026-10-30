@@ -48,9 +48,12 @@
 | Remote branch | |
 | Isolation scope | ticket |
 | Setup when | first-do-chores |
-| Plan commit | required-before-isolation |
+| Plan commit | ledger-bind |
 | Reuse policy | reuse-if-same-ticket-else-stop |
 | Worktree skill | |
+| Worktree layout | |
+| Worktree dir | |
+| Exclude line | |
 | Push rule | from config + explicit approval; push ref must equal Remote branch |
 | Base dirt policy | |
 
@@ -58,7 +61,7 @@
 - **Commit cadence** — read `git_delivery` from `.w2c/config.toml`. Never commit, push, or open a PR without explicit user approval for that action.
 - **Remote mutation** — no push, PR, or remote git mutation without explicit user approval.
 - **Git isolation** — honor Isolation mode (`worktree` or `branch` only). Local branch must equal Remote branch (ticket id or confirmed slug). Setup on first `do-chores`; reuse the same ticket isolation across milestones.
-- **Plan commit** — commit `.w2c/` plan/ledger files (never `runtime/`, never product code) onto the ticket branch before isolation so a worktree can see the ledger. No push without approval.
+- **Plan commit** — when `track` is false, write `ledger-bind` and do not commit `.w2c/`. The `w2c` command shares one ledger across worktrees. When `track` is true, a separate plan commit may include `.w2c/` plan files except `runtime/`. No push without approval.
 - **Spec commit** — after plan approval, commit only this change folder under `openspec/changes/` onto the ticket branch. No push without approval.
 - **No force git** — never force-reset, force-push, or delete worktrees/branches. Dirty or unexpected existing branch/worktree → hard stop and ask.
 - **Validation** — run the validation commands in this table before each commit and before each push.

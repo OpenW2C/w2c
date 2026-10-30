@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "w2c"
-version = "2.0.0"
+version = "2.1.0"
 description = "Markdown planning CLI for work-to-chores / do-chores"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -34,6 +34,8 @@ only-include = ["w2c"]
 [tool.hatch.build.targets.wheel.force-include]
 "templates" = "w2c/assets/templates"
 "skills" = "w2c/assets/skills"
+"docs" = "w2c/assets/docs"
+"hooks" = "w2c/assets/hooks"
 
 [tool.hatch.build.targets.sdist]
 include = [
@@ -41,6 +43,8 @@ include = [
   "/scripts",
   "/templates",
   "/skills",
+  "/docs",
+  "/hooks",
   "/tests",
   "/install.sh",
   "/README.md",

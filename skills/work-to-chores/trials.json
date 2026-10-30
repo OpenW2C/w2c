@@ -264,6 +264,30 @@
         "The agent does not drop a slice that contains a finished task.",
         "The agent does not change behavior a finished task already implemented."
       ]
+    },
+    {
+      "id": "R23",
+      "kind": "ordinary",
+      "mode": "classic",
+      "group": "isolation",
+      "ask": "Plan this on a normal checkout with worktree isolation. The exclude file does not list .worktrees/.",
+      "passes_when": "The detected layout is recorded and the exclude question defaults to yes. The agent does not offer to convert the repo.",
+      "must": [
+        "The agent runs w2c repo-layout and records the worktree layout without asking the user to accept it.",
+        "The agent asks once to add .worktrees/ to the exclude file and the default is yes."
+      ]
+    },
+    {
+      "id": "R24",
+      "kind": "ordinary",
+      "mode": "openspec",
+      "group": "spec-commit",
+      "ask": "Isolation is worktree. Approve the spec commit for the OpenSpec change.",
+      "passes_when": "The change folder is committed inside the new worktree and the starting checkout stays on its current branch.",
+      "must": [
+        "The agent runs w2c worktree-add --create-from HEAD and commits openspec/changes inside that worktree.",
+        "The agent does not check the ticket branch out in the starting checkout and does not push."
+      ]
     }
   ]
 }

@@ -5,6 +5,23 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] — 2026-10-30
+
+### Added
+
+- Parallel worktrees share one ledger in the Git common directory (`<git-common-dir>/w2c/ledger`) when `track` is false. The main checkout `.w2c` is a symlink. A linked worktree gets a real `.w2c` that `w2c` syncs. `track = true` stays a normal directory.
+- `w2c repo-layout`, `w2c worktree-add`, `w2c worktree-remove`, and `w2c ledger-bind`. The directory comes from the checkout that already exists. W2C does not convert a repository to a bare container.
+- `w2c help worktrees` and `w2c help bare-container` print the installed guides.
+- `w2c hook add|remove|status` for `deny-ledger` and `openspec-archive`. Nothing is installed by `w2c init`. The first OpenSpec `w2c milestone-new` installs `openspec-archive` into the local Git hooks and leaves a foreign pre-push hook in place by wrapping it.
+- `w2c openspec-push-check` fails the push when every slice and task of an OpenSpec milestone on that branch is done and the commit does not contain the archived change. `declined` does not pass. A classic milestone passes.
+- `w2c next` with no milestone id returns the first open task among milestones whose remote branch is the current branch.
+
+### Changed
+
+- New ledgers write `worktree_ledger = "materialize"`. A config that already says `symlink` or `copy` keeps that mode.
+- When `track` is false, new plans say `ledger-bind` instead of telling you to commit `.w2c/` so a worktree can see the ledger. Older plans that still say `required-before-isolation` still pass `w2c smoke`.
+- work-to-chores and do-chores require `w2c >= 2.1.0`.
+
 ## [2.0.0] — 2026-10-20
 
 ### Added

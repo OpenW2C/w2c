@@ -72,7 +72,7 @@ CONFIG_DIR="${W2C_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/.w2c}"
 SHIM="$BIN_DIR/w2c"
 
 if [[ "$DRY_RUN" == 1 ]]; then
-  info "would copy $SOURCE/{src,templates,skills,scripts} -> $DATA_HOME"
+  info "would copy $SOURCE/{src,templates,skills,scripts,docs,hooks} -> $DATA_HOME"
   info "would write $SHIM"
   info "would mkdir $CONFIG_DIR"
   [[ "$SKIP_SKILLS" == 1 ]] || info "would install skills into ~/.agents/skills"
@@ -80,17 +80,19 @@ if [[ "$DRY_RUN" == 1 ]]; then
   exit 0
 fi
 
-mkdir -p "$DATA_HOME/src" "$DATA_HOME/templates" "$DATA_HOME/skills" "$DATA_HOME/scripts" "$BIN_DIR" "$CONFIG_DIR"
+mkdir -p "$DATA_HOME/src" "$DATA_HOME/templates" "$DATA_HOME/skills" "$DATA_HOME/scripts" "$DATA_HOME/docs" "$DATA_HOME/hooks" "$BIN_DIR" "$CONFIG_DIR"
 
 if [[ "$FORCE" == 1 ]]; then
-  rm -rf "$DATA_HOME/src" "$DATA_HOME/templates" "$DATA_HOME/skills" "$DATA_HOME/scripts"
-  mkdir -p "$DATA_HOME/src" "$DATA_HOME/templates" "$DATA_HOME/skills" "$DATA_HOME/scripts"
+  rm -rf "$DATA_HOME/src" "$DATA_HOME/templates" "$DATA_HOME/skills" "$DATA_HOME/scripts" "$DATA_HOME/docs" "$DATA_HOME/hooks"
+  mkdir -p "$DATA_HOME/src" "$DATA_HOME/templates" "$DATA_HOME/skills" "$DATA_HOME/scripts" "$DATA_HOME/docs" "$DATA_HOME/hooks"
 fi
 
 cp -R "$SOURCE/src/." "$DATA_HOME/src/"
 cp -R "$SOURCE/templates/." "$DATA_HOME/templates/"
 cp -R "$SOURCE/skills/." "$DATA_HOME/skills/"
 cp -R "$SOURCE/scripts/." "$DATA_HOME/scripts/"
+cp -R "$SOURCE/docs/." "$DATA_HOME/docs/"
+cp -R "$SOURCE/hooks/." "$DATA_HOME/hooks/"
 find "$DATA_HOME" -name '__pycache__' -type d -exec rm -rf {} + 2>/dev/null || true
 find "$DATA_HOME" -name '*.pyc' -delete 2>/dev/null || true
 chmod +x "$DATA_HOME/scripts/w2c.py" "$DATA_HOME/scripts/w2c.sh" \

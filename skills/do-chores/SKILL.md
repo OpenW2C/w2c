@@ -8,7 +8,7 @@ description: >-
 
 # Do Chores
 
-Requires: w2c >= 2.0.0
+Requires: w2c >= 2.1.0
 
 Execute planned work from `.w2c/`. Default: **one** next task.
 
@@ -47,7 +47,7 @@ pipx install git+https://github.com/OpenW2C/w2c.git && w2c install-skills
 3. A plan must exist (ROADMAP + at least one slice plan with tasks). If not: STOP. Log `--stage prereq --event stop --detail "no plan"` and tell the user to run work-to-chores.
 4. `.w2c/config.toml` must have a valid `git_delivery` (`slice-commit-milestone-push-pr` or `milestone-commit-milestone-push-pr`). If missing: STOP. Log `--stage prereq --event stop --detail "missing git_delivery"`. Tell the user to run `w2c init --git-delivery …` or `w2c migrate … --git-delivery …`.
 
-**Worktree skill (when the plan says so):** if the active Git Operation Plan Isolation mode is `worktree`, **using-git-worktrees** must be invocable before isolation setup. If missing: STOP. Log `--stage prereq --event stop --detail "missing using-git-worktrees"`. Do not invent a substitute worktree procedure.
+**Worktrees:** when Isolation mode is `worktree`, create or reuse the directory with `w2c worktree-add`. Do not call the editor's worktree tool and do not stop when using-git-worktrees is missing. Read `w2c help worktrees` for the ledger rules. Do not offer to convert the repository.
 
 ## Status writes
 
@@ -109,7 +109,7 @@ Every unit:
 12. **Slice closeout** — if stdout contains `NEED_SLICE_REPORTS` or `NEED_SLICE_COMPLETE`: re-run every task Verify command in that slice plus the slice Verification section. On failure: fix, re-verify, log `--stage verify --event retry`. Then write `S##-UAT.md` (human checklist, leave boxes unchecked) and `S##-SUMMARY.md` (automated results). The slice summary must name each dropped task id. Then `w2c slice-complete --milestone … --slice …`. `NEED_SLICE_REPORTS` still means those reports. `NEED_DROP_SLICE` is not this skill's job. Read `git_delivery` from `.w2c/config.toml`. If it is `slice-commit-milestone-push-pr`: **ask** for explicit approval to make a **local commit** of the product changes (honor `## Commit and PR conventions`: stage only product paths — never deny-listed paths; never mention any `.w2c/` path or artifact in the message; never AI co-author trailers). If the user declines: skip the commit and continue. Do **not** push or open a PR at slice closeout.
 13. **Milestone closeout** — if stdout contains `NEED_MILESTONE_REPORTS` or `NEED_MILESTONE_COMPLETE`: run milestone Validation commands and check success criteria. Write `M###-VALIDATION.md` (audit/verdict) and `M###-SUMMARY.md` (what shipped). Then `w2c milestone-complete M###`. Do **not** require `M###-MANUAL-TEST.md` or that the human ran those steps. If Delivery & Guardrails `Manual test guide` is `yes`, print the path to `M###-MANUAL-TEST.md` and say it is for the user to run after closeout — unread/unchecked steps are not a failure. Then honor `git_delivery`:
     - If `milestone-commit-milestone-push-pr`: **ask** for a local commit (same conventions: deny-list staging, no `.w2c/` mentions, co-author ban). Decline → skip commit and continue.
-    - **Always ask** (separate prompt) to **push** to `origin/<Remote branch>` where Remote branch equals the planned Local branch. Decline → skip push and PR; continue.
+    - **Always ask** (separate prompt) to **push** to `origin/<Remote branch>` where Remote branch equals the planned Local branch. Before that push, run `w2c openspec-push-check` for the commit you are pushing. If it fails, stop and archive. Do not pass `--no-verify`. Decline → skip push and PR; continue.
     - If push was approved: **ask separately** to **open a PR**. Decline → skip PR; continue.
     Never invent a different remote name. Follow `## Commit and PR conventions`; **never** stage deny-listed paths on product commits; **never** mention any `.w2c/` path or artifact in commit or PR text; **never** add `Co-authored-by` or similar AI co-author trailers.
 
@@ -153,7 +153,7 @@ Stop where that prompt says to stop. On no, stop. Do not install without a yes.
 
 1. Map each spec scenario to evidence in `M###-VALIDATION.md`.
 2. Run `openspec validate <change> --strict`. On failure, fix the change and re-run.
-3. Ask for approval to archive. On yes: `w2c spec-archive M###`. On no: `w2c milestone-complete M### --archive-declined` and say the main specs were not updated.
+3. Ask for approval to archive. On yes: `w2c spec-archive M###`. On no: `w2c milestone-complete M### --archive-declined` and say the main specs were not updated. `declined` finishes the milestone and still fails `w2c openspec-push-check`. Do not use `--archive-declined` or `--no-verify` to get a push through.
 4. Then `w2c milestone-complete` (skip it if the decline form already completed it).
 5. The commit, push, and pull-request questions are unchanged. A yes on the commit includes the moved change folder and the updated `openspec/specs/`. `openspec/` is product content and is never deny-listed. Still never stage other deny-listed paths, never mention any `.w2c/` path, and never add a `Co-authored-by` trailer.
 
@@ -170,7 +170,7 @@ Read **Git Operation Plan** from the milestone `M###-ROADMAP.md` **and** the sli
 Then:
 
 1. **Reuse policy** — if a worktree or local branch already exists with the exact planned name and clearly belongs to this ticket: reuse it. If dirty with unrelated files, or history looks unexpected: **STOP** and ask. Never force-reset, force-push, or delete worktrees/branches.
-2. **Mode `worktree`** — confirm using-git-worktrees is invocable; if missing, STOP. Invoke **using-git-worktrees** and follow it exactly to create or reuse an isolated worktree for Local branch (project `.worktrees/<branch>` when that convention applies). Continue all subsequent work for this ticket in that worktree path. Do not nest a worktree inside an existing linked worktree (skill Step 0).
+2. **Mode `worktree`** — run `w2c repo-layout` and, if the plan's Worktree layout differs, update that field. Do not ask the layout question again. Run `w2c worktree-add --branch <Remote branch>`. Pass `--create-from HEAD` when the branch does not exist yet. Pass `--exclude no` only when the plan says `exclude-no`. Reuse the directory when the command prints the existing path. An OpenSpec spec-commit may already have created it. Continue all subsequent work for this ticket in that worktree. Do not nest a worktree inside an existing linked worktree.
 3. **Mode `branch`** — ensure the current checkout is on Local branch. If that branch already exists, check it out without force. If it is missing, create it from current HEAD by applying the stored base-dirt policy below. Never force.
 
    Run `w2c base-dirt`. Non-zero exit: **STOP** and show the error. `.w2c/` and gitignored files are already excluded.
@@ -193,13 +193,11 @@ Then:
 
    On later product commits, do not stage paths from the latest `w2c base-dirt` `critical` or `other` arrays, or from `### Base dirt paths`.
 
-4. **Ledger visible** — before the first product edit, verify `.w2c/plans/...` for this milestone is present in the isolation workspace. If not:
-   - Read `worktree_ledger` from `.w2c/config.toml` (`symlink` default, or `copy`).
-   - Find the primary checkout `.w2c/` (the repo you started from).
-   - If mode is `worktree` and the worktree lacks `.w2c/`: create a **symlink** to the primary `.w2c/` when `worktree_ledger = symlink`; otherwise **copy** the directory. Do not git-commit the ledger unless `track = true`.
-   - If the primary `.w2c/` is also missing: **STOP** and tell the user to run `w2c init` or `w2c migrate adopt`.
+4. **Ledger visible** — `w2c worktree-add` and every later `w2c` command bind the ledger. Do not symlink or copy `.w2c/` yourself. When `track` is false, do not commit `.w2c/`. If `.w2c/` is missing in the worktree after `w2c ledger-bind`, **STOP** and tell the user to run `w2c init` from the main checkout.
 
 Isolation is **ticket-scoped**: later milestones/slices with the same Remote branch reuse the same worktree/branch.
+
+When the last open milestone on that remote branch is done, ask once whether to remove the worktree. The default is no, so the directory stays for the pull request and for a later milestone on the same ticket. On yes, run `w2c worktree-remove --branch <name> --yes` from the main checkout. On no, leave the directory. Never delete the branch or the shared ledger.
 
 ## Red flags — STOP
 
@@ -216,6 +214,7 @@ Isolation is **ticket-scoped**: later milestones/slices with the same Remote bra
 - Asking the base-dirt question again when `leave-untouched` already covers every current critical path
 - Staging base-dirt paths on a product commit
 - Pushing or opening a PR without explicit user approval
+- Pushing a finished OpenSpec milestone before `w2c openspec-push-check` passes, or using `--no-verify` to skip that check
 - Committing without explicit user approval
 - Auto-commit / auto-push / auto-PR when the user declined that gate
 - Adding `Co-authored-by:` or similar AI co-author trailers on commits or PRs

@@ -12,7 +12,7 @@ description: >-
 
 # Work to Chores
 
-Requires: w2c >= 2.0.0
+Requires: w2c >= 2.1.0
 
 **Plan only.** Interview, review, plan, validate, write `.w2c/` artifacts. Never implement product code.
 
@@ -41,7 +41,7 @@ If `.w2c/` ledger files are missing, run `w2c init`.
 
 Read `.w2c/config.toml`: `track = true` means plan artifacts are committed; default `track = false` keeps `.w2c/` gitignored.
 
-**Worktree skill (mode-dependent):** as soon as Isolation mode is chosen as `worktree` (Stage 3), confirm **using-git-worktrees** is invocable the same way other skills are checked. If missing: **STOP**. Log `--stage prereq --event stop --detail "missing using-git-worktrees"`. Tell the user to add the Superpowers using-git-worktrees skill. Do not invent a substitute worktree procedure. Re-check before Stage 5 handoff if mode is still `worktree`.
+**Worktrees:** W2C creates the directory with `w2c worktree-add`. Do not call the editor's worktree tool and do not stop when using-git-worktrees is missing. Still write `using-git-worktrees` in the Worktree skill field so older plans keep passing smoke. Read `w2c help worktrees` when you need the layout or the ledger rules. Read `w2c help bare-container` only when the user asks how to build a bare container. Do not paste those steps, and do not offer to convert the repository.
 
 ## Planning mode
 
@@ -88,12 +88,22 @@ Keep the interview contract. Also:
 
 After smoke passes, ask for approval to commit the change folder. This is not a push.
 
+When Isolation mode is `branch`:
+
 1. Follow **Applying Base dirt policy**. `w2c base-dirt` ignores this milestone's `openspec/changes/<change>/`.
 2. Create or check out the ticket branch under those rules. Never force.
 3. Commit only `openspec/changes/<change>/`. When `track = true`, a separate plan commit may also include `.w2c/` plan files except `runtime/`. Files from `openspec init` need their own yes. Never stage deny-listed paths. Never mention any `.w2c/` path in the message. Never add a `Co-authored-by` trailer.
 4. Do not push.
 
-Log `--stage plan-commit --event complete` with the branch name. Then tell the user to run `do-chores`. Classic mode still uses the plan-commit gate below, and only when `track = true`.
+When Isolation mode is `worktree`:
+
+1. Do not check the ticket branch out in the current checkout. That would lock the branch, and the worktree could not be added.
+2. Run `w2c worktree-add --branch <name> --create-from HEAD`. Pass `--exclude no` only when the plan's Exclude line is `exclude-no`. Otherwise the default `--exclude yes` is correct.
+3. `git worktree add` does not bring untracked files. Move `openspec/changes/<change>/` into that worktree.
+4. In the worktree, commit only `openspec/changes/<change>/`. Do not stage `.w2c/`. Never mention any `.w2c/` path. Never add a `Co-authored-by` trailer.
+5. Do not push. The checkout you started in stays on its current branch.
+
+Log `--stage plan-commit --event complete` with the branch name. Then tell the user to run `do-chores`. `do-chores` reuses this worktree. Classic mode still uses the plan-commit gate below, and only when `track = true`.
 
 ## Status writes
 
@@ -280,7 +290,7 @@ Each task needs a testing or other verification plan. Embed this execution rule 
 
 During Stage 3, grill these decisions **before** the draft plan is marked ready. Follow the **Interview question contract**. Only two modes exist: `worktree` or `branch` (no in-place) — do not invent a third isolation mode.
 
-1. **Isolation mode** — ask worktree vs branch. Plain English: worktree = separate directory via using-git-worktrees (recommended when that skill is available); branch = same checkout, switch/create the ticket branch. Save with `w2c decide`. If `worktree`, run the using-git-worktrees prereq check immediately.
+1. **Isolation mode** — ask worktree vs branch. Plain English: worktree = a separate directory created later by `w2c worktree-add`; branch = same checkout, switch/create the ticket branch. Save with `w2c decide`. If `worktree`, run `w2c repo-layout` and record the printed layout. Do not ask the user to accept that layout. Do not offer to convert the repository.
 2. **Branch name** — Local branch **must equal** Remote branch.
    - If an external ticket id exists (e.g. `MOR-252`): propose that exact id as the only remote/local branch name and confirm.
    - If no ticket: propose 2–3 slug options plus custom; confirm the exact string.
@@ -329,7 +339,13 @@ During Stage 3, grill these decisions **before** the draft plan is marked ready.
 
    Show that diagram with the option question.
 
-Isolation scope is always **ticket**: every milestone/slice for this ticket shares the same mode and branch. Setup happens on **first `do-chores`**, not during planning. Do **not** create a worktree in this skill.
+When Isolation mode is `worktree`, after `w2c repo-layout`:
+
+- Write `Worktree layout` and `Worktree dir` from that output. There is no yes/no question for the layout.
+- If `exclude` is `missing`, ask once whether to add the worktree directory to Git's local exclude file (`info/exclude`). Default is yes. Record `exclude-yes`, `exclude-no`, or `already-set` with `w2c decide` and in the Exclude line. A bare container prints `exclude: n/a`; do not ask.
+- Do not create the worktree in this step. The OpenSpec spec-commit gate creates it. Classic mode leaves creation to the first `do-chores`.
+
+Isolation scope is always **ticket**: every milestone/slice for this ticket shares the same mode and branch. Setup for classic mode happens on **first `do-chores`**, not during planning.
 
 After isolation grilling, read `.w2c/config.toml` `git_delivery`. If missing or invalid: **STOP**. Tell the user to run `w2c init --git-delivery slice-commit-milestone-push-pr|milestone-commit-milestone-push-pr` (or `w2c migrate … --git-delivery …`). Do not invent a cadence.
 
@@ -366,9 +382,12 @@ Required Git Operation Plan fields (milestone is canonical):
 | Remote branch | **must equal** Local branch |
 | Isolation scope | `ticket` |
 | Setup when | `first-do-chores` |
-| Plan commit | `required-before-isolation` |
+| Plan commit | `ledger-bind` when `track` is false; `required-before-isolation` when `track` is true |
 | Reuse policy | `reuse-if-same-ticket-else-stop` |
 | Worktree skill | `using-git-worktrees` if mode is `worktree`; `n/a` if `branch` |
+| Worktree layout | `main-checkout` or `bare-container` when mode is `worktree` |
+| Worktree dir | directory from `w2c repo-layout` when mode is `worktree` |
+| Exclude line | `exclude-yes`, `exclude-no`, `already-set`, or `n/a` |
 | Push rule | from config + explicit approval; push ref must equal Remote branch |
 | Base dirt policy | `n/a-worktree`, `clean-at-plan`, or `leave-untouched` |
 
@@ -463,7 +482,7 @@ Never force-checkout, force-reset, or delete branches/worktrees. Product commits
 
 ### Plan-commit gate (only when `track = true`)
 
-If `.w2c/config.toml` has `track = false` (default): **skip this gate**. Do not commit `.w2c/` or Copilot W2C instruction files. Log `--stage plan-commit --event complete --detail skipped-untracked`. Then tell the user: run `do-chores` next; isolation setup happens on the first execution unit. If a worktree is used, do-chores will symlink or copy `.w2c/` into it.
+If `.w2c/config.toml` has `track = false` (default): **skip this gate**. Do not commit `.w2c/` or Copilot W2C instruction files. The plan's Plan commit cell is `ledger-bind`. Log `--stage plan-commit --event complete --detail skipped-untracked`. Then tell the user: run `do-chores` next; isolation setup happens on the first execution unit. `w2c` shares the ledger. Do not commit `.w2c/` so a worktree can see it.
 
 If `track = true`: after smoke PASS, ask for explicit approval to put plan artifacts on the ticket branch so first `do-chores` isolation can see `.w2c/`:
 
@@ -490,14 +509,14 @@ Then tell the user: run `do-chores` next; isolation setup (worktree create or br
 - Reusing a milestone id
 - Committing `.w2c/runtime/` or hand-editing `events.jsonl`
 - Skipping branch confirmation or writing `N/A` / unequal Local vs Remote branch
-- Creating a worktree during planning (setup is first `do-chores` only)
+- Creating a worktree during planning except the OpenSpec spec-commit gate
 - Accepting a base-dirt choice on the critical-file warning turn
 - Creating the ticket branch while a new critical path is still unconfirmed
 - Staging base-dirt paths on a product commit after the user chose leave untouched
 - Pushing or opening a PR from this skill
 - Inventing commit cadence when `git_delivery` is missing from `.w2c/config.toml`
 - Committing product code without explicit user approval
-- Inventing a worktree procedure when using-git-worktrees is missing
+- Calling the editor worktree tool, or offering to convert the repository to a bare container
 - Writing empty or “see parent” Commit and PR conventions, or omitting the Co-authored-by ban, deny-list, or do-not-mention `.w2c/` rules
 - Adding `Co-authored-by:` or similar AI co-author trailers
 - Skipping the milestone manual-test-guide question

@@ -17,7 +17,11 @@ from w2c import local as w2c_local
 from w2c import git_delivery as w2c_gd
 from w2c import openspec as w2c_openspec
 from w2c import openspec_ledger
+from w2c import hooks as w2c_hooks
+from w2c import ledger_store
+from w2c import openspec_push
 from w2c import trials as w2c_trials
+from w2c import worktree as w2c_worktree
 from w2c.skills_install import install_skills, write_copilot_instructions
 
 STATUS_EMOJI = {
@@ -116,9 +120,12 @@ M_ROADMAP_STUB = """# {mid}: {title}
 | Remote branch | |
 | Isolation scope | ticket |
 | Setup when | first-do-chores |
-| Plan commit | required-before-isolation |
+| Plan commit | ledger-bind |
 | Reuse policy | reuse-if-same-ticket-else-stop |
 | Worktree skill | |
+| Worktree layout | |
+| Worktree dir | |
+| Exclude line | |
 | Push rule | from config + explicit approval; push ref must equal Remote branch |
 | Base dirt policy | |
 
@@ -126,7 +133,7 @@ M_ROADMAP_STUB = """# {mid}: {title}
 - **Commit cadence** — read `git_delivery` from `.w2c/config.toml`. Never commit, push, or open a PR without explicit user approval for that action.
 - **Remote mutation** — no push, PR, or remote git mutation without explicit user approval.
 - **Git isolation** — honor Isolation mode (`worktree` or `branch` only). Local branch must equal Remote branch (ticket id or confirmed slug). Setup on first `do-chores`; reuse the same ticket isolation across milestones.
-- **Plan commit** — commit `.w2c/` plan/ledger files (never `runtime/`, never product code) onto the ticket branch before isolation so a worktree can see the ledger. No push without approval.
+- **Plan commit** — when `track` is false, write `ledger-bind` and do not commit `.w2c/`. The `w2c` command shares one ledger across worktrees. When `track` is true, a separate plan commit may include `.w2c/` plan files except `runtime/`. No push without approval.
 - **No force git** — never force-reset, force-push, or delete worktrees/branches. Dirty or unexpected existing branch/worktree → hard stop and ask.
 - **Validation** — run the validation commands in this table before each commit and before each push.
 - **Status writes** — never hand-edit STATE.md, QUEUE.md, ROADMAP status emojis, or task checkboxes. Use `.w2c/scripts/w2c.sh`.
@@ -594,15 +601,35 @@ def filter_tasks(
     return out
 
 
+def branch_milestone_ids(root: Path) -> set[str] | None:
+    """Milestones whose remote branch is the current branch, or None to search all."""
+    branch = ledger_store.current_branch(root)
+    if not branch:
+        return None
+    found: list[str] = []
+    for mil in parse_milestones(read_text(w2c_dir(root) / "ROADMAP.md")):
+        plan_dir = plan_dir_for(root, mil.mid)
+        if plan_dir is None:
+            continue
+        if ledger_store.remote_branch(plan_dir) == branch:
+            found.append(mil.mid)
+    if not found:
+        return None
+    return set(found)
+
+
 def next_open_task(
     root: Path,
     milestone: str | None = None,
     slice_id: str | None = None,
     task_id: str | None = None,
+    mids: set[str] | None = None,
 ) -> Task | None:
     locked = amend_lock_mid(root)
     tasks = filter_tasks(all_tasks(root), milestone, slice_id, task_id)
     for t in tasks:
+        if mids is not None and t.mid not in mids:
+            continue
         if not task_is_open(t):
             continue
         if locked and t.mid == locked:
@@ -966,7 +993,10 @@ def cmd_next(
     if milestone and locked and milestone == locked:
         print(f"AMEND_LOCK {locked}")
         return 1
-    t = next_open_task(root, milestone, slice_id, task_id)
+    scoped: set[str] | None = None
+    if not milestone and not slice_id and not task_id:
+        scoped = branch_milestone_ids(root)
+    t = next_open_task(root, milestone, slice_id, task_id, scoped)
     if t is None:
         print("NEXT none")
         print(json.dumps({"task": None}))
@@ -1320,9 +1350,11 @@ def cmd_milestone_new(root: Path, slug: str, planning: str | None = None) -> int
         stage="write",
         event="complete",
         milestone=mid,
-        detail=f"created {d.relative_to(root)}",
+        detail=f"created {ledger_store.logical_rel(root, d)}",
     )
-    print(f"created {d.relative_to(root)} ({mid})")
+    if mode == w2c_local.PLANNING_OPENSPEC:
+        w2c_hooks.ensure_openspec_archive(root)
+    print(f"created {ledger_store.logical_rel(root, d)} ({mid})")
     return 0
 
 
@@ -2339,6 +2371,55 @@ def _add_amend_parsers(sub: argparse._SubParsersAction) -> None:
     follow.add_argument("--task", dest="task_id", default=None)
     follow.add_argument("--ticket", required=True)
 
+    sub.add_parser("repo-layout", help="print main-checkout or bare-container")
+    sub.add_parser("ledger-bind", help="sync the shared ledger for this checkout")
+    add_wt = sub.add_parser("worktree-add", help="add a ticket worktree from the detected layout")
+    add_wt.add_argument("--branch", required=True)
+    add_wt.add_argument("--create-from", default=None)
+    add_wt.add_argument("--exclude", choices=["yes", "no"], default="yes")
+    rm_wt = sub.add_parser("worktree-remove", help="remove a ticket worktree after an explicit yes")
+    rm_wt.add_argument("--branch", required=True)
+    rm_wt.add_argument("--yes", action="store_true")
+    hook_p = sub.add_parser("hook", help="add, remove, status, or run a named hook")
+    hook_p.add_argument("action", choices=["add", "remove", "status", "run"])
+    hook_p.add_argument("name", nargs="?")
+    help_p = sub.add_parser("help", help="print worktrees or bare-container help")
+    help_p.add_argument("topic", choices=["worktrees", "bare-container"])
+    push_p = sub.add_parser(
+        "openspec-push-check",
+        help="fail when a finished OpenSpec milestone on this branch is not archived in the commit",
+    )
+    push_p.add_argument("--local-ref", default=None)
+    push_p.add_argument("--local-sha", default=None)
+
+
+def _help_doc(topic: str) -> str:
+    filename = f"{topic}.md"
+    here = Path(__file__).resolve()
+    candidates = [
+        here.parent / "assets" / "docs" / filename,
+        w2c_local.data_home() / "docs" / filename,
+    ]
+    if len(here.parents) >= 3:
+        candidates.append(here.parents[2] / "docs" / filename)
+    for path in candidates:
+        if path.is_file():
+            return path.read_text(encoding="utf-8")
+    raise W2CError(f"no help topic {topic}")
+
+
+def _push_pairs(local_ref: str | None, local_sha: str | None) -> list[tuple[str, str]]:
+    if local_ref and local_sha:
+        return [(local_ref, local_sha)]
+    if sys.stdin.isatty():
+        return []
+    pairs: list[tuple[str, str]] = []
+    for line in sys.stdin.read().splitlines():
+        parts = line.split()
+        if len(parts) >= 4:
+            pairs.append((parts[0], parts[1]))
+    return pairs
+
 
 def dispatch(args: argparse.Namespace) -> int:
     cmd = args.cmd
@@ -2448,6 +2529,62 @@ def dispatch(args: argparse.Namespace) -> int:
         "follow-up",
     }:
         return _dispatch_amend(args, root)
+    if cmd == "repo-layout":
+        try:
+            sys.stdout.write(w2c_worktree.layout_report(root))
+        except ledger_store.LedgerError as exc:
+            raise W2CError(str(exc)) from exc
+        return 0
+    if cmd == "ledger-bind":
+        try:
+            target = ledger_store.store_dir(root) if ledger_store.is_git(root) and not ledger_store.tracking(root) else w2c_dir(root)
+        except ledger_store.LedgerError as exc:
+            raise W2CError(str(exc)) from exc
+        print(f"ledger {target}")
+        return 0
+    if cmd == "worktree-add":
+        try:
+            path = w2c_worktree.add_worktree(root, args.branch, args.create_from, args.exclude)
+        except ledger_store.LedgerError as exc:
+            raise W2CError(str(exc)) from exc
+        print(path)
+        return 0
+    if cmd == "worktree-remove":
+        try:
+            w2c_worktree.remove_worktree(root, args.branch, bool(args.yes))
+        except ledger_store.LedgerError as exc:
+            raise W2CError(str(exc)) from exc
+        print(f"removed worktree {args.branch}")
+        return 0
+    if cmd == "hook":
+        try:
+            if args.action == "status":
+                sys.stdout.write(w2c_hooks.status(root))
+                return 0
+            if not args.name:
+                raise W2CError("hook name required")
+            if args.action == "add":
+                print(w2c_hooks.add(root, args.name))
+                return 0
+            if args.action == "remove":
+                print(w2c_hooks.remove(root, args.name))
+                return 0
+            if args.action == "run":
+                incoming = "" if sys.stdin.isatty() else sys.stdin.read()
+                return w2c_hooks.run(root, args.name, incoming)
+        except ledger_store.LedgerError as exc:
+            raise W2CError(str(exc)) from exc
+        raise W2CError(f"unknown hook action {args.action}")
+    if cmd == "help":
+        sys.stdout.write(_help_doc(args.topic))
+        return 0
+    if cmd == "openspec-push-check":
+        found = openspec_push.check_push(root, _push_pairs(args.local_ref, args.local_sha))
+        if not found:
+            return 0
+        for line in found:
+            print(line, file=sys.stderr)
+        return 1
     raise W2CError(f"unknown command {cmd}")
 
 
@@ -2517,11 +2654,31 @@ def _dispatch_amend(args: argparse.Namespace, root: Path) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    session = None
+    if args.cmd not in {"install-skills"}:
+        root = args.root.resolve() if args.root else find_repo_root()
+        if ledger_store.needs_session(root, args.cmd):
+            session = ledger_store.LedgerSession(root)
+            try:
+                session.start()
+            except ledger_store.LedgerError as exc:
+                print(f"error: {exc}", file=sys.stderr)
+                return 1
     try:
-        return dispatch(args)
-    except (W2CError, w2c_local.GitDeliveryError, w2c_local.LocalError, w2c_openspec.OpenSpecError) as e:
-        print(f"error: {e}", file=sys.stderr)
-        return 1
+        try:
+            return dispatch(args)
+        except (
+            W2CError,
+            w2c_local.GitDeliveryError,
+            w2c_local.LocalError,
+            w2c_openspec.OpenSpecError,
+            ledger_store.LedgerError,
+        ) as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 1
+    finally:
+        if session is not None:
+            session.finish()
 
 
 if __name__ == "__main__":

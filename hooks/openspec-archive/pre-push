@@ -1,0 +1,9 @@
+#!/bin/sh
+# w2c-hook: openspec-archive
+here=$(CDPATH= cd "$(dirname "$0")" && pwd)
+prev="$here/pre-push.w2c-previous"
+input=$(cat)
+if [ -f "$prev" ]; then
+  printf '%s\n' "$input" | "$prev" "$@" || exit $?
+fi
+printf '%s\n' "$input" | w2c hook run openspec-archive

@@ -176,7 +176,8 @@ def load_repo_config(root: Path) -> dict:
     if not path.is_file():
         return {
             "track": False,
-            "worktree_ledger": "symlink",
+            "worktree_ledger": "materialize",
+            "worktree_dir": ".worktrees",
             "git_delivery": None,
             "planning": PLANNING_CLASSIC,
             "schema_version": 1,
@@ -186,9 +187,10 @@ def load_repo_config(root: Path) -> dict:
             "amend_decision": "",
         }
     data = parse_toml(path.read_text(encoding="utf-8"))
-    ledger = str(data.get("worktree_ledger") or "symlink")
-    if ledger not in {"symlink", "copy"}:
-        ledger = "symlink"
+    ledger = str(data.get("worktree_ledger") or "materialize")
+    if ledger not in {"symlink", "copy", "materialize"}:
+        ledger = "materialize"
+    worktree_dir = str(data.get("worktree_dir") or ".worktrees").strip() or ".worktrees"
     raw_version = data.get("w2c_version")
     w2c_version = str(raw_version).strip() if raw_version is not None else ""
     if not w2c_version:
@@ -205,6 +207,7 @@ def load_repo_config(root: Path) -> dict:
     return {
         "track": bool(data.get("track", False)),
         "worktree_ledger": ledger,
+        "worktree_dir": worktree_dir,
         "git_delivery": normalize_git_delivery(data.get("git_delivery")),
         "planning": planning,
         "schema_version": normalize_schema_version(data.get("schema_version")),
@@ -217,7 +220,7 @@ def load_repo_config(root: Path) -> dict:
 
 def dump_repo_config(
     track: bool,
-    worktree_ledger: str = "symlink",
+    worktree_ledger: str = "materialize",
     git_delivery: str | None = None,
     schema_version: int | None = None,
     w2c_version: str | None = None,
@@ -226,8 +229,8 @@ def dump_repo_config(
     amend_prior_status: str = "",
     amend_decision: str = "",
 ) -> str:
-    if worktree_ledger not in {"symlink", "copy"}:
-        worktree_ledger = "symlink"
+    if worktree_ledger not in {"symlink", "copy", "materialize"}:
+        worktree_ledger = "materialize"
     if schema_version is None:
         schema_version = CURRENT_SCHEMA_VERSION
     if w2c_version is None:
@@ -268,7 +271,7 @@ def write_repo_config(
     if track is None:
         track = bool(current.get("track"))
     if worktree_ledger is None:
-        worktree_ledger = str(current.get("worktree_ledger") or "symlink")
+        worktree_ledger = str(current.get("worktree_ledger") or "materialize")
     if git_delivery is None:
         git_delivery = current.get("git_delivery")
     if planning is None:

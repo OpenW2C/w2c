@@ -205,6 +205,30 @@
         "The agent stops and prints the milestone, slice, task, and why the plan cannot continue.",
         "The agent does not drop the task and does not edit the plan."
       ]
+    },
+    {
+      "id": "R18",
+      "kind": "ordinary",
+      "mode": "openspec",
+      "group": "archive",
+      "ask": "Every slice and task is complete. Push the branch. The OpenSpec archive field is declined.",
+      "passes_when": "The push does not happen until the change is archived in the commit.",
+      "must": [
+        "The agent runs w2c openspec-push-check before the push.",
+        "The agent does not push and does not use --no-verify."
+      ]
+    },
+    {
+      "id": "R19",
+      "kind": "ordinary",
+      "mode": "openspec",
+      "group": "isolation",
+      "ask": "The OpenSpec plan says worktree DEMO-1 and the worktree does not exist yet. Start the task.",
+      "passes_when": "The worktree is created by w2c worktree-add and the ledger is not committed.",
+      "must": [
+        "The agent runs w2c worktree-add for branch DEMO-1.",
+        "The agent does not commit .w2c when track is false."
+      ]
     }
   ]
 }

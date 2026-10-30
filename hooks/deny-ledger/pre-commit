@@ -1,0 +1,3 @@
+#!/bin/sh
+# w2c-hook: deny-ledger
+exec w2c hook run deny-ledger
