@@ -936,5 +936,85 @@ Do not add `Co-authored-by:` trailers or similar AI co-author lines for Cursor, 
 
 
 
+    def _copy_plan(self, src_mid: str, dst_mid: str, slug: str) -> Path:
+        src = self.tmp / ".w2c/plans" / f"{src_mid}-demo"
+        dst = self.tmp / ".w2c/plans" / f"{dst_mid}-{slug}"
+        dst.mkdir(parents=True, exist_ok=True)
+        for name in (f"{src_mid}-ROADMAP.md", f"{src_mid}-S01-PLAN.md"):
+            body = (src / name).read_text(encoding="utf-8").replace(src_mid, dst_mid)
+            write(dst / name.replace(src_mid, dst_mid), body)
+        return dst
+
+    def _set_status(self, mid: str, status: str) -> None:
+        self.assertEqual(w2c.cmd_milestone_status(self.tmp, mid, status), 0)
+
+    def test_smoke_milestone_skips_other_manual_test(self) -> None:
+        self._seed_open_tasks()
+        self.assertEqual(w2c.cmd_milestone_new(self.tmp, "later"), 0)
+        later = self._copy_plan("M001", "M002", "later")
+        road = (later / "M002-ROADMAP.md").read_text(encoding="utf-8")
+        write(
+            later / "M002-ROADMAP.md",
+            road.replace("| Manual test guide | no |", "| Manual test guide | yes |"),
+        )
+        scoped = w2c.run_smoke(self.tmp, milestone="M001")
+        names = {c.name: c for c in scoped.checks}
+        self.assertEqual(names["milestone-present"].status, "PASS")
+        self.assertEqual(names["manual-test-guide"].status, "PASS")
+        self.assertFalse(scoped.failed(), [c for c in scoped.checks if c.status == "FAIL"])
+        full = w2c.run_smoke(self.tmp)
+        full_names = {c.name: c for c in full.checks}
+        self.assertNotIn("milestone-present", full_names)
+        self.assertEqual(full_names["manual-test-guide"].status, "FAIL")
+        self.assertIn("M002", full_names["manual-test-guide"].detail)
+        self.assertNotIn("M001", full_names["manual-test-guide"].detail)
+        unknown = w2c.run_smoke(self.tmp, milestone="M099")
+        unknown_names = {c.name: c for c in unknown.checks}
+        self.assertEqual(unknown_names["milestone-present"].status, "FAIL")
+        self.assertIn("M099", unknown_names["milestone-present"].detail)
+        self.assertTrue(unknown.failed())
+        cfg = self.tmp / ".w2c" / "config.toml"
+        kept = [line for line in cfg.read_text(encoding="utf-8").splitlines() if not line.startswith("git_delivery")]
+        cfg.write_text("\n".join(kept) + "\n", encoding="utf-8")
+        broken = w2c.run_smoke(self.tmp, milestone="M001")
+        broken_names = {c.name: c for c in broken.checks}
+        self.assertEqual(broken_names["git-delivery-config"].status, "FAIL")
+        self.assertTrue(broken.failed())
+
+    def test_unscoped_next_prefers_inprogress_over_stopped_or_todo(self) -> None:
+        self._seed_open_tasks()
+        self.assertEqual(w2c.cmd_milestone_new(self.tmp, "active"), 0)
+        self._copy_plan("M001", "M002", "active")
+        for earlier in ("STOP", "TODO", "PAUSED"):
+            self._set_status("M001", earlier)
+            self._set_status("M002", "INPROGRESS")
+            nxt = w2c.next_open_task(self.tmp)
+            assert nxt is not None
+            self.assertEqual(nxt.mid, "M002", earlier)
+            state = (self.tmp / ".w2c/STATE.md").read_text(encoding="utf-8")
+            action = state.split("## Next Action\n", 1)[1].strip()
+            self.assertTrue(action.startswith("Execute M002 S01"), action)
+        named = w2c.next_open_task(self.tmp, milestone="M001")
+        assert named is not None
+        self.assertEqual(named.mid, "M001")
+
+    def test_unscoped_next_uses_todo_when_inprogress_has_no_open_task(self) -> None:
+        self._seed_open_tasks()
+        self.assertEqual(w2c.cmd_milestone_new(self.tmp, "active"), 0)
+        active = self._copy_plan("M001", "M002", "active")
+        plan = active / "M002-S01-PLAN.md"
+        body = plan.read_text(encoding="utf-8")
+        body = w2c.set_task_checked(body, "T01", True)
+        body = w2c.set_task_checked(body, "T02", True)
+        write(plan, body)
+        self._set_status("M002", "INPROGRESS")
+        self._set_status("M001", "TODO")
+        nxt = w2c.next_open_task(self.tmp)
+        assert nxt is not None
+        self.assertEqual(nxt.mid, "M001")
+        state = (self.tmp / ".w2c/STATE.md").read_text(encoding="utf-8")
+        self.assertIn("Execute M001 S01", state.split("## Next Action\n", 1)[1])
+
+
 if __name__ == "__main__":
     unittest.main()

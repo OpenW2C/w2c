@@ -449,6 +449,37 @@ class OpenSpecTests(unittest.TestCase):
 
 
 
+    def test_unlisted_openspec_group_is_next_and_smoke_names_the_line(self) -> None:
+        self.assertEqual(w2c.cmd_milestone_new(self.tmp, "add-export", planning="openspec"), 0)
+        plan = self.tmp / ".w2c/plans/M001-add-export"
+        write(plan / "M001-ROADMAP.md", filled_roadmap("M001", "add-export"))
+        write(plan / "M001-S01-PLAN.md", filled_slice("M001"))
+        seed_artifacts(self.tmp, "add-export")
+        write(
+            self.tmp / "openspec/changes/add-export/tasks.md",
+            "# Tasks\n\n"
+            "## 1. Export\n\n"
+            "- [x] 1.1 Write the exporter\n"
+            "  - Verify: python3 -c 'print(1)'\n\n"
+            "## 2. Import\n\n"
+            "- [ ] 2.1 Write the importer\n"
+            "  - Verify: python3 -c 'print(2)'\n",
+        )
+        self.assertEqual(w2c.cmd_milestone_status(self.tmp, "M001", "INPROGRESS"), 0)
+        task = w2c.next_open_task(self.tmp)
+        assert task is not None
+        self.assertEqual((task.mid, task.sid, task.openspec_id), ("M001", "S02", "2.1"))
+        state = (self.tmp / ".w2c/STATE.md").read_text(encoding="utf-8")
+        self.assertIn("Execute M001 S02", state)
+        report = w2c.run_smoke(self.tmp, milestone="M001")
+        names = {check.name: check for check in report.checks}
+        detail = names["openspec-slices-match-groups"].detail
+        self.assertEqual(names["openspec-slices-match-groups"].status, "FAIL")
+        self.assertIn("M001", detail)
+        self.assertIn("S02", detail)
+        self.assertIn("checkbox", detail)
+
+
 @unittest.skipUnless(REAL_OPENSPEC, "openspec is not installed")
 class RealOpenSpecTests(unittest.TestCase):
     def test_strict_validate_and_archive(self) -> None:
@@ -495,6 +526,8 @@ class RealOpenSpecTests(unittest.TestCase):
         archived = osp.archive(tmp, "add-export")
         self.assertIn("archive", archived)
         self.assertTrue(Path(archived["archive"]["path"]).is_dir())
+
+
 
 
 if __name__ == "__main__":

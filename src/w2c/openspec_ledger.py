@@ -352,9 +352,22 @@ def smoke_checks(root: Path, milestones: list) -> list[tuple[str, str, str]]:
         groups = group_numbers(tasks_path)
         slices = _slice_numbers(text)
         if groups != slices:
-            slice_problems.append(
-                f"{milestone.mid}: tasks.md groups {groups} != slices {slices}"
-            )
+            missing_groups = [n for n in groups if n not in slices]
+            extra_groups = [n for n in slices if n not in groups]
+            if missing_groups:
+                names = ", ".join(f"S{n:02d}" for n in missing_groups)
+                slice_problems.append(
+                    f"{milestone.mid}: ## Slices is missing checkbox line(s) {names}"
+                )
+            if extra_groups:
+                names = ", ".join(f"S{n:02d}" for n in extra_groups)
+                slice_problems.append(
+                    f"{milestone.mid}: ## Slices lists {names} with no tasks.md group"
+                )
+            if not missing_groups and not extra_groups:
+                slice_problems.append(
+                    f"{milestone.mid}: tasks.md groups {groups} != slices {slices}"
+                )
         if tasks_path is not None and tasks_path.is_file():
             for task in parse_openspec_tasks(tasks_path, milestone.mid):
                 if not task.verify:

@@ -42,6 +42,10 @@ VALID_STATUSES = tuple(STATUS_EMOJI)
 
 # In progress and done stay put. Paused, stopped, and rejected (ERROR) may be displaced.
 FROZEN_STATUSES = frozenset({"INPROGRESS", "DONE"})
+# Unscoped next stays on in-progress work, then planning and to-do.
+# Paused, stopped, and rejected are selected only when --milestone names them.
+UNSCOPED_NEXT_FIRST = frozenset({"INPROGRESS"})
+UNSCOPED_NEXT_THEN = frozenset({"PLANNING", "TODO"})
 
 _EMOJI_ALT = "|".join(
     re.escape(e)
@@ -580,6 +584,19 @@ def all_tasks(root: Path, milestones: list[Milestone] | None = None) -> list[Tas
                 sm = re.search(r"-(S\d+)-PLAN\.md$", p.name)
                 if sm:
                     slices.append((sm.group(1), False, ""))
+        seen_sids = {item[0] for item in slices}
+        if openspec_ledger.planning_mode(road) == w2c_local.PLANNING_OPENSPEC:
+            folder = openspec_ledger.change_dir(
+                root,
+                openspec_ledger.change_name(road),
+                openspec_ledger.archive_value(road),
+            )
+            tasks_path = folder / "tasks.md" if folder is not None else None
+            for number in openspec_ledger.group_numbers(tasks_path):
+                sid = f"S{number:02d}"
+                if sid not in seen_sids:
+                    slices.append(Slice(sid=sid, done=False, title=""))
+                    seen_sids.add(sid)
         for sid, _done, _title in slices:
             found.extend(openspec_ledger.tasks_in_slice(root, mil.mid, sid, d))
     return found
@@ -625,17 +642,38 @@ def next_open_task(
     task_id: str | None = None,
     mids: set[str] | None = None,
 ) -> Task | None:
+    """Next open task.
+
+    With no milestone, slice, or task, stay on the current branch, prefer an
+    in-progress milestone, then a planning or to-do milestone. Paused, stopped,
+    and rejected milestones are skipped unless ``milestone`` names one.
+    """
     locked = amend_lock_mid(root)
+    narrowed = bool(milestone or slice_id or task_id)
+    if not narrowed and mids is None:
+        mids = branch_milestone_ids(root)
     tasks = filter_tasks(all_tasks(root), milestone, slice_id, task_id)
-    for t in tasks:
-        if mids is not None and t.mid not in mids:
-            continue
-        if not task_is_open(t):
-            continue
-        if locked and t.mid == locked:
-            continue
-        return t
-    return None
+    status_of = {
+        item.mid: item.status
+        for item in parse_milestones(read_text(w2c_dir(root) / "ROADMAP.md"))
+    }
+
+    def pick(allowed: frozenset[str] | None) -> Task | None:
+        for t in tasks:
+            if mids is not None and t.mid not in mids:
+                continue
+            if not task_is_open(t):
+                continue
+            if locked and t.mid == locked:
+                continue
+            if allowed is not None and status_of.get(t.mid) not in allowed:
+                continue
+            return t
+        return None
+
+    if narrowed:
+        return pick(None)
+    return pick(UNSCOPED_NEXT_FIRST) or pick(UNSCOPED_NEXT_THEN)
 
 
 def task_is_open(task: Task) -> bool:
@@ -1751,7 +1789,7 @@ def parse_manual_test_guide(text: str) -> str:
     return fields.get("Manual test guide", "").strip().lower()
 
 
-def run_smoke(root: Path) -> Report:
+def run_smoke(root: Path, milestone: str | None = None) -> Report:
     report = Report()
     wdir = w2c_dir(root)
     if not wdir.is_dir():
@@ -1810,10 +1848,25 @@ def run_smoke(root: Path) -> Report:
     else:
         report.add("unique-milestone-ids", "PASS")
 
+    scope_mid: str | None = None
+    plan_mils = mils
+    if milestone:
+        wanted = milestone.strip().upper()
+        if not re.fullmatch(r"M\d+", wanted):
+            report.add("milestone-present", "FAIL", f"{milestone} is not a milestone id")
+            plan_mils = []
+        elif wanted not in seen_m and wanted not in plan_ids:
+            report.add("milestone-present", "FAIL", f"{wanted} not in ROADMAP or plans/")
+            plan_mils = []
+        else:
+            report.add("milestone-present", "PASS", wanted)
+            scope_mid = wanted
+            plan_mils = [m for m in mils if m.mid == wanted]
+
     slice_ok = True
     task_ok = True
     details = []
-    for mil in mils:
+    for mil in plan_mils:
         d = plan_dir_for(root, mil.mid)
         if d is None:
             continue
@@ -1841,7 +1894,7 @@ def run_smoke(root: Path) -> Report:
     # "slices still open" error after all task work is already done.
     roadmap_ok = True
     roadmap_detail = []
-    for mil in mils:
+    for mil in plan_mils:
         d = plan_dir_for(root, mil.mid)
         if d is None:
             continue
@@ -1921,9 +1974,28 @@ def run_smoke(root: Path) -> Report:
             reg_detail.append(f"{mid} STATE {st} ROADMAP {road_map[mid].status}")
     report.add("state-agrees-roadmap", "PASS" if reg_ok else "FAIL", "; ".join(reg_detail))
 
-    nxt = next_open_task(root)
     locked = amend_lock_mid(root)
-    open_count = sum(1 for t in all_tasks(root) if task_is_open(t) and t.mid != locked)
+    if scope_mid:
+        nxt = next_open_task(root, milestone=scope_mid)
+        visible = [
+            t
+            for t in all_tasks(root)
+            if t.mid == scope_mid and task_is_open(t) and t.mid != locked
+        ]
+    else:
+        nxt = next_open_task(root)
+        status_of = {item.mid: item.status for item in mils}
+        branch_ids = branch_milestone_ids(root)
+        visible = []
+        for t in all_tasks(root):
+            if not task_is_open(t) or t.mid == locked:
+                continue
+            if branch_ids is not None and t.mid not in branch_ids:
+                continue
+            if status_of.get(t.mid) not in UNSCOPED_NEXT_FIRST | UNSCOPED_NEXT_THEN:
+                continue
+            visible.append(t)
+    open_count = len(visible)
     if open_count and nxt is None:
         report.add("next-agrees-checkboxes", "FAIL", "open tasks exist but next is none")
     elif nxt and not task_is_open(nxt):
@@ -1951,7 +2023,7 @@ def run_smoke(root: Path) -> Report:
     git_m_detail: list[str] = []
     git_s_ok = True
     git_s_detail: list[str] = []
-    for mil in mils:
+    for mil in plan_mils:
         d = plan_dir_for(root, mil.mid)
         if d is None:
             continue
@@ -2001,7 +2073,7 @@ def run_smoke(root: Path) -> Report:
     cpr_s_detail: list[str] = []
     mt_ok = True
     mt_detail: list[str] = []
-    for mil in mils:
+    for mil in plan_mils:
         d = plan_dir_for(root, mil.mid)
         if d is None:
             continue
@@ -2045,7 +2117,7 @@ def run_smoke(root: Path) -> Report:
     )
 
     missing: list[str] = []
-    for mil in mils:
+    for mil in plan_mils:
         d = plan_dir_for(root, mil.mid)
         if d is None:
             continue
@@ -2072,14 +2144,14 @@ def run_smoke(root: Path) -> Report:
         "; ".join(missing[:12]),
     )
 
-    for name, status, detail in openspec_ledger.smoke_checks(root, mils):
+    for name, status, detail in openspec_ledger.smoke_checks(root, plan_mils):
         report.add(name, status, detail)
 
     return report
 
 
-def cmd_smoke(root: Path) -> int:
-    report = run_smoke(root)
+def cmd_smoke(root: Path, milestone: str | None = None) -> int:
+    report = run_smoke(root, milestone)
     report.print()
     failed = report.failed()
     append_event(
@@ -2087,6 +2159,7 @@ def cmd_smoke(root: Path) -> int:
         skill="w2c",
         stage="smoke",
         event="fail" if failed else "pass",
+        milestone=milestone,
         detail="smoke FAIL" if failed else "smoke PASS",
     )
     return 1 if failed else 0
@@ -2095,10 +2168,11 @@ def cmd_smoke(root: Path) -> int:
 def main_smoke(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="w2c-smoke")
     p.add_argument("--root", type=Path, default=None)
+    p.add_argument("--milestone", default=None, help="check plan files for this milestone only")
     args = p.parse_args(argv)
     root = args.root.resolve() if args.root else find_repo_root()
     try:
-        return cmd_smoke(root)
+        return cmd_smoke(root, args.milestone)
     except W2CError as e:
         die(str(e))
         return 1
@@ -2190,7 +2264,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="mandatory git commit/push cadence (required unless already set or TTY prompt)",
     )
     sub.add_parser("status", help="print STATE.md")
-    sub.add_parser("smoke", help="ledger coherence checks")
+    smoke_p = sub.add_parser("smoke", help="ledger coherence checks")
+    smoke_p.add_argument(
+        "--milestone",
+        default=None,
+        help="check plan files for this milestone only; omit to check every milestone",
+    )
     sub.add_parser("trials", help="check skill trial files for required guardrail groups")
     sub.add_parser(
         "base-dirt",
@@ -2443,7 +2522,7 @@ def dispatch(args: argparse.Namespace) -> int:
     if cmd == "status":
         return cmd_status(root)
     if cmd == "smoke":
-        return cmd_smoke(root)
+        return cmd_smoke(root, args.milestone)
     if cmd == "trials":
         return w2c_trials.cmd_trials()
     if cmd == "base-dirt":

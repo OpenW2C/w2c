@@ -12,7 +12,7 @@ description: >-
 
 # Work to Chores
 
-Requires: w2c >= 2.1.0
+Requires: w2c >= 2.2.0
 
 **Plan only.** Interview, review, plan, validate, write `.w2c/` artifacts. Never implement product code.
 
@@ -82,7 +82,7 @@ Keep the interview contract. Also:
 1. `w2c milestone-new --slug <change> --planning openspec`. That runs `openspec new change` and writes `x-w2c-milestone`.
 2. For each artifact, run `openspec instructions <artifact> --change <change> --json` and write the file it names. Order is proposal, then specs, then design, then tasks.
 3. Fill the sidecar: slices as `- [ ] **S0N: title**` matching `## N.` groups, Git Operation Plan, conventions, and Decision Rationale in `M###-CONTEXT.md`.
-4. `openspec validate <change> --strict` and `w2c smoke`. A format-only failure can be fixed in place. A content change goes back to Stage 1 with a new CONTEXT version.
+4. `openspec validate <change> --strict` and `w2c smoke --milestone M###` for the milestone being written. A format-only failure can be fixed in place. A content change goes back to Stage 1 with a new CONTEXT version.
 
 ### Spec-commit gate (OpenSpec mode, always)
 
@@ -191,12 +191,12 @@ If the user asks to reorder, swap, or change which pending milestone runs next, 
 
 Log `--stage reorder --event started`.
 
-1. Run `w2c milestone-order` and show that execution order (id, status, title). That is the Evidence block. `ROADMAP.md` line order is what `w2c next` walks. The numeric id is not the queue.
+1. Run `w2c milestone-order` and show that execution order (id, status, title). That is the Evidence block. `w2c next` with no milestone prefers an in-progress milestone, then planning and to-do milestones, in `ROADMAP.md` line order. It skips paused, stopped, and rejected milestones. The numeric id is not the queue.
 2. Grill one placement question with the interview contract. Options come from the real pending list. Recommended default when they did not name a target: leave the order unchanged. Other real choices: `w2c milestone-move M### --before OTHER` or `--after OTHER`, `w2c milestone-swap`, or `w2c milestone-order` with the relative ids.
 3. Refuse a placement that swaps with an `INPROGRESS` milestone, moves ahead of it, or takes a `DONE` milestone's place. The way through is `w2c milestone-status M### PAUSED`, `STOP`, or `ERROR` (rejected), then reorder. Pending milestones that already sit after an in-progress milestone may be reordered among themselves.
 4. Run the matching CLI command. Do not hand-edit `ROADMAP.md`, `QUEUE.md`, or `STATE.md`.
 5. `w2c decide --scope <ids> --decision "execution order" --choice "<resulting order>" --rationale "<why>"`.
-6. `w2c smoke`. Log `--stage reorder --event complete`.
+6. `w2c smoke --milestone` for each milestone whose position changed. Log `--stage reorder --event complete`.
 
 Then stop. Do not write product code.
 
@@ -215,7 +215,7 @@ Log `--stage amend --event started`.
 5. Run `w2c amend-begin M### --decision D###`. If the status is `INPROGRESS`, this pauses the milestone and sets the amendment lock so `w2c next` will not execute it. `PLANNING` and `TODO` stay as they are, and the lock is still set.
 6. Apply only the approved commands, each citing that same decision: `w2c drop-task`, `w2c drop-slice`, `w2c task-add`, `w2c slice-add`, and `w2c task-edit`. Append ids. Do not renumber. If `drop-task` prints `NEED_DROP_SLICE`, run `drop-slice` only when that slice drop was in the approved batch; otherwise stop and ask. If it prints `NEED_SLICE_REPORTS` or `NEED_SLICE_COMPLETE`, leave the slice in place. Its closeout still needs `S##-UAT.md` and `S##-SUMMARY.md`, and the summary must name the dropped task ids.
 7. After that same approval, you may edit spec prose: the Open Specification (OpenSpec) proposal, behavior specs, and design, or the classic success criteria. Do not change behavior a finished task already implemented. In OpenSpec mode, run `openspec validate --strict`.
-8. Run `w2c smoke`. On failure the amendment lock stays. On success run `w2c amend-end M###`. If the saved status was `INPROGRESS` and the batch changed the milestone, it stays `PAUSED` until the user sets the status. If there were no mutations, `amend-end` restores the saved status.
+8. Run `w2c smoke --milestone M###`. On failure the amendment lock stays. On success run `w2c amend-end M###`. If the saved status was `INPROGRESS` and the batch changed the milestone, it stays `PAUSED` until the user sets the status. If there were no mutations, `amend-end` restores the saved status.
 9. `w2c follow-up` can set or replace only the ticket link later. The reason text stays fixed.
 
 Log `--stage amend --event complete` after `amend-end`. Then stop. Do not write product code.
@@ -270,13 +270,13 @@ Break work into milestones `M###` (unique; `w2c next-milestone-id` / `w2c milest
 
 ### Execution order of a new milestone
 
-`w2c milestone-new` appends the new id at the end of `ROADMAP.md`. `w2c next` follows that line order, not the numeric id.
+`w2c milestone-new` appends the new id at the end of `ROADMAP.md`. `w2c next` prefers an in-progress milestone, then uses that line order for planning and to-do milestones. The numeric id is not the queue.
 
 After `w2c milestone-new`, run `w2c milestone-order`. If another milestone that is not `INPROGRESS` or `DONE` can be reordered with this one without crossing an in-progress or done line, grill where the new milestone should run. Follow the interview contract. Recommended: leave it at the end. Other options are the real ones: `w2c milestone-move NEW --before OTHER`, `w2c milestone-swap`, or `w2c milestone-order` with the relative ids. Do not offer a move that takes an `INPROGRESS` or `DONE` place. If the user needs to jump an in-progress milestone, they must `w2c milestone-status` it to `PAUSED`, `STOP`, or `ERROR` first (`ERROR` means rejected).
 
 Save with `w2c decide --scope M### --decision "execution order" --choice "..." --rationale "..."`.
 
-When the chosen place is not the end, fill this milestone's Delivery & Guardrails **Execution sequence** cell with a plain sentence such as `before M011`. The cell is a note. Line order remains what `w2c next` uses.
+When the chosen place is not the end, fill this milestone's Delivery & Guardrails **Execution sequence** cell with a plain sentence such as `before M011`. The cell is a note. Line order remains what `w2c next` uses inside a status.
 
 Milestone states: PLANNING, TODO, PAUSED, INPROGRESS, DONE, ERROR, STOP.
 
@@ -459,11 +459,11 @@ Canonical tree:
 
 Use `w2c milestone-new` then fill ROADMAP/CONTEXT/slice plan content (including Git Operation Plan and Commit and PR conventions). Formats: follow the templates in this repo (`templates/`) and README.md. Milestone files are `M###-ROADMAP.md` + `M###-CONTEXT.md` + slice plans - never a second `M###-PLAN.md`.
 
-**`## Slices` format is a hard requirement, not a style choice.** The CLI's `parse_slices()` only recognizes literal `- [ ] **S01: <title>**` checkbox lines (see `templates/M-ROADMAP.md`) — a markdown table, bullet list, or any other shape parses as zero slices, and `slice-complete` / `milestone-complete` will fail with a confusing "slices still open" error later, even after every task is done. Write one `- [ ] **S##: <title>**` line per slice, nothing else, and run `w2c smoke` before handoff — it checks `roadmap-slices-match-plans` and will FAIL if any on-disk `M###-S##-PLAN.md` is not represented as a checkbox line.
+**`## Slices` format is a hard requirement, not a style choice.** The CLI's `parse_slices()` only recognizes literal `- [ ] **S01: <title>**` checkbox lines (see `templates/M-ROADMAP.md`) — a markdown table, bullet list, or any other shape parses as zero slices, and `slice-complete` / `milestone-complete` will fail with a confusing "slices still open" error later, even after every task is done. Write one `- [ ] **S##: <title>**` line per slice, nothing else, and run `w2c smoke --milestone M###` before handoff — it checks `roadmap-slices-match-plans` for that milestone and will FAIL if any on-disk `M###-S##-PLAN.md` is not represented as a checkbox line.
 
 When filling each `M###-CONTEXT.md`, copy every Stage 1–3 grilled decision into **Decision Rationale** (not only a one-line Key Decisions bullet): choice, why we chose it, pros, cons, expected outcome, and the mermaid diagram. `w2c decide` rationale may stay short; the rich write-up lives here.
 
-`w2c milestone-status` / `w2c set` for pointers. `w2c smoke` before handing off to do-chores — smoke **fails** if `git_delivery` is missing/invalid in `.w2c/config.toml`, Git Operation Plan is missing, Isolation mode is not `worktree`/`branch`, Local≠Remote, branch is empty/`N/A`, worktree mode lacks `using-git-worktrees` in Worktree skill, `## Commit and PR conventions` is missing/empty, does not forbid `Co-authored-by`, or lacks deny-list / do-not-mention `.w2c` rules, `Manual test guide` is missing or not `yes`/`no`, or that field is `yes` without a non-empty `M###-MANUAL-TEST.md`, `Base dirt policy` is set to anything other than `clean-at-plan` / `leave-untouched` / `n/a-worktree`, `leave-untouched` lacks a non-empty `### Base dirt paths` subsection, or a slice `Base dirt policy` disagrees with the milestone when both are set. A missing `Base dirt policy` does not fail smoke. Log `--stage write --event complete` when smoke is clean.
+`w2c milestone-status` / `w2c set` for pointers. `w2c smoke --milestone M###` before handing off that milestone to do-chores. Bare `w2c smoke` checks every milestone. That smoke **fails** if `git_delivery` is missing/invalid in `.w2c/config.toml`, Git Operation Plan is missing, Isolation mode is not `worktree`/`branch`, Local≠Remote, branch is empty/`N/A`, worktree mode lacks `using-git-worktrees` in Worktree skill, `## Commit and PR conventions` is missing/empty, does not forbid `Co-authored-by`, or lacks deny-list / do-not-mention `.w2c` rules, `Manual test guide` is missing or not `yes`/`no`, or that field is `yes` without a non-empty `M###-MANUAL-TEST.md`, `Base dirt policy` is set to anything other than `clean-at-plan` / `leave-untouched` / `n/a-worktree`, `leave-untouched` lacks a non-empty `### Base dirt paths` subsection, or a slice `Base dirt policy` disagrees with the milestone when both are set. A missing `Base dirt policy` does not fail smoke. Log `--stage write --event complete` when smoke is clean.
 
 ### Applying Base dirt policy
 

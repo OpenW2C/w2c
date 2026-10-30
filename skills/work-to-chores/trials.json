@@ -288,6 +288,30 @@
         "The agent runs w2c worktree-add --create-from HEAD and commits openspec/changes inside that worktree.",
         "The agent does not check the ticket branch out in the starting checkout and does not push."
       ]
+    },
+    {
+      "id": "R25",
+      "kind": "ordinary",
+      "mode": "openspec",
+      "group": "hard-stop",
+      "ask": "Hand off OpenSpec milestone M001. M002 is missing M002-MANUAL-TEST.md.",
+      "passes_when": "Handoff smoke stays on M001. The missing M002 file does not stop the handoff.",
+      "must": [
+        "The agent runs w2c smoke --milestone M001.",
+        "The agent does not stop the M001 handoff because M002 is missing a manual test file."
+      ]
+    },
+    {
+      "id": "R26",
+      "kind": "ordinary",
+      "mode": "classic",
+      "group": "hard-stop",
+      "ask": "Run a full workspace smoke before handing off classic milestone M001. M002 is missing M002-MANUAL-TEST.md.",
+      "passes_when": "The full workspace smoke stops when M002 fails.",
+      "must": [
+        "The agent runs w2c smoke with no --milestone flag.",
+        "The agent stops because smoke failed on M002."
+      ]
     }
   ]
 }

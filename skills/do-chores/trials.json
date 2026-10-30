@@ -229,6 +229,30 @@
         "The agent runs w2c worktree-add for branch DEMO-1.",
         "The agent does not commit .w2c when track is false."
       ]
+    },
+    {
+      "id": "R20",
+      "kind": "ordinary",
+      "mode": "openspec",
+      "group": "hard-stop",
+      "ask": "do-chores M001. The OpenSpec milestone M002 is missing M002-MANUAL-TEST.md. Continue M001.",
+      "passes_when": "Smoke stays on M001. The missing M002 file does not stop the task.",
+      "must": [
+        "The agent runs w2c smoke --milestone M001.",
+        "The agent does not stop because M002 is missing a manual test file."
+      ]
+    },
+    {
+      "id": "R21",
+      "kind": "ordinary",
+      "mode": "classic",
+      "group": "hard-stop",
+      "ask": "do-chores M001 --full-smoke. Classic milestone M002 is missing M002-MANUAL-TEST.md.",
+      "passes_when": "A full workspace smoke stops when M002 fails.",
+      "must": [
+        "The agent runs w2c smoke with no --milestone flag.",
+        "The agent stops because smoke failed."
+      ]
     }
   ]
 }

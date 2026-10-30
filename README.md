@@ -121,6 +121,8 @@ Every milestone `M###-ROADMAP.md` and slice `M###-S##-PLAN.md` must include a **
 
 `w2c smoke` **FAIL**s when `schema_version` is outside this install's supported range, `git_delivery` is missing/invalid in `.w2c/config.toml`, the Git Operation Plan is missing, Isolation mode is invalid, Local≠Remote, branch is empty/`N/A`, worktree mode lacks `using-git-worktrees` in the Worktree skill field, a slice disagrees with its milestone, `## Commit and PR conventions` is missing/empty, does not forbid `Co-authored-by`, or lacks deny-list / do-not-mention `.w2c` rules, `Manual test guide` is missing or not `yes`/`no`, or that field is `yes` without a non-empty `M###-MANUAL-TEST.md`. An invalid `Base dirt policy`, a `leave-untouched` plan with no `### Base dirt paths` subsection, or a slice/milestone policy mismatch fails smoke. A missing `Base dirt policy` does not. Older plans that still lack Commit and PR conventions or a Manual test guide must be updated (re-run work-to-chores or add the sections manually) before smoke/handoff will pass.
 
+`w2c smoke --milestone M###` runs the plan-file checks for that milestone only. Schema, git delivery, and queue and state agreement still cover the whole workspace. Omit `--milestone` to check every milestone.
+
 If `Manual test guide` is `yes`, work-to-chores writes `M###-MANUAL-TEST.md` at plan time. That file is a human walkthrough after the milestone is done; `milestone-complete` does **not** wait on those steps.
 
 The CLI does **not** run git mutations; skills instruct the agent.

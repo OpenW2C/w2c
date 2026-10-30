@@ -5,6 +5,18 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.0] — 2026-10-31
+
+### Added
+
+- `w2c smoke --milestone M###` checks plan files for that milestone. Schema, git delivery, and queue and state agreement still cover the whole workspace. Bare `w2c smoke` still checks every milestone.
+- An OpenSpec task group with no `## Slices` checkbox line stays visible to `w2c next`. Smoke names the missing `S##` line.
+
+### Changed
+
+- `w2c next` with no milestone, and `## Next Action` in `STATE.md`, take the next open task of an in-progress milestone before a planning or to-do milestone. Paused, stopped, and rejected milestones are used only when `--milestone` names them. Both follow the current branch, in roadmap line order inside a status.
+- do-chores and work-to-chores require `w2c >= 2.2.0`. do-chores runs `w2c smoke --milestone` unless the user asks for a full workspace smoke (`--full-smoke`).
+
 ## [2.1.0] — 2026-10-30
 
 ### Added

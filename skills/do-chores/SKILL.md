@@ -8,7 +8,7 @@ description: >-
 
 # Do Chores
 
-Requires: w2c >= 2.1.0
+Requires: w2c >= 2.2.0
 
 Execute planned work from `.w2c/`. Default: **one** next task.
 
@@ -28,10 +28,11 @@ do chores [M###] [S##] [T##] [--max-units N] [--dry-run]
 | `M011 S02 T03` | That task if still open |
 | `--max-units N` | Chain up to N units in the implied scope |
 | `--dry-run` | Smoke + name the next unit + report isolation mode/branch; do not implement or mutate git |
+| `--full-smoke` | Run workspace-wide `w2c smoke`. Default is `w2c smoke --milestone` for the milestone this run will execute |
 
 Scope only narrows the queue. It does not drain a milestone unless `--max-units` is set.
 
-With no milestone filter, `w2c next` follows `.w2c/ROADMAP.md` line order, not numeric id order. Reordering pending milestones changes which task this skill picks up.
+With no milestone filter, `w2c next` stays on the current branch. It takes the next open task of an `INPROGRESS` milestone before any `PLANNING` or `TODO` milestone, using `.w2c/ROADMAP.md` line order inside each of those groups. It does not pick `PAUSED`, `STOP`, or `ERROR` unless you pass that milestone. Reordering pending milestones changes which to-do task is next only when no in-progress milestone still has an open task.
 
 ## Prerequisites (hard stop)
 
@@ -54,6 +55,7 @@ pipx install git+https://github.com/OpenW2C/w2c.git && w2c install-skills
 Never hand-edit STATE.md, QUEUE.md, ROADMAP emojis, or `[ ]` / `[x]` on tasks.
 
 ```bash
+w2c smoke --milestone M###
 w2c smoke
 w2c next [--milestone M###] [--slice S##] [--task T##]
 w2c complete --milestone M### --slice S## --task T##
@@ -95,7 +97,7 @@ Write these in the milestone plan folder. They are ledger, not runtime logs. Com
 
 Every unit:
 
-1. **Smoke** — log `--stage smoke --event started`, then `w2c smoke`. On FAIL: log `--stage smoke --event fail` and STOP with the report. Do not implement. On PASS: log `--stage smoke --event pass`. Smoke requires a valid `git_delivery` in `.w2c/config.toml`, a valid Git Operation Plan, a filled `## Commit and PR conventions` section (including the Co-authored-by ban) on milestone and slice plans, and a `Manual test guide` of `yes` or `no` (plus `M###-MANUAL-TEST.md` when `yes`).
+1. **Smoke** — log `--stage smoke --event started`. If the user asked for a full workspace smoke, or passed `--full-smoke`, run `w2c smoke` with no milestone. Otherwise run `w2c smoke --milestone <id>`. The id is the invocation milestone. With no milestone argument, use the milestone id printed by `w2c next` (read-only; it already limits itself to milestones whose remote branch is the current branch). Each `--max-units` loop resolves that id again. On FAIL: log `--stage smoke --event fail` and STOP with the report. Do not implement. A failure that names only some other milestone is not a failure of this run. On PASS: log `--stage smoke --event pass`. Smoke of the targeted milestone requires a valid `git_delivery` in `.w2c/config.toml`, a valid Git Operation Plan, a filled `## Commit and PR conventions` section (including the Co-authored-by ban) on that milestone and its slice plans, and a `Manual test guide` of `yes` or `no` (plus `M###-MANUAL-TEST.md` when `yes`). Ledger checks (schema, git delivery, queue and state agreement) still cover the whole workspace.
 2. **Pick** — log `--stage next --event started`, then `w2c next` with any M/S/T filters from the invocation. Include `--milestone` / `--slice` / `--task` on the event when known.
 3. If `--dry-run`: log `--stage dry-run --event complete --detail` with the unit id, print the unit, read Git Operation Plan and report Isolation mode + Local/Remote branch + whether isolate setup would run, and STOP. Do **not** create a worktree, switch branch, or implement.
 4. If no open task: log `--stage next --event stop --detail "no open task"`, print that, and STOP. If stdout contains an amendment lock (`AMEND_LOCK`), log `--stage next --event stop --detail "AMEND_LOCK"` and STOP. Do not implement that milestone.
@@ -204,7 +206,8 @@ When the last open milestone on that remote branch is done, ask once whether to 
 - Marking a task complete by editing the markdown checkbox
 - Skipping smoke, isolate, verify, requesting-code-review, or closeout reports
 - Calling `complete` / `slice-complete` / `milestone-complete` without the required report files
-- Continuing after smoke FAIL
+- Continuing after smoke FAIL on the milestone this run is executing
+- Stopping because a different milestone failed smoke, unless the user asked for a full workspace smoke
 - Implementing more than one task when `--max-units` is absent
 - Ignoring Git Operation Plan mode/branch or creating a differently named branch
 - Implementing from the wrong tree when mode is `worktree`
