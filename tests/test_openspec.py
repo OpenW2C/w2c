@@ -119,6 +119,11 @@ def seed_artifacts(root: Path, slug: str) -> None:
     write(change / "tasks.md", TASKS)
 
 
+# Captured from the pre-extraction smoke_checks.
+LEGACY_SMOKE_ROWS: list = [('openspec-cli', 'PASS', '1.14.3'), ('openspec-change-link', 'PASS', ''), ('openspec-validate-strict', 'PASS', ''), ('openspec-artifacts-complete', 'PASS', ''), ('openspec-slices-match-groups', 'PASS', ''), ('openspec-tasks-have-verify', 'PASS', ''), ('openspec-progress-agrees', 'PASS', ''), ('openspec-no-slice-tasks', 'PASS', ''), ('openspec-archived-when-done', 'PASS', ''), ('openspec-conventions', 'PASS', '')]
+LEGACY_SMOKE_FAIL_ROWS: list = [('openspec-cli', 'PASS', '1.14.3'), ('openspec-change-link', 'PASS', ''), ('openspec-validate-strict', 'FAIL', 'M001: validation failed'), ('openspec-artifacts-complete', 'PASS', ''), ('openspec-slices-match-groups', 'PASS', ''), ('openspec-tasks-have-verify', 'FAIL', 'M001 1.1: missing Verify line'), ('openspec-progress-agrees', 'PASS', ''), ('openspec-no-slice-tasks', 'PASS', ''), ('openspec-archived-when-done', 'PASS', ''), ('openspec-conventions', 'PASS', '')]
+
+
 class OpenSpecTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = Path(tempfile.mkdtemp(prefix="w2c-os-"))
@@ -202,6 +207,25 @@ class OpenSpecTests(unittest.TestCase):
         self.assertEqual(names["openspec-no-slice-tasks"].status, "PASS")
         self.assertEqual(names["openspec-conventions"].status, "PASS")
         self.assertFalse(report.failed(), [c for c in report.checks if c.status == "FAIL"])
+
+    def test_legacy_smoke_output_unchanged(self) -> None:
+        w2c.cmd_milestone_new(self.tmp, "add-export", planning="openspec")
+        plan = self.tmp / ".w2c/plans/M001-add-export"
+        write(plan / "M001-ROADMAP.md", filled_roadmap("M001", "add-export"))
+        write(plan / "M001-S01-PLAN.md", filled_slice("M001"))
+        seed_artifacts(self.tmp, "add-export")
+        report = w2c.run_smoke(self.tmp)
+        rows = [(c.name, c.status, c.detail) for c in report.checks if c.name.startswith("openspec-")]
+        self.assertEqual(rows, LEGACY_SMOKE_ROWS)
+        write(
+            self.tmp / "openspec/changes/add-export/tasks.md",
+            "# Tasks\n\n## 1. Export\n\n- [ ] 1.1 Write the exporter\n",
+        )
+        os.environ["FAKE_OPENSPEC_VALIDATE"] = "fail"
+        self.addCleanup(lambda: os.environ.pop("FAKE_OPENSPEC_VALIDATE", None))
+        report = w2c.run_smoke(self.tmp)
+        rows = [(c.name, c.status, c.detail) for c in report.checks if c.name.startswith("openspec-")]
+        self.assertEqual(rows, LEGACY_SMOKE_FAIL_ROWS)
 
     def test_smoke_fails_missing_verify_and_strict_validate(self) -> None:
         w2c.cmd_milestone_new(self.tmp, "add-export", planning="openspec")

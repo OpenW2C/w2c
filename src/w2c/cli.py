@@ -1680,9 +1680,9 @@ def parse_git_operation_fields(text: str) -> dict[str, str]:
 BASE_DIRT_POLICIES = frozenset({"clean-at-plan", "leave-untouched", "n/a-worktree"})
 
 
-def base_dirt_paths_body(text: str) -> str | None:
-    """Body of ### Base dirt paths inside ## Git Operation Plan, or None if absent."""
-    plan = section_under_heading(text, "Git Operation Plan")
+def base_dirt_paths_body(text: str, heading: str = "Git Operation Plan") -> str | None:
+    """Body of ### Base dirt paths inside the plan section, or None if absent."""
+    plan = section_under_heading(text, heading)
     if plan is None:
         return None
     match = re.search(r"^### Base dirt paths\s*$", plan, re.M)
@@ -1700,11 +1700,12 @@ def validate_git_operation_plan(
     *,
     require_worktree_skill: bool = True,
     plan_text: str | None = None,
+    plan_heading: str = "Git Operation Plan",
 ) -> list[str]:
     """Return human-readable problems; empty list means OK."""
     problems: list[str] = []
     if not fields:
-        return ["missing ## Git Operation Plan section or table"]
+        return [f"missing ## {plan_heading} section or table"]
     mode = fields.get("Isolation mode", "").strip().lower()
     local = fields.get("Local branch", "").strip()
     remote = fields.get("Remote branch", "").strip()
@@ -1732,7 +1733,7 @@ def validate_git_operation_plan(
         elif mode == "branch" and policy == "n/a-worktree":
             problems.append("branch mode Base dirt policy must not be n/a-worktree")
         elif policy == "leave-untouched":
-            body = None if plan_text is None else base_dirt_paths_body(plan_text)
+            body = None if plan_text is None else base_dirt_paths_body(plan_text, plan_heading)
             if body is None or not body.strip():
                 problems.append(
                     "leave-untouched requires a non-empty ### Base dirt paths subsection"

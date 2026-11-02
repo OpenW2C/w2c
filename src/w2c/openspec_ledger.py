@@ -295,6 +295,79 @@ def _conventions_problems(text: str, label: str) -> list[str]:
     return []
 
 
+def cli_check() -> tuple[tuple[str, str, str], bool]:
+    """The `openspec-cli` row and whether the CLI is usable."""
+    try:
+        if not osp.executable():
+            raise osp.OpenSpecError("openspec is not on PATH")
+        version = osp.version_text()
+        if not osp.version_ok(version):
+            return (
+                (
+                    "openspec-cli",
+                    "FAIL",
+                    f"{version} is older than {'.'.join(str(p) for p in osp.MIN_OPENSPEC_VERSION)}",
+                ),
+                False,
+            )
+        return ("openspec-cli", "PASS", version), True
+    except osp.OpenSpecError as exc:
+        return ("openspec-cli", "FAIL", str(exc)), False
+
+
+def live_checks(
+    root: Path, name: str, tasks_path: Path | None, mid: str
+) -> tuple[list[str], list[str], list[str]]:
+    """Run the OpenSpec CLI checks for one change.
+
+    Returns (validate, artifact, progress) problems, each prefixed with ``mid``.
+    """
+    validate_problems: list[str] = []
+    artifact_problems: list[str] = []
+    progress_problems: list[str] = []
+    validated = osp.validate(root, name, strict=True)
+    if not validated.ok:
+        detail = (validated.stderr or validated.stdout or "validate failed").strip()
+        validate_problems.append(f"{mid}: {detail[:240]}")
+    try:
+        report = osp.status(root, name)
+    except osp.OpenSpecError as exc:
+        artifact_problems.append(f"{mid}: {exc}")
+        report = {}
+    if report and not report.get("isComplete"):
+        waiting = [
+            item.get("id", "?")
+            for item in report.get("artifacts") or []
+            if item.get("status") != "done"
+        ]
+        artifact_problems.append(f"{mid}: not complete ({', '.join(waiting)})")
+    try:
+        apply = osp.apply_info(root, name)
+    except osp.OpenSpecError as exc:
+        progress_problems.append(f"{mid}: {exc}")
+        apply = None
+    if apply is not None and tasks_path is not None and tasks_path.is_file():
+        parsed = parse_openspec_tasks(tasks_path, mid)
+        dropped_ids = {task.openspec_id for task in parsed if task.dropped}
+        ours = {
+            task.openspec_id: task.done
+            for task in parsed
+            if task.openspec_id not in dropped_ids
+        }
+        theirs = apply_checkbox_progress(apply.get("tasks"))
+        if theirs is not None:
+            theirs = {
+                key: value
+                for key, value in theirs.items()
+                if key not in dropped_ids
+            }
+        if theirs is None or ours != theirs:
+            progress_problems.append(
+                f"{mid}: tasks.md checkboxes disagree with openspec instructions apply"
+            )
+    return validate_problems, artifact_problems, progress_problems
+
+
 def smoke_checks(root: Path, milestones: list) -> list[tuple[str, str, str]]:
     """Extra smoke rows. Empty when no milestone uses OpenSpec mode."""
     selected: list[tuple] = []
@@ -306,25 +379,8 @@ def smoke_checks(root: Path, milestones: list) -> list[tuple[str, str, str]]:
     if not selected:
         return []
 
-    rows: list[tuple[str, str, str]] = []
-    cli_ok = False
-    try:
-        if not osp.executable():
-            raise osp.OpenSpecError("openspec is not on PATH")
-        version = osp.version_text()
-        if not osp.version_ok(version):
-            rows.append(
-                (
-                    "openspec-cli",
-                    "FAIL",
-                    f"{version} is older than {'.'.join(str(p) for p in osp.MIN_OPENSPEC_VERSION)}",
-                )
-            )
-        else:
-            rows.append(("openspec-cli", "PASS", version))
-            cli_ok = True
-    except osp.OpenSpecError as exc:
-        rows.append(("openspec-cli", "FAIL", str(exc)))
+    cli_row, cli_ok = cli_check()
+    rows: list[tuple[str, str, str]] = [cli_row]
 
     link_problems: list[str] = []
     validate_problems: list[str] = []
@@ -398,46 +454,12 @@ def smoke_checks(root: Path, milestones: list) -> list[tuple[str, str, str]]:
         if not name:
             validate_problems.append(f"{milestone.mid}: no change name")
             continue
-        validated = osp.validate(root, name, strict=True)
-        if not validated.ok:
-            detail = (validated.stderr or validated.stdout or "validate failed").strip()
-            validate_problems.append(f"{milestone.mid}: {detail[:240]}")
-        try:
-            report = osp.status(root, name)
-        except osp.OpenSpecError as exc:
-            artifact_problems.append(f"{milestone.mid}: {exc}")
-            report = {}
-        if report and not report.get("isComplete"):
-            waiting = [
-                item.get("id", "?")
-                for item in report.get("artifacts") or []
-                if item.get("status") != "done"
-            ]
-            artifact_problems.append(f"{milestone.mid}: not complete ({', '.join(waiting)})")
-        try:
-            apply = osp.apply_info(root, name)
-        except osp.OpenSpecError as exc:
-            progress_problems.append(f"{milestone.mid}: {exc}")
-            apply = None
-        if apply is not None and tasks_path is not None and tasks_path.is_file():
-            parsed = parse_openspec_tasks(tasks_path, milestone.mid)
-            dropped_ids = {task.openspec_id for task in parsed if task.dropped}
-            ours = {
-                task.openspec_id: task.done
-                for task in parsed
-                if task.openspec_id not in dropped_ids
-            }
-            theirs = apply_checkbox_progress(apply.get("tasks"))
-            if theirs is not None:
-                theirs = {
-                    key: value
-                    for key, value in theirs.items()
-                    if key not in dropped_ids
-                }
-            if theirs is None or ours != theirs:
-                progress_problems.append(
-                    f"{milestone.mid}: tasks.md checkboxes disagree with openspec instructions apply"
-                )
+        found_validate, found_artifact, found_progress = live_checks(
+            root, name, tasks_path, milestone.mid
+        )
+        validate_problems.extend(found_validate)
+        artifact_problems.extend(found_artifact)
+        progress_problems.extend(found_progress)
 
     def add(name: str, problems: list[str]) -> None:
         rows.append((name, "FAIL" if problems else "PASS", "; ".join(problems[:8])))
