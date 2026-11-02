@@ -21,18 +21,18 @@ sys.path.insert(0, str(REPO))
 def _stages(suite: str):
     from tests.e2e import harness  # noqa: F401
 
-    modules: list[str] = []
+    modules: list[tuple[str, str]] = []
     if suite in ("legacy", "all"):
-        modules.append("tests.e2e.legacy_suite")
+        modules.append(("legacy", "tests.e2e.legacy_suite"))
     if suite in ("cloud", "all"):
         if (REPO / "tests" / "e2e" / "cloud_suite.py").is_file():
-            modules.append("tests.e2e.cloud_suite")
+            modules.append(("cloud", "tests.e2e.cloud_suite"))
         elif suite == "cloud":
             raise SystemExit("E2E: FAIL: tests/e2e/cloud_suite.py does not exist yet")
     stages = []
-    for name in modules:
+    for suite_name, name in modules:
         module = importlib.import_module(name)
-        stages.extend(module.STAGES)
+        stages.append((suite_name, module.STAGES))
     return stages
 
 
@@ -53,7 +53,7 @@ def main(argv: list[str] | None = None) -> int:
     tmp = Path(tempfile.mkdtemp(prefix="w2c-e2e-")).resolve()
     keep = os.environ.get("W2C_E2E_KEEP") == "1"
     try:
-        results = harness.run_suite(stages, lambda: harness.make_project(tmp))
+        results = harness.run_suites(stages, tmp)
     finally:
         if keep:
             print(f"kept {tmp}")

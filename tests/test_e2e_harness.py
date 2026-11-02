@@ -28,8 +28,10 @@ class HarnessTests(unittest.TestCase):
         def boom(_project: harness.Project) -> None:
             raise AssertionError("token missing")
 
+        called: list[str] = []
+
         def later(_project: harness.Project) -> None:
-            raise AssertionError("must not run")
+            called.append("S3")
 
         stages = [
             harness.Stage("S1", "first", ok),
@@ -43,7 +45,8 @@ class HarnessTests(unittest.TestCase):
         lines = report.read_text(encoding="utf-8").splitlines()
         self.assertIn("- [x] S1 first", lines)
         self.assertTrue(any(l.startswith("- [ ] S2 second — ") and "token missing" in l for l in lines))
-        self.assertTrue(any(l.startswith("- [ ] S3 third — ") and "not run" in l for l in lines))
+        self.assertEqual(called, [])
+        self.assertIn("- [ ] S3 third — not run", lines)
         self.assertEqual(lines[-1], "E2E: FAIL")
 
     def test_report_passes_when_every_stage_passes(self) -> None:
@@ -52,6 +55,47 @@ class HarnessTests(unittest.TestCase):
         report = self.tmp / "report.md"
         harness.write_report(results, report)
         self.assertEqual(report.read_text(encoding="utf-8").splitlines()[-1], "E2E: PASS")
+
+    def test_each_suite_gets_its_own_project_and_a_failure_does_not_stop_the_next(self) -> None:
+        made: list[tuple[Path, str]] = []
+        seen: list[tuple[str, str]] = []
+
+        def factory(path: Path, suite: str = "legacy") -> harness.Project:
+            made.append((path, suite))
+            path.mkdir(parents=True, exist_ok=True)
+            return harness.Project(
+                root=path, remote=path / "r.git", home=path / "h", env={}, tmp=path, suite=suite
+            )
+
+        def fail(_p: harness.Project) -> None:
+            raise AssertionError("legacy broke")
+
+        def record(p: harness.Project) -> None:
+            seen.append((p.suite, str(p.root)))
+
+        results = harness.run_suites(
+            [
+                ("legacy", [harness.Stage("L01", "one", fail), harness.Stage("L02", "two", record)]),
+                ("cloud", [harness.Stage("C01", "one", record)]),
+            ],
+            self.tmp,
+            factory,
+        )
+        self.assertEqual(made, [(self.tmp / "legacy", "legacy"), (self.tmp / "cloud", "cloud")])
+        self.assertEqual(seen, [("cloud", str(self.tmp / "cloud"))])
+        self.assertEqual(
+            [(r[0].id, r[1]) for r in results], [("L01", False), ("L02", False), ("C01", True)]
+        )
+        old = harness.EXPECTED_DIR
+        harness.EXPECTED_DIR = self.tmp / "expected"
+        self.addCleanup(lambda: setattr(harness, "EXPECTED_DIR", old))
+        os.environ["W2C_E2E_UPDATE"] = "1"
+        self.addCleanup(lambda: os.environ.pop("W2C_E2E_UPDATE", None))
+        for suite in ("legacy", "cloud"):
+            proj = factory(self.tmp / suite, suite)
+            proj.expect_matches("x.txt", suite)
+        self.assertEqual((self.tmp / "expected" / "legacy" / "x.txt").read_text().strip(), "legacy")
+        self.assertEqual((self.tmp / "expected" / "cloud" / "x.txt").read_text().strip(), "cloud")
 
     def test_missing_openspec_fails(self) -> None:
         proc = subprocess.run(

@@ -216,6 +216,8 @@ def l01_install(p: Project) -> None:
     p.expect_files("src/w2c/cli.py", "templates/M-ROADMAP.md", "skills/work-to-chores/SKILL.md",
                    "skills/do-chores/SKILL.md", "hooks/openspec-archive/pre-push", cwd=data)
     p.expect_files(".local/bin/w2c", ".config/.w2c/config.toml", cwd=p.home)
+    # Presence only: later releases add skills, and the stored outputs must not change.
+    p.expect_files(".agents/skills/work-to-chores", ".agents/skills/do-chores", cwd=p.home)
 
 
 def l02_init(p: Project) -> None:

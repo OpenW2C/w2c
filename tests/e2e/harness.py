@@ -224,7 +224,7 @@ def make_project(tmp: Path, suite: str = "legacy") -> Project:
     project.git("remote", "add", "origin", str(remote))
     project.git("push", "-q", "-u", "origin", "main")
     installer = subprocess.run(
-        ["bash", str(REPO / "install.sh"), "--force", "--skip-skills"],
+        ["bash", str(REPO / "install.sh"), "--force"],
         cwd=str(tmp),
         env=env,
         capture_output=True,
@@ -255,6 +255,20 @@ def run_suite(
             results.append((stage, False, message[:600]))
         else:
             results.append((stage, True, ""))
+    return results
+
+
+def run_suites(
+    suites: list[tuple[str, list[Stage]]],
+    tmp: Path,
+    factory: Callable[..., Project] = make_project,
+) -> list[tuple[Stage, bool, str]]:
+    """Run each suite on its own fresh project; one suite failing does not stop the next."""
+    results: list[tuple[Stage, bool, str]] = []
+    for name, stages in suites:
+        results.extend(
+            run_suite(stages, lambda name=name: factory(Path(tmp) / name, suite=name))
+        )
     return results
 
 
