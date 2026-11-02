@@ -153,6 +153,31 @@ class NewTests(CloudCommandBase):
         self.ok("cloud", "new", "--slug", NAME)
         self.assertIn(f"x-delivery-cadence: {CADENCE}", self.meta())
 
+    def test_new_rejects_bad_cadence_in_local_config(self) -> None:
+        (self.root / ".w2c").mkdir()
+        (self.root / ".w2c" / "config.toml").write_text('git_delivery = "hourly"\n', encoding="utf-8")
+        code, out, _err = run_main(self.root, "cloud", "new", "--slug", NAME)
+        self.assertNotEqual(code, 0)
+        self.assertFalse(self.change.exists())
+
+    def test_new_resolves_relative_metadata_path_against_root(self) -> None:
+        script = Path(self._tmp.name) / "bin" / "openspec"
+        script.write_text(
+            "#!/usr/bin/env python3\nimport json, sys\nfrom pathlib import Path\n"
+            "name = sys.argv[3]\nd = Path('openspec/changes') / name\nd.mkdir(parents=True)\n"
+            "(d / '.openspec.yaml').write_text('schema: spec-driven\\n')\n"
+            "print(json.dumps({'change': {'metadataPath': str(d / '.openspec.yaml')}}))\n",
+            encoding="utf-8",
+        )
+        elsewhere = Path(self._tmp.name) / "elsewhere"
+        elsewhere.mkdir()
+        old = os.getcwd()
+        os.chdir(elsewhere)
+        self.addCleanup(lambda: os.chdir(old))
+        self.ok("cloud", "new", "--slug", NAME, "--cadence", CADENCE)
+        self.assertIn("x-delivery-status: PLANNING", self.meta())
+        self.assertEqual(list(elsewhere.iterdir()), [])
+
     def test_new_rejects_unknown_cadence(self) -> None:
         self.bad("cloud", "new", "--slug", NAME, "--cadence", "hourly")
         self.assertFalse(self.change.exists())
@@ -327,6 +352,93 @@ class CloseoutTests(CloudCommandBase):
         self.assertIn("x-delivery-status: DONE", meta)
         self.assertIn("x-delivery-archive: declined", meta)
         self.assertTrue((self.change / ".delivery" / "SUMMARY.md").is_file())
+
+    def test_archive_accepts_declined_done_and_clears_marker(self) -> None:
+        self.make()
+        self.finish_all()
+        self.report("VALIDATION.md")
+        self.report("SUMMARY.md")
+        self.ok("cloud", "milestone-complete", NAME, "--archive-declined")
+        self.ok("cloud", "archive", NAME)
+        archived = self.root / "openspec/changes/archive" / f"2026-10-18-{NAME}"
+        self.assertNotIn("x-delivery-archive", self.meta(archived))
+        self.assertIn("x-delivery-status: DONE", self.meta(archived))
+        self.assertFalse((archived / ".delivery").exists())
+
+    def test_archive_refuses_plain_done(self) -> None:
+        self.make(status="DONE")
+        self.assertIn("already DONE", self.bad("cloud", "archive", NAME))
+
+    def test_archive_refuses_open_task_in_listed_group(self) -> None:
+        self.make()
+        self.finish_all()
+        self.report("VALIDATION.md")
+        self.report("SUMMARY.md")
+        tasks = self.change / "tasks.md"
+        tasks.write_text(
+            tasks.read_text(encoding="utf-8").replace(
+                "## 2. Docs", "- [ ] 1.3 Late task\n\n## 2. Docs"
+            ),
+            encoding="utf-8",
+        )
+        self.assertIn("S01", self.bad("cloud", "archive", NAME))
+        self.assertTrue((self.change / ".delivery" / "SUMMARY.md").is_file())
+
+    def test_archive_accepts_all_dropped_group_without_listing(self) -> None:
+        self.make()
+        for tid in ("T01", "T02"):
+            self.report(f"S01-{tid}-SUMMARY.md")
+            self.ok("cloud", "complete", "--change", NAME, "--slice", "S01", "--task", tid)
+        self.report("S01-UAT.md")
+        self.report("S01-SUMMARY.md")
+        self.ok("cloud", "slice-complete", "--change", NAME, "--slice", "S01")
+        tasks = self.change / "tasks.md"
+        tasks.write_text(tasks.read_text(encoding="utf-8").replace("[ ] 2.1", "[d] 2.1"), encoding="utf-8")
+        self.report("VALIDATION.md")
+        self.report("SUMMARY.md")
+        self.ok("cloud", "archive", NAME)
+        self.assertTrue((self.root / "openspec/changes/archive" / f"2026-10-18-{NAME}").is_dir())
+
+    def test_unlisted_finished_group_blocks_archive(self) -> None:
+        self.make()
+        self.finish_all()
+        self.report("VALIDATION.md")
+        self.report("SUMMARY.md")
+        ledger.write_key(self.change / ".openspec.yaml", "x-delivery-slices-done", "[]")
+        self.bad("cloud", "archive", NAME)
+
+    def test_failed_archive_restores_reports_and_status(self) -> None:
+        self.make()
+        self.finish_all()
+        self.report("VALIDATION.md")
+        self.report("SUMMARY.md")
+        before = sorted(p.name for p in (self.change / ".delivery").iterdir())
+        os.environ["FAKE_OPENSPEC_ARCHIVE"] = "fail"
+        self.addCleanup(lambda: os.environ.pop("FAKE_OPENSPEC_ARCHIVE", None))
+        message = self.bad("cloud", "archive", NAME)
+        self.assertIn("archive blew up", message)
+        self.assertEqual(sorted(p.name for p in (self.change / ".delivery").iterdir()), before)
+        self.assertIn("x-delivery-status: INPROGRESS", self.meta())
+
+    def test_failed_archive_keeps_declined_marker(self) -> None:
+        self.make()
+        self.finish_all()
+        self.report("VALIDATION.md")
+        self.report("SUMMARY.md")
+        self.ok("cloud", "milestone-complete", NAME, "--archive-declined")
+        os.environ["FAKE_OPENSPEC_ARCHIVE"] = "fail"
+        self.addCleanup(lambda: os.environ.pop("FAKE_OPENSPEC_ARCHIVE", None))
+        self.bad("cloud", "archive", NAME)
+        self.assertIn("x-delivery-archive: declined", self.meta())
+        self.assertIn("x-delivery-status: DONE", self.meta())
+        self.assertTrue((self.change / ".delivery" / "SUMMARY.md").is_file())
+
+    def test_complete_and_slice_complete_refuse_done(self) -> None:
+        self.make(status="DONE", extra="x-delivery-archive: declined\n")
+        self.report("S01-T01-SUMMARY.md")
+        self.assertIn("already DONE", self.bad("cloud", "complete", "--change", NAME, "--slice", "S01", "--task", "T01"))
+        self.assertIn("already DONE", self.bad("cloud", "slice-complete", "--change", NAME, "--slice", "S01"))
+        self.assertIn("- [ ] 1.1", (self.change / "tasks.md").read_text(encoding="utf-8"))
 
     def test_status_set(self) -> None:
         self.make()

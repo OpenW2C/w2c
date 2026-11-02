@@ -180,6 +180,9 @@ def main(argv: list[str]) -> int:
             print(payload["instruction"])
         return 0
     if command == "archive":
+        if os.environ.get("FAKE_OPENSPEC_ARCHIVE") == "fail":
+            print("archive blew up", file=sys.stderr)
+            return 1
         positions = _positional(argv[1:])
         if not positions:
             print("missing change name", file=sys.stderr)

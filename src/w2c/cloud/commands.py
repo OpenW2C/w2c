@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import re
 import shutil
+import tempfile
 from pathlib import Path
 
 from w2c import local as w2c_local
@@ -103,6 +104,11 @@ def _refuse_if_locked(change: ledger.CloudChange) -> None:
         raise _cli().W2CError(f"AMEND_LOCK {change.name}")
 
 
+def _refuse_if_done(change: ledger.CloudChange) -> None:
+    if change.status == "DONE":
+        raise _cli().W2CError(f"{change.name} is already DONE")
+
+
 def _meta(change: ledger.CloudChange) -> Path:
     return change.path / ".openspec.yaml"
 
@@ -129,6 +135,8 @@ def new(root: Path, slug: str, cadence: str | None) -> int:
     if not cadence:
         print("NEED_CADENCE")
         return 1
+    if cadence not in ledger.CADENCES:
+        raise cli.W2CError(f"invalid cadence {cadence}; use {', '.join(sorted(ledger.CADENCES))}")
     top = max((c.order or 0 for c in ledger.list_changes(root)), default=0)
     created = osp.new_change(root, slug, goal=slug.replace("-", " "))
     info = created.get("change") if isinstance(created, dict) else None
@@ -136,6 +144,8 @@ def new(root: Path, slug: str, cadence: str | None) -> int:
     if not meta:
         raise cli.W2CError("openspec new change did not return metadataPath")
     path = Path(meta)
+    if not path.is_absolute():
+        path = root / path
     ledger.write_key(path, "x-delivery-status", "PLANNING")
     ledger.write_key(path, "x-delivery-order", str(top + 1))
     ledger.write_key(path, "x-delivery-cadence", str(cadence))
@@ -220,18 +230,20 @@ def status(root: Path, all_: bool = False) -> int:
 
 
 def _groups(change: ledger.CloudChange) -> tuple[list[int], list[int]]:
-    """(open group numbers, group numbers still open after slices-done and drops)."""
+    """(all group numbers, group numbers not yet finished).
+
+    A group is finished when every task is done or dropped and it is either
+    all dropped or listed in x-delivery-slices-done.
+    """
     tasks = _change_tasks(change)
-    open_groups: list[int] = []
     numbers = osl.group_numbers(_tasks_path(change))
+    open_groups: list[int] = []
     for number in numbers:
-        if number in change.slices_done:
-            continue
-        sid = f"S{number:02d}"
-        in_group = [t for t in tasks if t.sid == sid]
-        if in_group and all(t.dropped for t in in_group):
-            continue
-        open_groups.append(number)
+        in_group = [t for t in tasks if t.sid == f"S{number:02d}"]
+        if not in_group or any(_is_open(t) for t in in_group):
+            open_groups.append(number)
+        elif not all(t.dropped for t in in_group) and number not in change.slices_done:
+            open_groups.append(number)
     return numbers, open_groups
 
 
@@ -239,6 +251,7 @@ def complete(root: Path, change: str, sid: str, tid: str) -> int:
     cli = _cli()
     item = _active(root, change)
     _refuse_if_locked(item)
+    _refuse_if_done(item)
     tasks = [t for t in _change_tasks(item) if t.sid == sid]
     match = [t for t in tasks if t.tid == tid or t.openspec_id == tid]
     if not match:
@@ -275,6 +288,7 @@ def slice_complete(root: Path, change: str, sid: str) -> int:
     cli = _cli()
     item = _active(root, change)
     _refuse_if_locked(item)
+    _refuse_if_done(item)
     tasks = [t for t in _change_tasks(item) if t.sid == sid]
     if not tasks:
         raise cli.W2CError(f"no tasks in {item.name} {sid}")
@@ -328,16 +342,30 @@ def archive(root: Path, change: str) -> int:
     cli = _cli()
     item = _active(root, change)
     _refuse_if_locked(item)
-    if item.status == "DONE":
+    if item.status == "DONE" and item.archive != "declined":
         raise cli.W2CError(f"{item.name} is already DONE")
     _require_closeout(item)
-    shutil.rmtree(ledger.delivery_dir(item), ignore_errors=True)
-    ledger.write_key(_meta(item), "x-delivery-status", "DONE")
+    meta = _meta(item)
+    reports = ledger.delivery_dir(item)
+    backup = Path(tempfile.mkdtemp(prefix="cloud-delivery-"))
+    saved = backup / reports.name
     try:
+        if reports.exists():
+            shutil.move(str(reports), str(saved))
+        ledger.write_key(meta, "x-delivery-archive", None)
+        ledger.write_key(meta, "x-delivery-status", "DONE")
         data = osp.archive(root, item.name)
-    except osp.OpenSpecError:
-        ledger.write_key(_meta(item), "x-delivery-status", item.status)
+    except BaseException:
+        if saved.exists():
+            if reports.exists():
+                shutil.rmtree(reports)
+            shutil.move(str(saved), str(reports))
+        if meta.is_file():
+            ledger.write_key(meta, "x-delivery-status", item.status)
+            ledger.write_key(meta, "x-delivery-archive", item.archive or None)
+        shutil.rmtree(backup, ignore_errors=True)
         raise
+    shutil.rmtree(backup, ignore_errors=True)
     info = data.get("archive") if isinstance(data, dict) else None
     archived_as = str(info.get("archivedAs") or "") if isinstance(info, dict) else ""
     _event(root, stage="archive", event="complete", milestone=item.name,
