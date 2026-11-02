@@ -12,27 +12,32 @@
 | Worktree layout | |
 | Worktree dir | |
 | Exclude line | |
-| Push rule | from the delivery policy plus explicit approval; push ref must equal Remote branch |
+| Push rule | from the change's x-delivery-cadence key plus explicit approval; push ref must equal Remote branch |
 | Base dirt policy | |
 | External ticket ID | |
-| Integration strategy | |
+| Integration strategy | (from the project's delivery profile) |
 | Integration branch | |
+| Production branch | |
+| Review unit | none |
 | Execution sequence | |
 | Validation commands | |
-| Completion condition | All slices verified; honor the delivery policy and explicit approval gates |
+| Completion condition | All slices verified; honor x-delivery-cadence and explicit approval gates |
 | Size budget (LOC diff) | |
 | Manual test guide | no |
 
+When `Base dirt policy` is `leave-untouched`, this plan carries a `### Base dirt paths` subsection listing the critical and other paths. Product commits never stage those paths.
+
 ## Guardrails
 
-- **Commit cadence** — follow the delivery policy named in the Delivery Plan. Never commit, push, or open a PR without explicit user approval for that action.
+- **Commit cadence** — commit, push and pull-request timing follows the change's `x-delivery-cadence` key in `.openspec.yaml`. Every commit, push and pull request still needs explicit user approval. Never commit, push, or open a PR without explicit user approval for that action.
 - **Remote mutation** — no push, PR, or remote git mutation without explicit user approval.
-- **Git isolation** — honor Isolation mode (`worktree` or `branch` only). Local branch must equal Remote branch. Set up on the first task; reuse the same ticket isolation across changes.
+- **Git isolation** — honor Isolation mode (`worktree` or `branch` only). Local branch must equal Remote branch (the ticket id or a confirmed slug). Set up on the first task; reuse the same ticket isolation across changes.
 - **No force git** — never force-reset, force-push, or delete worktrees/branches. A dirty or unexpected existing branch or worktree is a hard stop: ask.
 - **Validation** — run the validation commands in the Delivery Plan before each commit and before each push.
 - **Status writes** — tick task boxes only through the task-tracking command, never by hand. Never hand-edit status fields in the change metadata.
-- **Verify loop** — a task is not complete until its verification commands pass and code review is clean.
+- **Verify loop** — a task is not complete until its Verify commands pass and requesting-code-review is clean.
 - **Closeout reports** — write `S##-T##-SUMMARY.md` before completing a task; `S##-UAT.md` and `S##-SUMMARY.md` before completing a slice; `VALIDATION.md` and `SUMMARY.md` before the change is done. All live under `.delivery/`.
+- **Slice closeout order** — after a group's last task, re-run every Verify in that group, then write the slice UAT and slice summary, then complete the slice. After the last group, write `VALIDATION.md` and `SUMMARY.md`, then archive the change, then complete it.
 - **Commit and PR** — honor `## Commit and PR Conventions`. Never add `Co-authored-by:` or similar AI co-author trailers. Never stage deny-listed paths on product commits. Never mention any `.delivery/` path or local planner file in commit or PR text.
 
 ## Commit and PR Conventions
@@ -46,7 +51,7 @@ Planner: inspect this repo (`CONTRIBUTING*`, `.github/*PULL_REQUEST_TEMPLATE*`, 
 **Pull request:**
 
 **Do not stage / commit:**
-Planner: fill a deny-list. Always include `.delivery/` and any local planner files. Add notable paths from the client `.gitignore` (e.g. `.env*`, credentials, local IDE junk). Product commits must never stage these paths.
+Planner: fill a deny-list. Always include `.delivery/` and any local planner files. Add notable paths from the client `.gitignore` (e.g. `.env*`, credentials, local IDE junk). Product commits must never stage these paths, including any `### Base dirt paths` listed in the Delivery Plan.
 
 `openspec/` is product content and is never deny-listed. Product commits stage only this change's folder plus the archive result.
 

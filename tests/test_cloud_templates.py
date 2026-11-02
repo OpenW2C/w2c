@@ -90,12 +90,59 @@ class CloudTemplateTests(unittest.TestCase):
         self.assertEqual(new_rows, list(layout.DELIVERY_PLAN_FIELDS))
         self.assertEqual(sorted(layout.LEGACY_DROPPED_FIELDS), sorted([
             "Milestone / planning ID", "Human-readable scope slug", "Planning mode", "OpenSpec change",
-            "OpenSpec archive", "Workstream name", "Commit cadence", "Review unit",
+            "OpenSpec archive", "Workstream name", "Commit cadence",
             "Git/PR checkpoint mode", "Branch name", "Plan commit"]))
         for row in legacy_rows:
             if row in new_rows:
                 continue
             self.assertTrue(layout.LEGACY_DROPPED_FIELDS.get(row), row)
+
+    def test_legacy_guardrail_key_phrases(self) -> None:
+        new = "\n".join(p.read_text(encoding="utf-8") for p in sorted(CLOUD.rglob("*.md")))
+        new += layout.CONFIG_RULES_SNIPPET
+        road = (TPL / "openspec" / "M-ROADMAP.md").read_text(encoding="utf-8")
+        plan = (TPL / "openspec" / "M-S-PLAN.md").read_text(encoding="utf-8")
+        legacy = re.findall(r"^- (.+)$", section(road, "### Guardrails", "###"), re.M)
+        legacy += re.findall(r"^- (.+)$", section(plan, "### Guardrails", "###"), re.M)
+        legacy.append(section(plan, "## Git Operation Plan", "##").strip().split("\n\n")[1])
+        phrases = {
+            "Commit cadence": ["x-delivery-cadence", "explicit user approval"],
+            "Remote mutation": ["no push, PR, or remote git mutation without explicit user approval"],
+            "Git isolation": ["ticket id or a confirmed slug", "reuse the same ticket isolation"],
+            "No force git": ["never force-reset, force-push, or delete worktrees/branches", "hard stop"],
+            "Validation": ["before each commit and before each push"],
+            "Status writes": ["task-tracking command", "never by hand"],
+            "Verify loop": ["requesting-code-review is clean", "Verify commands pass"],
+            "Closeout reports": ["S##-T##-SUMMARY.md", "S##-UAT.md", "VALIDATION.md"],
+            "Commit and PR": ["Co-authored-by:", "deny-listed paths", ".delivery/"],
+            "Do not mark tasks complete": ["task-tracking command"],
+            "A task is not done": ["requesting-code-review is clean", "S##-T##-SUMMARY.md"],
+            "After the last task": ["re-run every Verify", "then complete the slice"],
+            "After the last slice": ["then archive the change", "then complete it"],
+            "Honor this slice": ["x-delivery-cadence", "explicit user approval"],
+            "Honor `## Commit and PR": ["Commit and PR Conventions", "Co-authored-by:"],
+            "Never force-reset": ["never force-reset, force-push"],
+            "Must match the parent": ["Base dirt paths", "never stage"],
+        }
+        dropped = {
+            "Plan commit": layout.LEGACY_DROPPED_GUARDRAILS["Plan commit"],
+            "Spec commit": layout.LEGACY_DROPPED_GUARDRAILS["Spec commit"],
+        }
+        for bullet in legacy:
+            key = next((k for k in list(phrases) + list(dropped) if k in bullet[:60]), None)
+            if key is None and bullet.startswith("**"):
+                key = bullet.split("**")[1]
+            if key is None:
+                key = next((k for k in phrases if bullet.startswith(k)), None)
+            if key is None and bullet.startswith("Must match"):
+                key = "Must match the parent"
+            self.assertIsNotNone(key, f"unmapped legacy rule: {bullet[:60]}")
+            if key in dropped:
+                self.assertTrue(dropped[key])
+                continue
+            self.assertIn(key, phrases, bullet[:60])
+            for ph in phrases[key]:
+                self.assertIn(ph, new, f"{key}: {ph}")
 
     def test_slice_field_parity(self) -> None:
         legacy = (TPL / "openspec" / "M-S-PLAN.md").read_text(encoding="utf-8")

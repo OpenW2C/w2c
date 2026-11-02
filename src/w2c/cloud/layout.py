@@ -41,6 +41,8 @@ DELIVERY_PLAN_FIELDS: tuple[str, ...] = (
     "External ticket ID",
     "Integration strategy",
     "Integration branch",
+    "Production branch",
+    "Review unit",
     "Execution sequence",
     "Validation commands",
     "Completion condition",
@@ -55,16 +57,15 @@ LEGACY_DROPPED_FIELDS: dict[str, str] = {
     "OpenSpec change": "the design.md lives inside the change itself",
     "OpenSpec archive": "archive location is recorded by OpenSpec when archiving",
     "Workstream name": "not used in cloud mode; the change is the unit of work",
-    "Commit cadence": "covered by the Commit and PR Conventions and Guardrails sections",
-    "Review unit": "each tasks.md group is the review unit",
-    "Git/PR checkpoint mode": "covered by Push rule and the Guardrails section",
+    "Commit cadence": "lives in the change's x-delivery-cadence key in .openspec.yaml",
+    "Git/PR checkpoint mode": "legacy value is always none and nothing sets another value",
     "Branch name": "replaced by Local branch and Remote branch",
     "Plan commit": "no separate planner commit exists in cloud mode",
 }
 
 LEGACY_DROPPED_GUARDRAILS: dict[str, str] = {
     "Plan commit": "no planner files are committed in cloud mode",
-    "Spec commit": "the change folder is committed with the product work",
+    "Spec commit": "the plan-approval gate and the commit onto the ticket branch moved into the planning skill's spec-commit step",
 }
 
 STOP_SENTENCE = (
