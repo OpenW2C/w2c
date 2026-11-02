@@ -38,7 +38,8 @@ def _cli():
 
 
 def slice_fields(tasks_text: str) -> dict[int, dict[str, str]]:
-    """Bold `**Field:**` values per `## N.` group. Task lines end a value."""
+    """Bold `**Field:**` values per `## N.` group. Task lines and any other bold
+    `**Label:**` line end a value."""
     groups: dict[int, dict[str, str]] = {}
     current: dict[str, str] | None = None
     field: str | None = None
@@ -60,6 +61,9 @@ def slice_fields(tasks_text: str) -> dict[int, dict[str, str]]:
         if match and match.group(1).strip() in layout.SLICE_FIELDS:
             field = match.group(1).strip()
             current[field] = match.group(2).strip()
+            continue
+        if match:
+            field = None
             continue
         if field is not None and line.strip():
             current[field] = (current[field] + "\n" + line.strip()).strip()

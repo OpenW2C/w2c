@@ -371,6 +371,15 @@ class ArchivedChangeTests(CloudChecksBase):
         self.addCleanup(lambda: os.environ.pop("FAKE_OPENSPEC_APPLY_DONE", None))
         self.assertEqual(self.failing(), set(), self.rows())
 
+    def test_unknown_bold_label_after_an_empty_field_fails_slice_fields(self) -> None:
+        text = fill_tasks().replace(
+            "**Files Likely Touched:** text for Files Likely Touched",
+            "**Files Likely Touched:**\n**Note:** text",
+        )
+        self.make(tasks=text)
+        self.assertEqual(self.failing(), {"slice-fields"})
+        self.assertIn("empty Files Likely Touched", self.rows()["slice-fields"][1])
+
 
 class GroupTextTests(unittest.TestCase):
     def test_group_text_is_not_a_task(self) -> None:

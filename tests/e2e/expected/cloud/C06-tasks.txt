@@ -1,0 +1,19 @@
+## 1. Divide
+
+**Goal:** goal for Divide
+**Demo:** demo for Divide
+**Must-Haves:** must-haves for Divide
+**Threat Surface:** threat surface for Divide
+**Proof Level:** proof level for Divide
+**Integration Closure:** integration closure for Divide
+**Verification:** verification for Divide
+- Run the task and slice verification checks for this slice (closeout order: see Guardrails in design.md).
+**Files Likely Touched:** files likely touched for Divide
+
+- [ ] 1.1 Add divide to the calculator
+  - Verify: python3 -m unittest discover -s tests -t .
+- [d] 1.2 Test divide
+  - Verify: python3 -m unittest discover -s tests -t .
+- [ ] 1.3 Check division by zero
+  - Verify: python3 -m unittest discover -s tests -t .
+

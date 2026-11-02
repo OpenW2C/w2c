@@ -55,6 +55,32 @@ def register(sub: argparse._SubParsersAction) -> None:
     group = mv.add_mutually_exclusive_group(required=True)
     group.add_argument("--before", default=None)
     group.add_argument("--after", default=None)
+    _register_amend(csub)
+
+
+def _register_amend(csub: argparse._SubParsersAction) -> None:
+    def add(name: str, help_: str, *flags: str, **optional: object) -> argparse.ArgumentParser:
+        parser = csub.add_parser(name, help=help_)
+        parser.add_argument("--change", required=True)
+        for flag in flags:
+            parser.add_argument("--" + flag, dest=flag.replace("-", "_"), required=True)
+        for flag, default in optional.items():
+            parser.add_argument("--" + flag.replace("_", "-"), dest=flag, default=default)
+        return parser
+
+    add("amend-begin", "pause an in-progress change and lock amendments", "decision")
+    add("amend-end", "clear the amendment lock after smoke passes")
+    add("amendments", "print the change's amendment records")
+    p = add("drop-task", "mark an unfinished task dropped", "slice", "task", "reason", "decision",
+            follow_up="", ticket="")
+    p = add("drop-slice", "mark an unfinished slice dropped", "slice", "reason", "decision",
+            follow_up="", ticket="")
+    add("task-add", "append an open task", "slice", "title", "verify", "reason", "decision")
+    add("task-edit", "edit an unfinished task title and Verify line",
+        "slice", "task", "title", "verify", "reason", "decision")
+    add("slice-add", "append an open slice with empty fields", "title", "reason", "decision")
+    fu = add("follow-up", "set the ticket link on an amendment", "slice", "ticket")
+    fu.add_argument("--task", dest="task", default=None)
 
 
 def dispatch(args: argparse.Namespace) -> int:
@@ -94,4 +120,38 @@ def dispatch(args: argparse.Namespace) -> int:
         return commands.swap(root, args.left, args.right)
     if cmd == "move":
         return commands.move(root, args.name, args.before, args.after)
+    if cmd in AMEND_COMMANDS:
+        return _amend(root, args)
     raise SystemExit(f"unknown cloud command {cmd}")
+
+
+AMEND_COMMANDS = frozenset({
+    "amend-begin", "amend-end", "amendments", "drop-task", "drop-slice",
+    "task-add", "task-edit", "slice-add", "follow-up",
+})
+
+
+def _amend(root, args: argparse.Namespace) -> int:
+    from w2c.cloud import amend
+
+    cmd, change = args.cloud_cmd, args.change
+    if cmd == "amend-begin":
+        return amend.amend_begin(root, change, args.decision)
+    if cmd == "amend-end":
+        return amend.amend_end(root, change)
+    if cmd == "amendments":
+        return amend.amendments(root, change)
+    if cmd == "drop-task":
+        return amend.drop_task(root, change, args.slice, args.task, args.reason, args.decision,
+                               args.follow_up, args.ticket)
+    if cmd == "drop-slice":
+        return amend.drop_slice(root, change, args.slice, args.reason, args.decision,
+                                args.follow_up, args.ticket)
+    if cmd == "task-add":
+        return amend.task_add(root, change, args.slice, args.title, args.verify, args.reason, args.decision)
+    if cmd == "task-edit":
+        return amend.task_edit(root, change, args.slice, args.task, args.title, args.verify,
+                               args.reason, args.decision)
+    if cmd == "slice-add":
+        return amend.slice_add(root, change, args.title, args.reason, args.decision)
+    return amend.follow_up(root, change, args.slice, args.ticket, args.task)

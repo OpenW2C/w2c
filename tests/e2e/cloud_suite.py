@@ -248,10 +248,57 @@ def c05_decisions_order(p: Project) -> None:
     no_local_files(p)
 
 
+def c06_amendments(p: Project) -> None:
+    name = "amend-demo"
+    folder = p.root / "openspec" / "changes" / name
+    p.w2c("cloud", "new", "--slug", name)
+    p.write(folder / "proposal.md", PROPOSAL.replace("calc-multiply", "calc-divide").replace("multiply", "divide"))
+    p.write(folder / "design.md", filled_design())
+    p.write(folder / "specs" / "calc-divide" / "spec.md",
+            SPEC.replace("Multiply two numbers", "Divide two numbers").replace("multiplies 3 by 4", "divides 12 by 4")
+            .replace("product", "quotient").replace("is 12", "is 3").replace("Multiplying", "Dividing"))
+    p.write(folder / "tasks.md", filled_tasks().replace("multiply", "divide").replace("Multiply", "Divide"))
+    p.w2c("cloud", "status-set", name, "INPROGRESS")
+    refused = p.w2c("cloud", "amend-begin", "--change", name, "--decision", "D1", check=False)
+    if refused.returncode == 0:
+        raise AssertionError("amend-begin should be refused for a decision that is not logged")
+    p.expect_tokens(refused, "decision D1 not found")
+    p.w2c("cloud", "decide", "--change", name, "--scope", "amend", "--decision", "Drop one task",
+          "--choice", "drop and add", "--rationale", "scope changed", "--when", "2026-01-01")
+    begin = p.w2c("cloud", "amend-begin", "--change", name, "--decision", "D1")
+    p.expect_matches("C06-begin.txt", begin.stdout)
+    meta = p.read(f"openspec/changes/{name}/.openspec.yaml")
+    p.expect_tokens(meta, "x-delivery-status: PAUSED", "x-delivery-amend-lock: D1",
+                    "x-delivery-amend-prior-status: INPROGRESS", "x-delivery-amend-decision: D1")
+    locked = p.w2c("cloud", "next", "--change", name, check=False)
+    p.expect_tokens(locked, f"AMEND_LOCK {name}")
+    dropped = p.w2c("cloud", "drop-task", "--change", name, "--slice", "S01", "--task", "T02",
+                    "--reason", "tests ship with the code", "--decision", "D1")
+    p.expect_matches("C06-drop-task.txt", dropped.stdout)
+    added = p.w2c("cloud", "task-add", "--change", name, "--slice", "S01", "--title", "Check division by zero",
+                  "--verify", VERIFY, "--reason", "found while planning", "--decision", "D1")
+    p.expect_matches("C06-task-add.txt", added.stdout)
+    ended = p.w2c("cloud", "amend-end", "--change", name)
+    p.expect_matches("C06-end.txt", ended.stdout)
+    meta = p.read(f"openspec/changes/{name}/.openspec.yaml")
+    p.expect_tokens(meta, "x-delivery-status: PAUSED")
+    if "amend-" in meta:
+        raise AssertionError(f"amend keys remain after amend-end:\n{meta}")
+    records = p.w2c("cloud", "amendments", "--change", name)
+    p.expect_matches("C06-amendments.txt", records.stdout)
+    design = p.read(f"openspec/changes/{name}/design.md")
+    p.expect_matches("C06-design-amendments.txt", design[design.index("## Amendments"):])
+    tasks = p.read(f"openspec/changes/{name}/tasks.md")
+    p.expect_tokens(tasks, "- [d] 1.2", "- [ ] 1.3 Check division by zero")
+    p.expect_matches("C06-tasks.txt", tasks[tasks.index("## 1."):tasks.index("## 2.")])
+    no_local_files(p)
+
+
 STAGES = [
     Stage("C01", "cloud planning init and env", c01_env),
     Stage("C02", "cloud new change from templates and strict validate", c02_new),
     Stage("C03", "cloud next, complete, slice-complete", c03_next_complete),
     Stage("C04", "cloud closeout and archive", c04_closeout_archive),
     Stage("C05", "cloud decisions held then flushed, reorder", c05_decisions_order),
+    Stage("C06", "cloud amendments: begin, drop, add, end", c06_amendments),
 ]
