@@ -131,7 +131,8 @@ MIN_SUPPORTED_SCHEMA_VERSION = 1
 
 PLANNING_OPENSPEC = "openspec"
 PLANNING_CLASSIC = "classic"
-PLANNING_VALUES = frozenset({PLANNING_OPENSPEC, PLANNING_CLASSIC})
+PLANNING_CLOUD = "cloud"
+PLANNING_VALUES = frozenset({PLANNING_OPENSPEC, PLANNING_CLASSIC, PLANNING_CLOUD})
 
 
 class GitDeliveryError(ValueError):
@@ -159,7 +160,7 @@ def normalize_planning(value: object | None, *, missing: str = PLANNING_CLASSIC)
         return PLANNING_CLASSIC
     if text in PLANNING_VALUES:
         return text
-    raise LocalError(f"invalid planning {value!r}; use openspec|classic")
+    raise LocalError(f"invalid planning {value!r}; use openspec|classic|cloud")
 
 
 def normalize_schema_version(value: object | None) -> int:

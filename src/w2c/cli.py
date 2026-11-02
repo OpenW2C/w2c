@@ -22,6 +22,7 @@ from w2c import ledger_store
 from w2c import openspec_push
 from w2c import trials as w2c_trials
 from w2c import worktree as w2c_worktree
+from w2c.cloud import cli as cloud_cli
 from w2c.skills_install import install_skills, write_copilot_instructions
 
 STATUS_EMOJI = {
@@ -1338,6 +1339,8 @@ def cmd_milestone_new(root: Path, slug: str, planning: str | None = None) -> int
         )
     else:
         mode = w2c_local.normalize_planning(planning)
+    if mode == w2c_local.PLANNING_CLOUD:
+        raise W2CError("use w2c cloud new")
     mid = next_milestone_id(root)
     title = slug.replace("-", " ")
     if mode == w2c_local.PLANNING_OPENSPEC:
@@ -2245,6 +2248,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--root", type=Path, default=None, help="repo root (default: discover)")
     sub = p.add_subparsers(dest="cmd", required=True)
+    cloud_cli.register(sub)
 
     init_p = sub.add_parser("init", help="create ledger stubs if missing")
     init_p.add_argument(
@@ -2252,7 +2256,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     init_p.add_argument(
         "--planning",
-        choices=["openspec", "classic", "legacy"],
+        choices=["openspec", "classic", "legacy", "cloud"],
         default=None,
         help="planning backbone for new milestones (default openspec on first init)",
     )
@@ -2502,6 +2506,8 @@ def _push_pairs(local_ref: str | None, local_sha: str | None) -> list[tuple[str,
 
 def dispatch(args: argparse.Namespace) -> int:
     cmd = args.cmd
+    if cmd == "cloud":
+        return cloud_cli.dispatch(args)
     if cmd == "install-skills":
         return install_skills(
             skills_dir(),
@@ -2734,7 +2740,10 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     session = None
-    if args.cmd not in {"install-skills"}:
+    skip_session = args.cmd == "install-skills" or (
+        args.cmd == "cloud" and args.cloud_cmd not in {"migrate", "status"}
+    )
+    if not skip_session:
         root = args.root.resolve() if args.root else find_repo_root()
         if ledger_store.needs_session(root, args.cmd):
             session = ledger_store.LedgerSession(root)
