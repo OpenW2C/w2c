@@ -446,14 +446,18 @@ def _decisions_span(text: str) -> tuple[int, int] | None:
     return start, start + nxt.start() if nxt else len(text)
 
 
-def _read_pending(root: Path) -> list[dict[str, str]]:
-    path = root / PENDING_DECISIONS
-    if not path.is_file():
-        return []
+def _read_rows(path: Path) -> list[dict[str, str]]:
     rows = []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if line.strip():
-            rows.append(json.loads(line))
+    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line)
+        except ValueError:
+            row = None
+        if not isinstance(row, dict):
+            raise _cli().W2CError(f"{path.name} line {number} is not a decision row")
+        rows.append(row)
     return rows
 
 
@@ -507,10 +511,14 @@ def decide(root: Path, change: str | None, row: dict[str, str]) -> int:
         path = root / PENDING_DECISIONS
         path.parent.mkdir(parents=True, exist_ok=True)
         entry = {field: str(row.get(field, "")) for field in ROW_FIELDS}
-        existing = path.read_text(encoding="utf-8") if path.is_file() else ""
-        if existing and not existing.endswith("\n"):
-            existing += "\n"
-        cli.atomic_write(path, existing + json.dumps(entry, ensure_ascii=False) + "\n")
+        line = json.dumps(entry, ensure_ascii=False) + "\n"
+        if path.is_file() and path.stat().st_size:
+            with open(path, "rb") as probe:
+                probe.seek(-1, 2)
+                if probe.read(1) != b"\n":
+                    line = "\n" + line
+        with open(path, "a", encoding="utf-8") as handle:
+            handle.write(line)
         print("PENDING")
         return 0
     design, text = found
@@ -527,15 +535,44 @@ def decisions_flush(root: Path, change: str) -> int:
     found = _design_with_decisions(item)
     if found is None:
         raise cli.W2CError(f"{item.name} has no design.md with a ## Decisions section")
-    rows = _read_pending(root)
+    pending = root / PENDING_DECISIONS
+    flushing = pending.with_name("pending-decisions.flushing.jsonl")
+    if flushing.exists():
+        raise cli.W2CError(
+            f"{flushing} exists: a previous flush was interrupted; check it by hand "
+            "and remove it before flushing again"
+        )
+    if not pending.is_file():
+        print("0 flushed")
+        return 0
+    pending.rename(flushing)
+
+    def restore(rows_text: str) -> None:
+        late = pending.read_text(encoding="utf-8") if pending.is_file() else ""
+        cli.atomic_write(pending, rows_text + late)
+        flushing.unlink(missing_ok=True)
+
+    raw = flushing.read_text(encoding="utf-8")
+    if raw and not raw.endswith("\n"):
+        raw += "\n"
+    try:
+        rows = _read_rows(flushing)
+    except cli.W2CError:
+        restore(raw)
+        raise
     if not rows:
+        flushing.unlink(missing_ok=True)
         print("0 flushed")
         return 0
     design, text = found
     result = _add_rows(text, rows)
     assert result is not None
-    cli.atomic_write(design, result[0])
-    cli.atomic_write(root / PENDING_DECISIONS, "")
+    try:
+        cli.atomic_write(design, result[0])
+    except BaseException:
+        restore(raw)
+        raise
+    flushing.unlink(missing_ok=True)
     print(f"{len(rows)} flushed {' '.join(result[1])}")
     return 0
 
@@ -554,11 +591,12 @@ def _apply_order(root: Path, items: list[ledger.CloudChange], names: list[str]) 
     after = [next(m for m in before if m.mid == n) for n in names]
     cli.assert_reorder_allowed(before, after)
     by_name = {c.name: c for c in items}
-    for number, name in enumerate(names, start=1):
-        change = by_name[name]
+    changing = [(n, by_name[name]) for n, name in enumerate(names, start=1)
+                if by_name[name].order != n]
+    for _number, change in changing:
         _refuse_if_locked(change)
-        if change.order != number:
-            ledger.write_key(_meta(change), "x-delivery-order", str(number))
+    for number, change in changing:
+        ledger.write_key(_meta(change), "x-delivery-order", str(number))
     for number, name in enumerate(names, start=1):
         print(f"{number} {name}")
 

@@ -513,7 +513,7 @@ class DecisionTests(CloudCommandBase):
         self.assertLess(text.index("| D1 |"), text.index("| D2 |"))
         self.assertIn("two a\\|b", text)
         self.assertLess(text.index("| D2 |"), text.index("## Manual Test Guide"))
-        self.assertEqual(pending.read_text(encoding="utf-8"), "")
+        self.assertFalse(pending.exists())
         self.assertIn("0 flushed", self.ok("cloud", "decisions-flush", "--change", NAME))
 
     def test_decide_with_design_appends_next_id(self) -> None:
@@ -536,6 +536,68 @@ class DecisionTests(CloudCommandBase):
         self.assertEqual((self.change / "design.md").read_text(encoding="utf-8"), before)
         pending = self.root / ".w2c" / "runtime" / "pending-decisions.jsonl"
         self.assertEqual(len(pending.read_text(encoding="utf-8").splitlines()), 1)
+
+    def pending(self) -> Path:
+        return self.root / ".w2c" / "runtime" / "pending-decisions.jsonl"
+
+    def test_interrupted_flush_leftover_refuses_and_decide_still_pends(self) -> None:
+        folder = self.make()
+        (folder / "design.md").write_text(DESIGN_DECISIONS, encoding="utf-8")
+        self.ok(*self.args("one"))
+        left = self.pending().with_name("pending-decisions.flushing.jsonl")
+        left.write_text('{"scope": "old"}\n', encoding="utf-8")
+        err = self.bad("cloud", "decisions-flush", "--change", NAME)
+        self.assertIn("pending-decisions.flushing.jsonl", err)
+        self.assertIn("interrupted", err)
+        self.assertEqual((folder / "design.md").read_text(encoding="utf-8"), DESIGN_DECISIONS)
+        self.ok(*self.args("two"))
+        self.assertEqual(len(self.pending().read_text(encoding="utf-8").splitlines()), 2)
+        left.unlink()
+        self.assertIn("2 flushed", self.ok("cloud", "decisions-flush", "--change", NAME))
+
+    def test_malformed_pending_line_names_line_and_keeps_rows(self) -> None:
+        folder = self.make()
+        (folder / "design.md").write_text(DESIGN_DECISIONS, encoding="utf-8")
+        self.ok(*self.args("one"))
+        with open(self.pending(), "a", encoding="utf-8") as handle:
+            handle.write("not json\n")
+        before = self.pending().read_text(encoding="utf-8")
+        err = self.bad("cloud", "decisions-flush", "--change", NAME)
+        self.assertIn("line 2", err)
+        self.assertEqual(self.pending().read_text(encoding="utf-8"), before)
+        self.assertFalse(self.pending().with_name("pending-decisions.flushing.jsonl").exists())
+        self.assertEqual((folder / "design.md").read_text(encoding="utf-8"), DESIGN_DECISIONS)
+        self.pending().write_text('{"scope": "a"}\n[1]\n', encoding="utf-8")
+        self.assertIn("line 2", self.bad("cloud", "decisions-flush", "--change", NAME))
+
+    def test_pending_without_trailing_newline(self) -> None:
+        folder = self.make()
+        (folder / "design.md").write_text(DESIGN_DECISIONS, encoding="utf-8")
+        self.pending().parent.mkdir(parents=True)
+        self.pending().write_text('{"scope": "a"}', encoding="utf-8")
+        self.ok(*self.args("b"))
+        self.assertIn("2 flushed", self.ok("cloud", "decisions-flush", "--change", NAME))
+
+    def test_decisions_section_last_with_subheadings_and_prose(self) -> None:
+        folder = self.make()
+        design = DESIGN + "\n## Decisions\n\nIntro prose.\n\n### Notes\n\nMore prose.\n"
+        (folder / "design.md").write_text(design, encoding="utf-8")
+        self.assertEqual(self.ok(*self.args("a", "--change", NAME)).strip(), "D1")
+        text = (folder / "design.md").read_text(encoding="utf-8")
+        self.assertTrue(text.rstrip().endswith("|"))
+        self.assertIn("More prose.", text)
+        self.assertEqual(self.ok(*self.args("b", "--change", NAME)).strip(), "D2")
+        self.assertEqual((folder / "design.md").read_text(encoding="utf-8").count(HEADER), 1)
+
+    def test_existing_table_followed_by_prose(self) -> None:
+        folder = self.make()
+        table = HEADER + "\n|---|\n| D1 | w | s | d | c | r | Yes | me |\n"
+        design = DESIGN + "\n## Decisions\n\n" + table + "\nAfter prose.\n\n## Other\n"
+        (folder / "design.md").write_text(design, encoding="utf-8")
+        self.assertEqual(self.ok(*self.args("a", "--change", NAME)).strip(), "D2")
+        text = (folder / "design.md").read_text(encoding="utf-8")
+        self.assertLess(text.index("| D2 |"), text.index("After prose."))
+        self.assertLess(text.index("| D1 |"), text.index("| D2 |"))
 
 
 class ReorderTests(CloudCommandBase):
@@ -561,6 +623,14 @@ class ReorderTests(CloudCommandBase):
         self.bad("cloud", "order", "a", "run", "b", "c")
         self.bad("cloud", "swap", "a", "nope")
         self.assertEqual(self.meta(self.root / "openspec" / "changes" / "a"), before)
+
+    def test_locked_change_leaves_every_order_key_untouched(self) -> None:
+        self.make(name="a", order=1)
+        self.make(name="b", order=2)
+        self.make(name="c", order=3, extra="x-delivery-amend-lock: held\n")
+        before = [self.order_of(n) for n in "abc"]
+        self.bad("cloud", "order", "c", "b", "a")
+        self.assertEqual([self.order_of(n) for n in "abc"], before)
 
 
 if __name__ == "__main__":

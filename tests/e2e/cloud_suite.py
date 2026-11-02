@@ -230,7 +230,7 @@ def c05_decisions_order(p: Project) -> None:
                  "--choice", "plain", "--rationale", "clear", "--when", "2026-01-01")
     p.expect_tokens(live, "D3")
     p.expect_matches("C05-decide.txt", live.stdout)
-    if (p.root / ".w2c" / "runtime" / "pending-decisions.jsonl").read_text(encoding="utf-8"):
+    if (p.root / ".w2c" / "runtime" / "pending-decisions.jsonl").exists():
         raise AssertionError("pending decisions were not cleared")
     if (order_key(first), order_key(second)) != ("1", "2"):
         raise AssertionError("unexpected starting order")
