@@ -1022,6 +1022,19 @@ def task_to_dict(t: Task) -> dict:
     }
 
 
+def cloud_moved(root: Path, mid: str) -> bool:
+    """Print CLOUD_MOVED when a converted milestone left the roadmap for a cloud change."""
+    if any(m.mid == mid for m in parse_milestones(read_text(w2c_dir(root) / "ROADMAP.md"))):
+        return False
+    plans = w2c_dir(root) / "plans"
+    for marker in sorted(plans.glob(f"{mid}-*/CONVERTED")) if plans.is_dir() else []:
+        lines = read_text(marker).splitlines()
+        if lines and lines[0].strip():
+            print(f"CLOUD_MOVED {mid} {lines[0].strip()}")
+            return True
+    return False
+
+
 def cmd_next(
     root: Path,
     milestone: str | None,
@@ -1032,6 +1045,8 @@ def cmd_next(
     if milestone and locked and milestone == locked:
         print(f"AMEND_LOCK {locked}")
         return 1
+    if milestone and cloud_moved(root, milestone):
+        return 0
     scoped: set[str] | None = None
     if not milestone and not slice_id and not task_id:
         scoped = branch_milestone_ids(root)

@@ -99,6 +99,28 @@ def problems_for(root: Path, ref: str, sha: str) -> list[str]:
             found.append(
                 f"{milestone.mid}: commit {sha[:12]} does not contain the archived change"
             )
+    found.extend(_cloud_problems(root, branch, sha))
+    return found
+
+
+def _cloud_problems(root: Path, branch: str, sha: str) -> list[str]:
+    from w2c.cloud import commands, ledger as cloud
+
+    found: list[str] = []
+    for change in cloud.list_changes(root, include_archived=True):
+        if cloud.remote_branch(change) != branch:
+            continue
+        name = change.name
+        if change.archived:
+            meta = f"openspec/changes/archive/{change.path.name}/.openspec.yaml"
+            if not _tree_has(root, sha, meta):
+                found.append(f"{name}: commit {sha[:12]} does not contain the archived change")
+        elif change.status == "DONE" and change.archive == "declined":
+            found.append(
+                f"{name}: archive is declined; run w2c cloud archive {name} before push"
+            )
+        elif commands.all_closed(change):
+            found.append(f"{name}: archive the change with w2c cloud archive {name} before push")
     return found
 
 

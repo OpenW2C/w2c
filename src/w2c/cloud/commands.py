@@ -151,6 +151,9 @@ def new(root: Path, slug: str, cadence: str | None) -> int:
     ledger.write_key(path, "x-delivery-order", str(top + 1))
     ledger.write_key(path, "x-delivery-cadence", str(cadence))
     ensure_knowledge(root)
+    from w2c import hooks as w2c_hooks
+
+    w2c_hooks.ensure_openspec_archive(root)
     print(f"created openspec/changes/{slug} ({slug})")
     return 0
 
@@ -228,6 +231,19 @@ def status(root: Path, all_: bool = False) -> int:
             print()
             print(cli.read_text(state).rstrip("\n"))
     return 0
+
+
+def smoke(root: Path, change: str | None) -> int:
+    cli = _cli()
+    if change:
+        changes = [ledger.resolve(root, change)]
+    else:
+        changes = ledger.list_changes(root, include_archived=True)
+    report = cli.Report()
+    for name, state, detail in checks.smoke_rows(root, changes):
+        report.add(name, state, detail)
+    report.print()
+    return 1 if report.failed() else 0
 
 
 def _groups(change: ledger.CloudChange) -> tuple[list[int], list[int]]:
@@ -337,6 +353,13 @@ def _require_closeout(item: ledger.CloudChange) -> None:
         raise cli.W2CError(f"slices still open in {item.name}: {names}")
     _require(item, checks.report_name("validation"))
     _require(item, checks.report_name("summary"))
+
+
+def all_closed(change: ledger.CloudChange) -> bool:
+    """Every task is done or dropped and every group is finished."""
+    tasks = _change_tasks(change)
+    numbers, open_groups = _groups(change)
+    return bool(tasks) and bool(numbers) and not open_groups and not any(_is_open(t) for t in tasks)
 
 
 def archive(root: Path, change: str) -> int:

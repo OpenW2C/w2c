@@ -18,6 +18,8 @@ def register(sub: argparse._SubParsersAction) -> None:
     nxt.add_argument("--change", default=None)
     nxt.add_argument("--slice", dest="slice_id", default=None)
     nxt.add_argument("--task", dest="task_id", default=None)
+    sm = csub.add_parser("smoke", help="check cloud changes (no .w2c/ needed)")
+    sm.add_argument("--change", default=None)
     csub.add_parser("status", help="progress of each active change")
     comp = csub.add_parser("complete", help="tick a task (requires S##-T##-SUMMARY.md)")
     comp.add_argument("--change", required=True)
@@ -97,6 +99,8 @@ def dispatch(args: argparse.Namespace) -> int:
         return commands.next_cmd(root, args.change, args.slice_id, args.task_id)
     if cmd == "status":
         return commands.status(root)
+    if cmd == "smoke":
+        return commands.smoke(root, args.change)
     if cmd == "complete":
         return commands.complete(root, args.change, args.slice_id, args.task_id)
     if cmd == "slice-complete":

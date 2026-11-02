@@ -294,6 +294,61 @@ def c06_amendments(p: Project) -> None:
     no_local_files(p)
 
 
+def c07_push_guard(p: Project) -> None:
+    name = "ship-negate"
+    folder = p.root / "openspec" / "changes" / name
+    p.w2c("cloud", "new", "--slug", name)
+    hook = p.read(".git/hooks/pre-push")
+    p.expect_tokens(hook, "# w2c-hook: openspec-archive")
+    p.write(folder / "proposal.md", PROPOSAL.replace("calc-multiply", "calc-negate").replace("multiply", "negate"))
+    p.write(folder / "design.md", filled_design())
+    p.write(folder / "specs" / "calc-negate" / "spec.md",
+            SPEC.replace("calc-multiply", "calc-negate").replace("Multiply two numbers", "Negate a number")
+            .replace("multiplies 3 by 4", "negates 5").replace("product of two numbers", "opposite of a number")
+            .replace("is 12", "is -5").replace("Multiplying two integers", "Negating an integer"))
+    p.write(folder / "tasks.md", filled_tasks().replace("multiply", "negate").replace("Multiply", "Negate"))
+    p.w2c("cloud", "status-set", name, "TODO")
+
+    def note(file: str) -> None:
+        p.write(folder / ".delivery" / file, f"# {file}\n\nDone and checked.\n")
+
+    for sid, tids in (("S01", ("T01", "T02")), ("S02", ("T01",))):
+        for tid in tids:
+            note(f"{sid}-{tid}-SUMMARY.md")
+            p.w2c("cloud", "complete", "--change", name, "--slice", sid, "--task", tid)
+        note(f"{sid}-UAT.md")
+        note(f"{sid}-SUMMARY.md")
+        p.w2c("cloud", "slice-complete", "--change", name, "--slice", sid)
+    p.git("add", "openspec", ".gitattributes")
+    p.git("commit", "-q", "-m", "Finish the negate change.")
+    sha = p.git("rev-parse", "HEAD").stdout.strip()
+    check = p.w2c("openspec-push-check", "--local-ref", f"refs/heads/{BRANCH}", "--local-sha", sha, check=False)
+    if check.returncode == 0:
+        raise AssertionError("push check must fail while the finished cloud change is not archived")
+    p.expect_tokens(check, f"{name}: archive the change with w2c cloud archive {name} before push")
+    p.expect_matches("C07-push-check-fail.txt", check.stderr)
+    blocked = p.git("push", "-u", "origin", BRANCH, check=False)
+    if blocked.returncode == 0:
+        raise AssertionError("the pre-push hook must refuse an unarchived finished cloud change")
+    p.expect_tokens(blocked.stdout + blocked.stderr, f"w2c cloud archive {name}")
+    if p.git("ls-remote", "origin", BRANCH).stdout.strip():
+        raise AssertionError("refused push still reached the remote")
+    note("VALIDATION.md")
+    note("SUMMARY.md")
+    arch = p.w2c("cloud", "archive", name)
+    p.expect_tokens(arch, f"archived {name} as")
+    p.git("add", "openspec")
+    p.git("commit", "-q", "-m", "Archive the negate change.")
+    sha = p.git("rev-parse", "HEAD").stdout.strip()
+    ok = p.w2c("openspec-push-check", "--local-ref", f"refs/heads/{BRANCH}", "--local-sha", sha)
+    if ok.stderr.strip():
+        raise AssertionError(ok.stderr)
+    p.git("push", "-u", "origin", BRANCH)
+    if p.git("ls-remote", "origin", BRANCH).stdout.split()[0] != sha:
+        raise AssertionError("archived push did not reach the remote")
+    no_local_files(p)
+
+
 STAGES = [
     Stage("C01", "cloud planning init and env", c01_env),
     Stage("C02", "cloud new change from templates and strict validate", c02_new),
@@ -301,4 +356,5 @@ STAGES = [
     Stage("C04", "cloud closeout and archive", c04_closeout_archive),
     Stage("C05", "cloud decisions held then flushed, reorder", c05_decisions_order),
     Stage("C06", "cloud amendments: begin, drop, add, end", c06_amendments),
+    Stage("C07", "cloud push blocked before archive, allowed after", c07_push_guard),
 ]

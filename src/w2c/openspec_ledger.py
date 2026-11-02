@@ -205,25 +205,31 @@ def tasks_in_slice(root: Path, mid: str, sid: str, plan_dir: Path) -> list:
 
 def change_prefixes(root: Path) -> list[str]:
     cli = _cli()
-    roadmap = cli.w2c_dir(root) / "ROADMAP.md"
-    if not roadmap.is_file():
-        return []
     prefixes: list[str] = []
-    for milestone in cli.parse_milestones(roadmap.read_text(encoding="utf-8")):
-        if milestone.status == "DONE":
-            continue
-        plan_dir = cli.plan_dir_for(root, milestone.mid)
-        if plan_dir is None:
-            continue
-        path = plan_dir / f"{milestone.mid}-ROADMAP.md"
-        if not path.is_file():
-            continue
-        text = path.read_text(encoding="utf-8")
-        if planning_mode(text) != PLANNING_OPENSPEC:
-            continue
-        name = change_name(text)
-        if name:
-            prefixes.append(f"openspec/changes/{name}")
+    roadmap = cli.w2c_dir(root) / "ROADMAP.md"
+    if roadmap.is_file():
+        for milestone in cli.parse_milestones(roadmap.read_text(encoding="utf-8")):
+            if milestone.status == "DONE":
+                continue
+            plan_dir = cli.plan_dir_for(root, milestone.mid)
+            if plan_dir is None:
+                continue
+            path = plan_dir / f"{milestone.mid}-ROADMAP.md"
+            if not path.is_file():
+                continue
+            text = path.read_text(encoding="utf-8")
+            if planning_mode(text) != PLANNING_OPENSPEC:
+                continue
+            name = change_name(text)
+            if name:
+                prefixes.append(f"openspec/changes/{name}")
+    from w2c.cloud import ledger as cloud
+
+    for change in cloud.list_changes(root):
+        if change.status != "DONE":
+            prefix = f"openspec/changes/{change.name}"
+            if prefix not in prefixes:
+                prefixes.append(prefix)
     return prefixes
 
 

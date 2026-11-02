@@ -129,6 +129,119 @@ class CloudCommandBase(unittest.TestCase):
         return out + err
 
 
+
+class SmokeAndPushTests(CloudCommandBase):
+    def finished(self, **kw) -> Path:
+        folder = self.make(extra="x-delivery-slices-done: [1, 2]\n", **kw)
+        (folder / "tasks.md").write_text(TASKS.replace("- [ ]", "- [x]"), encoding="utf-8")
+        return folder
+
+    def push_check(self, sha: str | None = None) -> tuple[int, str]:
+        sha = sha or subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=self.root, capture_output=True, text=True, check=True
+        ).stdout.strip()
+        code, out, err = run_main(
+            self.root, "openspec-push-check", "--local-ref", "refs/heads/DEMO-1", "--local-sha", sha
+        )
+        return code, out + err
+
+    def test_cloud_smoke_in_fresh_clone(self) -> None:
+        self.make()
+        code, out, _err = run_main(self.root, "cloud", "smoke")
+        self.assertEqual(code, 1, out)
+        self.assertRegex(out, r"(?m)^(PASS|FAIL) openspec-cli")
+        self.assertRegex(out, r"(?m)^FAIL delivery-keys-valid|^FAIL design-sections")
+        self.assertEqual(out.splitlines()[-1], "FAIL")
+        self.assertFalse((self.root / ".w2c").exists())
+
+    def test_cloud_smoke_change_filter(self) -> None:
+        self.make(name="alpha-change", order=1)
+        self.make(name="beta-change", order=2)
+        code, out, _err = run_main(self.root, "cloud", "smoke", "--change", "alpha-change")
+        self.assertEqual(code, 1, out)
+        self.assertIn("alpha-change", out)
+        self.assertNotIn("beta-change", out)
+        code, out, _err = run_main(self.root, "cloud", "smoke")
+        self.assertIn("beta-change", out)
+        code, _out, err = run_main(self.root, "cloud", "smoke", "--change", "nope")
+        self.assertNotEqual(code, 0)
+
+    def test_push_check_requires_archived_cloud_change(self) -> None:
+        self.finished()
+        code, out = self.push_check()
+        self.assertEqual(code, 1)
+        self.assertIn(f"{NAME}: archive the change with w2c cloud archive {NAME} before push", out)
+        shutil.rmtree(self.change)
+        done = self.root / "openspec" / "changes" / "archive" / f"2026-11-02-{NAME}"
+        done.mkdir(parents=True)
+        (done / ".openspec.yaml").write_text(
+            f"schema: spec-driven\nx-delivery-status: DONE\nx-delivery-cadence: {CADENCE}\n",
+            encoding="utf-8",
+        )
+        (done / "design.md").write_text(DESIGN, encoding="utf-8")
+        code, out = self.push_check()
+        self.assertEqual(code, 1)
+        self.assertIn(f"{NAME}: commit", out)
+        self.assertIn("does not contain the archived change", out)
+        git(self.root, "add", ".")
+        git(self.root, "commit", "-m", "archive")
+        code, out = self.push_check()
+        self.assertEqual(code, 0, out)
+
+    def test_push_check_fails_declined(self) -> None:
+        folder = self.finished(status="DONE")
+        with (folder / ".openspec.yaml").open("a", encoding="utf-8") as handle:
+            handle.write("x-delivery-archive: declined\n")
+        code, out = self.push_check()
+        self.assertEqual(code, 1)
+        self.assertIn(f"{NAME}: archive is declined; run w2c cloud archive {NAME} before push", out)
+
+    def test_push_check_ignores_unfinished_and_other_branches(self) -> None:
+        self.make()
+        self.assertEqual(self.push_check()[0], 0)
+        folder = self.finished(name="other")
+        (folder / "design.md").write_text(DESIGN.replace("DEMO-1", "OTHER-2"), encoding="utf-8")
+        self.assertEqual(self.push_check()[0], 0)
+
+    def test_base_dirt_skips_cloud_change_folder(self) -> None:
+        from w2c import base_dirt, openspec_ledger
+
+        folder = self.make()
+        (folder / "exporter.py").write_text("print(1)\n", encoding="utf-8")
+        done = self.make(name="finished", status="DONE", order=2)
+        (done / "kept.py").write_text("print(2)\n", encoding="utf-8")
+        (self.root / "NOTES.md").write_text("local\n", encoding="utf-8")
+        prefixes = openspec_ledger.change_prefixes(self.root)
+        self.assertEqual(prefixes, [f"openspec/changes/{NAME}"])
+        report = base_dirt.scan_base_dirt(str(self.root), extra_prefixes=prefixes)
+        self.assertNotIn(f"openspec/changes/{NAME}/exporter.py", report.critical + report.other)
+        self.assertIn("NOTES.md", report.other)
+
+    def test_cloud_moved_message(self) -> None:
+        w2c_dir = self.root / ".w2c"
+        (w2c_dir / "plans" / "M007-old").mkdir(parents=True)
+        (w2c_dir / "ROADMAP.md").write_text("# Roadmap\n", encoding="utf-8")
+        (w2c_dir / "plans" / "M007-old" / "CONVERTED").write_text(f"{NAME}\n", encoding="utf-8")
+        out = self.ok("next", "--milestone", "M007")
+        self.assertEqual(out, f"CLOUD_MOVED M007 {NAME}\n")
+        out = self.ok("next", "--milestone", "M008")
+        self.assertEqual(out.splitlines()[0], "NEXT none")
+        out = self.ok("next")
+        self.assertEqual(out.splitlines()[0], "NEXT none")
+        (w2c_dir / "ROADMAP.md").write_text("# Roadmap\n\n- \U0001F4CB **M007: old** (`depends:[\u2014]`)\n", encoding="utf-8")
+        out = self.ok("next", "--milestone", "M007")
+        self.assertNotIn("CLOUD_MOVED", out)
+
+    def test_new_installs_pre_push_hook_only_in_git(self) -> None:
+        self.ok("cloud", "new", "--slug", NAME, "--cadence", CADENCE)
+        hook = (self.root / ".git" / "hooks" / "pre-push").read_text(encoding="utf-8")
+        self.assertIn("# w2c-hook: openspec-archive", hook)
+        plain = Path(self._tmp.name) / "plain"
+        plain.mkdir()
+        code, out, err = run_main(plain, "cloud", "new", "--slug", "other", "--cadence", CADENCE)
+        self.assertEqual(code, 0, out + err)
+        self.assertFalse((plain / ".git").exists())
+
 class NewTests(CloudCommandBase):
     def test_new_writes_keys_and_no_ledger_files(self) -> None:
         self.make(name="older", order=4)
