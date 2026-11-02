@@ -1,0 +1,9 @@
+changes/archive/.gitkeep
+changes/archive/<DATE>-add-multiply/.openspec.yaml
+changes/archive/<DATE>-add-multiply/design.md
+changes/archive/<DATE>-add-multiply/proposal.md
+changes/archive/<DATE>-add-multiply/specs/calc-multiply/spec.md
+changes/archive/<DATE>-add-multiply/tasks.md
+config.yaml
+specs/.gitkeep
+specs/calc-multiply/spec.md

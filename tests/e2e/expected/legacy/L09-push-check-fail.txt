@@ -1,0 +1,1 @@
+M001: OpenSpec archive is empty; run `w2c spec-archive M001` before push

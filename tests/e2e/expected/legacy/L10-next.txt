@@ -1,0 +1,12 @@
+NEXT M002 S01 T01 — Add subtract to the calculator
+{
+  "task": {
+    "milestone_id": "M002",
+    "slice_id": "S01",
+    "task_id": "T01",
+    "title": "Add subtract to the calculator",
+    "plan_path": "<ROOT>/proj/.worktrees/DEMO-2/.w2c/plans/M002-add-subtract/M002-S01-PLAN.md",
+    "verify": "python3 -m unittest discover -s tests -t .",
+    "openspec_id": ""
+  }
+}

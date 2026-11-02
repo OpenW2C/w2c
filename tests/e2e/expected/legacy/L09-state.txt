@@ -1,0 +1,19 @@
+# State
+
+**Active Milestone:** M001: add multiply
+**Active Slice:** S02
+**Phase:** idle
+**Requirements Status:** 0 active · 0 validated · 0 deferred · 0 out of scope
+
+## Milestone Registry
+- ✅ **M001:** add multiply
+- 📋 **M002:** add subtract
+
+## Recent Decisions
+- D001 (<DATE> M001): How to multiply -> Use the star operator
+- D002 (<DATE> M001): Drop the modulo helper -> Replace it with subtract
+
+## Blockers
+- None
+## Next Action
+Continue planned work (no open tasks in current filters).

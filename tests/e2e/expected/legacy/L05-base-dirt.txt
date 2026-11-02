@@ -1,0 +1,12 @@
+{
+  "status": "noncritical",
+  "critical": [],
+  "other": [
+    ".gitignore",
+    "openspec/changes/archive/.gitkeep",
+    "openspec/config.yaml",
+    "openspec/specs/.gitkeep"
+  ],
+  "tracked": [],
+  "note": ""
+}

@@ -1,0 +1,4 @@
+# w2c (local planner unless track = true)
+.w2c/
+.github/instructions/work-to-chores.instructions.md
+.github/instructions/do-chores.instructions.md

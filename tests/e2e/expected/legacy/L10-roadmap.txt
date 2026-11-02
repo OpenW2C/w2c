@@ -1,0 +1,5 @@
+# Roadmap
+
+## Milestones
+- ✅ **M001: add multiply** (`depends:[—]`)
+- ✅ **M002: add subtract** (`depends:[—]`)

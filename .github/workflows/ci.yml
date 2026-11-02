@@ -20,3 +20,26 @@ jobs:
         run: python -m unittest discover -s tests -v
       - name: install.sh dry-run
         run: bash install.sh --dry-run
+  e2e:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        openspec: ["1.14.3", "1.16.0"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install OpenSpec
+        run: npm install -g @fission-ai/openspec@${{ matrix.openspec }}
+      - name: Full-cycle test
+        run: python3 scripts/w2c-e2e.py --suite all --report e2e-report.md
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-report-${{ matrix.openspec }}
+          path: e2e-report.md
