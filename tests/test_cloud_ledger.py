@@ -146,7 +146,7 @@ class CloudLedgerTests(unittest.TestCase):
         self.assertEqual(ledger.branch_names(self.root), {"feat"})
         git(self.root, "checkout", "--detach")
         self.assertIsNone(ledger.branch_names(self.root))
-        self.assertEqual(ledger.delivery_dir(change), change.path / "delivery")
+        self.assertEqual(ledger.delivery_dir(change), change.path / ".delivery")
 
 
 if __name__ == "__main__":

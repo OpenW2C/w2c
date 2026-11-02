@@ -199,4 +199,4 @@ def branch_names(root: Path) -> set[str] | None:
 
 
 def delivery_dir(change: CloudChange) -> Path:
-    return change.path / "delivery"
+    return change.path / ".delivery"
