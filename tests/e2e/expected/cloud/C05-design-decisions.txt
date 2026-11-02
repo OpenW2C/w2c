@@ -1,0 +1,7 @@
+## Decisions
+
+| # | When | Scope | Decision | Choice | Rationale | Revisable? | Made By |
+|---|------|-------|----------|--------|-----------|------------|---------|
+| D1 | <DATE> | export | Format | csv \| json | simple | Yes | collaborative |
+| D2 | <DATE> | export | Limit | none | later | Yes | collaborative |
+

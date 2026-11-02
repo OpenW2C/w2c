@@ -201,9 +201,57 @@ def c04_closeout_archive(p: Project) -> None:
     no_local_files(p)
 
 
+def c05_decisions_order(p: Project) -> None:
+    first, second = "first-change", "second-change"
+
+    def order_key(name: str) -> str:
+        return re.search(r"x-delivery-order: (\d+)", p.read(f"openspec/changes/{name}/.openspec.yaml")).group(1)
+
+    p.w2c("cloud", "new", "--slug", first)
+    p.w2c("cloud", "new", "--slug", second)
+    held = p.w2c("cloud", "decide", "--scope", "export", "--decision", "Format",
+                 "--choice", "csv | json", "--rationale", "simple", "--when", "2026-01-01")
+    p.expect_tokens(held, "PENDING")
+    held = p.w2c("cloud", "decide", "--change", first, "--scope", "export", "--decision", "Limit",
+                 "--choice", "none", "--rationale", "later", "--when", "2026-01-01")
+    p.expect_tokens(held, "PENDING")
+    early = p.w2c("cloud", "decisions-flush", "--change", first, check=False)
+    if early.returncode == 0:
+        raise AssertionError("flush should be refused before the design exists")
+    for name in (first, second):
+        p.write(p.root / "openspec" / "changes" / name / "design.md", filled_design())
+    flushed = p.w2c("cloud", "decisions-flush", "--change", first)
+    p.expect_tokens(flushed, "2 flushed")
+    p.expect_matches("C05-flush.txt", flushed.stdout)
+    design = p.read(f"openspec/changes/{first}/design.md")
+    p.expect_tokens(design, "| D1 |", "| D2 |", "csv \\| json")
+    p.expect_matches("C05-design-decisions.txt", design[design.index("## Decisions"):design.index("## Manual Test Guide")])
+    live = p.w2c("cloud", "decide", "--change", first, "--scope", "export", "--decision", "Naming",
+                 "--choice", "plain", "--rationale", "clear", "--when", "2026-01-01")
+    p.expect_tokens(live, "D3")
+    p.expect_matches("C05-decide.txt", live.stdout)
+    if (p.root / ".w2c" / "runtime" / "pending-decisions.jsonl").read_text(encoding="utf-8"):
+        raise AssertionError("pending decisions were not cleared")
+    if (order_key(first), order_key(second)) != ("1", "2"):
+        raise AssertionError("unexpected starting order")
+    swapped = p.w2c("cloud", "swap", first, second)
+    p.expect_matches("C05-swap.txt", swapped.stdout)
+    if (order_key(first), order_key(second)) != ("2", "1"):
+        raise AssertionError("swap did not rewrite the order keys")
+    moved = p.w2c("cloud", "move", first, "--before", second)
+    p.expect_matches("C05-move.txt", moved.stdout)
+    ordered = p.w2c("cloud", "order", second, first)
+    p.expect_matches("C05-order.txt", ordered.stdout)
+    refused = p.w2c("cloud", "swap", first, "no-such-change", check=False)
+    if refused.returncode == 0:
+        raise AssertionError("unknown change should be refused")
+    no_local_files(p)
+
+
 STAGES = [
     Stage("C01", "cloud planning init and env", c01_env),
     Stage("C02", "cloud new change from templates and strict validate", c02_new),
     Stage("C03", "cloud next, complete, slice-complete", c03_next_complete),
     Stage("C04", "cloud closeout and archive", c04_closeout_archive),
+    Stage("C05", "cloud decisions held then flushed, reorder", c05_decisions_order),
 ]

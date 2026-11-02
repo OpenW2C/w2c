@@ -11,6 +11,7 @@ import json
 import re
 import shutil
 import tempfile
+from datetime import datetime
 from pathlib import Path
 
 from w2c import local as w2c_local
@@ -418,4 +419,199 @@ def status_set(root: Path, change: str, status_name: str) -> int:
     _event(root, stage="plan", event="status", milestone=item.name,
            detail=f"{item.name} -> {value}")
     print(f"{item.name} -> {value} {cli.STATUS_EMOJI[value]}")
+    return 0
+
+
+PENDING_DECISIONS = Path(".w2c/runtime/pending-decisions.jsonl")
+DECISION_HEADER = (
+    "| # | When | Scope | Decision | Choice | Rationale | Revisable? | Made By |\n"
+    "|---|------|-------|----------|--------|-----------|------------|---------|\n"
+)
+ROW_FIELDS = ("when", "scope", "decision", "choice", "rationale", "revisable", "made_by")
+DECISION_ID_RE = re.compile(r"^\|\s*D(\d+)\s*\|", re.M)
+NEWLINES_RE = re.compile(r"\s*[\r\n]+\s*")
+
+
+def _cell(value: str) -> str:
+    return NEWLINES_RE.sub(" ", str(value)).replace("|", "\\|").strip()
+
+
+def _decisions_span(text: str) -> tuple[int, int] | None:
+    """Start and end offsets of the body of `## Decisions`, or None."""
+    match = re.search(r"^## Decisions[ \t]*$", text, re.M)
+    if not match:
+        return None
+    start = match.end()
+    nxt = re.search(r"^## ", text[start:], re.M)
+    return start, start + nxt.start() if nxt else len(text)
+
+
+def _read_pending(root: Path) -> list[dict[str, str]]:
+    path = root / PENDING_DECISIONS
+    if not path.is_file():
+        return []
+    rows = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.strip():
+            rows.append(json.loads(line))
+    return rows
+
+
+def _add_rows(text: str, rows: list[dict[str, str]]) -> tuple[str, list[str]] | None:
+    """Append rows to the Decisions table; None when the section is missing."""
+    span = _decisions_span(text)
+    if span is None:
+        return None
+    start, end = span
+    body = text[start:end]
+    last = max((int(n) for n in DECISION_ID_RE.findall(body)), default=0)
+    ids: list[str] = []
+    lines: list[str] = []
+    for row in rows:
+        last += 1
+        ids.append(f"D{last}")
+        cells = [ids[-1]] + [_cell(row.get(field, "")) for field in ROW_FIELDS]
+        lines.append("| " + " | ".join(cells) + " |\n")
+    head = re.search(r"^\| # \| When \|.*$", body, re.M)
+    if head:
+        lines_in = body.splitlines(keepends=True)
+        idx = body[: head.start()].count("\n")
+        stop = idx + 1
+        while stop < len(lines_in) and lines_in[stop].startswith("|"):
+            stop += 1
+        if not lines_in[stop - 1].endswith("\n"):
+            lines_in[stop - 1] += "\n"
+        new_body = "".join(lines_in[:stop]) + "".join(lines) + "".join(lines_in[stop:])
+    else:
+        new_body = body.rstrip() + "\n\n" + DECISION_HEADER + "".join(lines)
+        if end < len(text):
+            new_body += "\n"
+    return text[:start] + new_body + text[end:], ids
+
+
+def _design_with_decisions(change: ledger.CloudChange) -> tuple[Path, str] | None:
+    design = change.path / "design.md"
+    if not design.is_file():
+        return None
+    text = design.read_text(encoding="utf-8")
+    return (design, text) if _decisions_span(text) else None
+
+
+def decide(root: Path, change: str | None, row: dict[str, str]) -> int:
+    cli = _cli()
+    row = dict(row)
+    if not row.get("when"):
+        row["when"] = datetime.now().astimezone().strftime("%Y-%m-%d")
+    found = _design_with_decisions(_active(root, change)) if change else None
+    if found is None:
+        path = root / PENDING_DECISIONS
+        path.parent.mkdir(parents=True, exist_ok=True)
+        entry = {field: str(row.get(field, "")) for field in ROW_FIELDS}
+        existing = path.read_text(encoding="utf-8") if path.is_file() else ""
+        if existing and not existing.endswith("\n"):
+            existing += "\n"
+        cli.atomic_write(path, existing + json.dumps(entry, ensure_ascii=False) + "\n")
+        print("PENDING")
+        return 0
+    design, text = found
+    result = _add_rows(text, [row])
+    assert result is not None
+    cli.atomic_write(design, result[0])
+    print(result[1][0])
+    return 0
+
+
+def decisions_flush(root: Path, change: str) -> int:
+    cli = _cli()
+    item = _active(root, change)
+    found = _design_with_decisions(item)
+    if found is None:
+        raise cli.W2CError(f"{item.name} has no design.md with a ## Decisions section")
+    rows = _read_pending(root)
+    if not rows:
+        print("0 flushed")
+        return 0
+    design, text = found
+    result = _add_rows(text, rows)
+    assert result is not None
+    cli.atomic_write(design, result[0])
+    cli.atomic_write(root / PENDING_DECISIONS, "")
+    print(f"{len(rows)} flushed {' '.join(result[1])}")
+    return 0
+
+
+def _branch_changes(root: Path) -> list[ledger.CloudChange]:
+    names = ledger.branch_names(root)
+    return [c for c in ledger.list_changes(root) if names is None or c.name in names]
+
+
+def _apply_order(root: Path, items: list[ledger.CloudChange], names: list[str]) -> None:
+    cli = _cli()
+    before = [
+        cli.Milestone(mid=c.name, title=c.name, status=c.status, emoji=cli.STATUS_EMOJI.get(c.status, ""))
+        for c in items
+    ]
+    after = [next(m for m in before if m.mid == n) for n in names]
+    cli.assert_reorder_allowed(before, after)
+    by_name = {c.name: c for c in items}
+    for number, name in enumerate(names, start=1):
+        change = by_name[name]
+        _refuse_if_locked(change)
+        if change.order != number:
+            ledger.write_key(_meta(change), "x-delivery-order", str(number))
+    for number, name in enumerate(names, start=1):
+        print(f"{number} {name}")
+
+
+def _known(items: list[ledger.CloudChange], name: str) -> ledger.CloudChange:
+    for c in items:
+        if c.name == name:
+            return c
+    raise _cli().W2CError(f"{name} is not an active change on this branch")
+
+
+def order(root: Path, names: list[str]) -> int:
+    cli = _cli()
+    items = _branch_changes(root)
+    if len(names) != len(set(names)):
+        raise cli.W2CError("duplicate change in order list")
+    for name in names:
+        _known(items, name)
+    current = [c.name for c in items]
+    slots = [i for i, n in enumerate(current) if n in set(names)]
+    for slot, name in zip(slots, names):
+        current[slot] = name
+    _apply_order(root, items, current)
+    return 0
+
+
+def swap(root: Path, left: str, right: str) -> int:
+    cli = _cli()
+    items = _branch_changes(root)
+    if left == right:
+        raise cli.W2CError("cannot swap a change with itself")
+    _known(items, left)
+    _known(items, right)
+    current = [c.name for c in items]
+    i, j = current.index(left), current.index(right)
+    current[i], current[j] = current[j], current[i]
+    _apply_order(root, items, current)
+    return 0
+
+
+def move(root: Path, name: str, before: str | None, after: str | None) -> int:
+    cli = _cli()
+    if (before is None) == (after is None):
+        raise cli.W2CError("pass exactly one of --before or --after")
+    items = _branch_changes(root)
+    other = before if before else after or ""
+    if name == other:
+        raise cli.W2CError("cannot move a change relative to itself")
+    _known(items, name)
+    _known(items, other)
+    current = [c.name for c in items]
+    current.remove(name)
+    at = current.index(other)
+    current.insert(at if before else at + 1, name)
+    _apply_order(root, items, current)
     return 0

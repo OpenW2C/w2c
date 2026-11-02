@@ -488,5 +488,80 @@ class LegacyIsolationTests(CloudCommandBase):
         self.assertIn("NEXT none", out)
 
 
+HEADER = "| # | When | Scope | Decision | Choice | Rationale | Revisable? | Made By |"
+DESIGN_DECISIONS = DESIGN + "\n## Decisions\n\n## Manual Test Guide\n\nkeep\n"
+
+
+class DecisionTests(CloudCommandBase):
+    def args(self, scope: str, *extra: str) -> list[str]:
+        return ["cloud", "decide", "--scope", scope, "--decision", "d", "--choice", "c",
+                "--rationale", "why", *extra]
+
+    def test_decide_before_design_is_pending_then_flushed_in_order(self) -> None:
+        folder = self.make()
+        (folder / "design.md").unlink()
+        self.assertEqual(self.ok(*self.args("one")).strip(), "PENDING")
+        self.assertEqual(self.ok(*self.args("two a|b", "--change", NAME)).strip(), "PENDING")
+        pending = self.root / ".w2c" / "runtime" / "pending-decisions.jsonl"
+        self.assertEqual(len(pending.read_text(encoding="utf-8").splitlines()), 2)
+        self.bad("cloud", "decisions-flush", "--change", NAME)
+        self.assertEqual(len(pending.read_text(encoding="utf-8").splitlines()), 2)
+        (folder / "design.md").write_text(DESIGN_DECISIONS, encoding="utf-8")
+        self.assertIn("2 flushed", self.ok("cloud", "decisions-flush", "--change", NAME))
+        text = (folder / "design.md").read_text(encoding="utf-8")
+        self.assertIn(HEADER, text)
+        self.assertLess(text.index("| D1 |"), text.index("| D2 |"))
+        self.assertIn("two a\\|b", text)
+        self.assertLess(text.index("| D2 |"), text.index("## Manual Test Guide"))
+        self.assertEqual(pending.read_text(encoding="utf-8"), "")
+        self.assertIn("0 flushed", self.ok("cloud", "decisions-flush", "--change", NAME))
+
+    def test_decide_with_design_appends_next_id(self) -> None:
+        folder = self.make()
+        (folder / "design.md").write_text(DESIGN_DECISIONS, encoding="utf-8")
+        self.assertEqual(self.ok(*self.args("a", "--change", NAME)).strip(), "D1")
+        self.assertEqual(self.ok(*self.args("b\nline", "--change", NAME)).strip(), "D2")
+        text = (folder / "design.md").read_text(encoding="utf-8")
+        self.assertEqual(text.count(HEADER), 1)
+        self.assertIn("b line", text)
+        self.assertLess(text.index("| D2 |"), text.index("## Manual Test Guide"))
+        self.assertTrue(text.endswith("keep\n"))
+        self.assertFalse((self.root / ".w2c").exists())
+
+    def test_flush_refuses_without_decisions_section(self) -> None:
+        self.make()
+        self.ok(*self.args("x"))
+        before = (self.change / "design.md").read_text(encoding="utf-8")
+        self.bad("cloud", "decisions-flush", "--change", NAME)
+        self.assertEqual((self.change / "design.md").read_text(encoding="utf-8"), before)
+        pending = self.root / ".w2c" / "runtime" / "pending-decisions.jsonl"
+        self.assertEqual(len(pending.read_text(encoding="utf-8").splitlines()), 1)
+
+
+class ReorderTests(CloudCommandBase):
+    def order_of(self, name: str) -> str:
+        return re.search(r"x-delivery-order: (\d+)", self.meta(self.root / "openspec" / "changes" / name)).group(1)
+
+    def test_reorder_rewrites_order_keys_and_refuses_inprogress(self) -> None:
+        self.make(name="a", order=3)
+        self.make(name="b", order=7)
+        self.make(name="c", order=9)
+        self.ok("cloud", "order", "c", "a", "b")
+        self.assertEqual([self.order_of(n) for n in "abc"], ["2", "3", "1"])
+        self.ok("cloud", "swap", "a", "b")
+        self.assertEqual([self.order_of(n) for n in "abc"], ["3", "2", "1"])
+        self.ok("cloud", "move", "a", "--before", "c")
+        self.assertEqual([self.order_of(n) for n in "abc"], ["1", "3", "2"])
+        self.ok("cloud", "move", "a", "--after", "b")
+        self.assertEqual([self.order_of(n) for n in "abc"], ["3", "2", "1"])
+        self.assertFalse((self.root / ".w2c").exists())
+        self.make(name="run", status="INPROGRESS", order=0)
+        before = self.meta(self.root / "openspec" / "changes" / "a")
+        self.bad("cloud", "swap", "run", "a")
+        self.bad("cloud", "order", "a", "run", "b", "c")
+        self.bad("cloud", "swap", "a", "nope")
+        self.assertEqual(self.meta(self.root / "openspec" / "changes" / "a"), before)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -34,6 +34,27 @@ def register(sub: argparse._SubParsersAction) -> None:
     ss = csub.add_parser("status-set", help="set a change status (not DONE)")
     ss.add_argument("change")
     ss.add_argument("status")
+    dec = csub.add_parser("decide", help="log a decision in the change's design")
+    dec.add_argument("--change", default=None)
+    dec.add_argument("--scope", required=True)
+    dec.add_argument("--decision", required=True)
+    dec.add_argument("--choice", required=True)
+    dec.add_argument("--rationale", required=True)
+    dec.add_argument("--revisable", default="Yes")
+    dec.add_argument("--made-by", default="collaborative")
+    dec.add_argument("--when", default=None)
+    fl = csub.add_parser("decisions-flush", help="move held decisions into a change's design")
+    fl.add_argument("--change", required=True)
+    od = csub.add_parser("order", help="set the run order of active changes")
+    od.add_argument("names", nargs="+", metavar="NAME")
+    sw = csub.add_parser("swap", help="swap two changes in the run order")
+    sw.add_argument("left")
+    sw.add_argument("right")
+    mv = csub.add_parser("move", help="move a change before or after another")
+    mv.add_argument("name")
+    group = mv.add_mutually_exclusive_group(required=True)
+    group.add_argument("--before", default=None)
+    group.add_argument("--after", default=None)
 
 
 def dispatch(args: argparse.Namespace) -> int:
@@ -60,4 +81,17 @@ def dispatch(args: argparse.Namespace) -> int:
         return commands.milestone_complete(root, args.change, args.archive_declined)
     if cmd == "status-set":
         return commands.status_set(root, args.change, args.status)
+    if cmd == "decide":
+        row = {"when": args.when or "", "scope": args.scope, "decision": args.decision,
+               "choice": args.choice, "rationale": args.rationale,
+               "revisable": args.revisable, "made_by": args.made_by}
+        return commands.decide(root, args.change, row)
+    if cmd == "decisions-flush":
+        return commands.decisions_flush(root, args.change)
+    if cmd == "order":
+        return commands.order(root, args.names)
+    if cmd == "swap":
+        return commands.swap(root, args.left, args.right)
+    if cmd == "move":
+        return commands.move(root, args.name, args.before, args.after)
     raise SystemExit(f"unknown cloud command {cmd}")
