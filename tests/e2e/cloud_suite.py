@@ -1,10 +1,11 @@
 """Stages that run the opt-in cloud mode on a dummy project.
 
-Stored outputs live under tests/e2e/expected/cloud/. Later tasks add stages here.
+Stored outputs live under tests/e2e/expected/cloud/.
 """
 
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 from pathlib import Path
@@ -349,6 +350,156 @@ def c07_push_guard(p: Project) -> None:
     no_local_files(p)
 
 
+def plan_change(p: Project, name: str, word: str) -> Path:
+    """A planned change for `word` (square, cube) from the templates, status TODO."""
+    folder = p.root / "openspec" / "changes" / name
+    p.w2c("cloud", "new", "--slug", name)
+    cap = f"calc-{word}"
+    p.write(folder / "proposal.md", PROPOSAL.replace("calc-multiply", cap).replace("multiply", word))
+    p.write(folder / "design.md", filled_design())
+    p.write(folder / "specs" / cap / "spec.md",
+            SPEC.replace("Multiply two numbers", f"{word.title()} a number")
+            .replace("multiplies 3 by 4", f"asks for the {word} of 3")
+            .replace("product of two numbers", f"{word} of a number")
+            .replace("is 12", "is right").replace("Multiplying two integers", f"Taking the {word} of an integer"))
+    p.write(folder / "tasks.md", filled_tasks().replace("multiply", word).replace("Multiply", word.title()))
+    p.w2c("cloud", "status-set", name, "TODO")
+    return folder
+
+
+def _code(word: str, power: int) -> dict[tuple[str, str], tuple[str, str]]:
+    test = (
+        f"import unittest\n\nfrom app.{word} import {word}\n\n\n"
+        f"class {word.title()}Tests(unittest.TestCase):\n"
+        f"    def test_{word}(self) -> None:\n"
+        f"        self.assertEqual({word}(3), {3 ** power})\n"
+    )
+    return {
+        ("S01", "T01"): (f"app/{word}.py", f"def {word}(x):\n    return x ** {power}\n"),
+        ("S01", "T02"): (f"tests/test_{word}.py", test),
+        ("S02", "T01"): (f"docs/{word}.md", f"# {word.title()}\n\nCall {word}(x).\n"),
+    }
+
+
+def drive(p: Project, cwd: Path, env: dict[str, str], name: str, code: dict, stop_at: str | None = None,
+          answers: dict[str, str] | None = None) -> tuple[list[str], dict]:
+    """Run a change using only `w2c cloud step` output: read the action, perform it
+    with the real commands, record the result, ask again."""
+    answers = answers or {}
+    exe = str(p.home / ".local" / "bin" / "w2c")
+
+    def w2c(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+        proc = subprocess.run([exe, *args], cwd=str(cwd), env=env, capture_output=True, text=True)
+        if check and proc.returncode != 0:
+            raise AssertionError(f"w2c {' '.join(args)} exited {proc.returncode}\n{proc.stdout}{proc.stderr}")
+        return proc
+
+    def git(*args: str) -> None:
+        proc = subprocess.run(["git", "-C", str(cwd), *args], env=env, capture_output=True, text=True)
+        if proc.returncode != 0:
+            raise AssertionError(f"git {' '.join(args)} exited {proc.returncode}\n{proc.stdout}{proc.stderr}")
+
+    log: list[str] = []
+    milestone = False
+    for _ in range(120):
+        step = json.loads(w2c("cloud", "step", "--json").stdout)
+        action, sid, tid = step["action"], step["slice"], step["task"]
+        log.append(f"{action} {step['change']} {sid or '-'} {tid or '-'}"
+                   + (f" reason={step['reason']}" if step["reason"] else ""))
+        if action == stop_at or action in ("done", "stop"):
+            return log, step
+        result = "pass"
+        if action == "smoke":
+            result = "pass" if w2c("cloud", "smoke", "--change", name, check=False).returncode == 0 else "fail"
+        elif action == "isolate":
+            git("switch", "-q", BRANCH)
+        elif action == "implement":
+            p.state.setdefault(f"brief-{name}", w2c("cloud", "brief").stdout)
+            rel, text = code[(sid, tid)]
+            p.write(cwd / rel, text)
+        elif action == "verify":
+            line = w2c("cloud", "brief").stdout.rstrip("\n").splitlines()[-1]
+            command = line.split("Verify:", 1)[1].strip()
+            ran = subprocess.run(command, shell=True, cwd=str(cwd), env=env, capture_output=True, text=True)
+            result = "pass" if ran.returncode == 0 else "fail"
+        elif action in ("write-report", "slice-reports", "milestone-reports"):
+            for rel in step["files"]:
+                p.write(cwd / rel, f"# {Path(rel).name}\n\nDone and checked.\n")
+            milestone = milestone or action == "milestone-reports"
+        elif action == "complete":
+            w2c("cloud", "complete", "--change", name, "--slice", sid, "--task", tid)
+        elif action == "slice-complete":
+            w2c("cloud", "slice-complete", "--change", name, "--slice", sid)
+        elif action.startswith("ask-"):
+            result = answers.get(action, "yes")
+            if action == "ask-archive" and result == "yes":
+                w2c("cloud", "archive", name)
+                w2c("cloud", "milestone-complete", name)
+            elif action == "ask-commit" and result == "yes":
+                git("add", "-A", "--", *[d for d in ("openspec", "app", "tests", "docs") if (cwd / d).exists()])
+                git("commit", "-q", "-m", f"Deliver {name} {sid or 'milestone'}.")
+            elif action == "ask-push" and result == "yes":
+                if milestone:
+                    git("add", "-A", "openspec")
+                    git("commit", "-q", "-m", f"Archive {name}.")
+                git("push", "-q", "-u", "origin", BRANCH)
+        w2c("cloud", "step", "--record", action, "--result", result)
+    raise AssertionError(f"step never finished:\n" + "\n".join(log))
+
+
+def c08_step_driver(p: Project) -> None:
+    name = "add-square"
+    plan_change(p, name, "square")
+    env = dict(p.env)
+    env["W2C_EPHEMERAL"] = "0"
+    log, last = drive(p, p.root, env, name, _code("square", 2), answers={"ask-pr": "no"})
+    if last["action"] != "done":
+        raise AssertionError("milestone did not finish:\n" + "\n".join(log))
+    text = "\n".join(log) + "\n"
+    for token in ("smoke", "implement", "verify", "review", "write-report", "complete",
+                  "slice-reports", "slice-complete", "milestone-reports", "ask-commit",
+                  "ask-archive", "ask-push", "ask-pr"):
+        p.expect_tokens(text, token + " " + name)
+    p.expect_matches("C08-steps.txt", text)
+    p.expect_tokens(p.state[f"brief-{name}"], "## Delivery Plan", "## Guardrails", "## Commit and PR Conventions",
+                    "**Goal:** goal for Square", "- [ ] 1.1 Add square", "  - Verify: " + VERIFY)
+    p.expect_matches("C08-brief.txt", p.state[f"brief-{name}"])
+    archived = list((p.root / "openspec" / "changes" / "archive").glob(f"*-{name}"))
+    if not archived:
+        raise AssertionError(f"{name} was not archived")
+    p.expect_tokens(archived[0].joinpath("tasks.md").read_text(encoding="utf-8"), "- [x] 1.1", "- [x] 1.2", "- [x] 2.1")
+    head = p.git("rev-parse", "HEAD").stdout.strip()
+    if p.git("ls-remote", "origin", BRANCH).stdout.split()[0] != head:
+        raise AssertionError("the driven milestone did not reach the remote")
+    if p.git("status", "--porcelain", "--", "openspec", "app", "tests", "docs").stdout.strip():
+        raise AssertionError("the driven milestone left uncommitted product files")
+    p.expect_tokens(p.read(".w2c/runtime/step.json"), f'"change": "{name}"')
+    no_local_files(p)
+
+
+def c09_fresh_clone_push(p: Project) -> None:
+    name = "add-cube"
+    plan_change(p, name, "cube")
+    p.git("add", "-A", "openspec")
+    p.git("commit", "-q", "-m", "Plan the cube change.")
+    p.git("push", "-q", "origin", BRANCH)
+    clone = p.root.parent / "fresh-clone"
+    p.run(["git", "clone", "-q", "-b", BRANCH, str(p.remote), str(clone)], cwd=p.root.parent)
+    if (clone / ".w2c").exists():
+        raise AssertionError("a fresh clone must not hold .w2c/")
+    env = dict(p.env)
+    env["W2C_EPHEMERAL"] = "1"
+    log, last = drive(p, clone, env, name, _code("cube", 3), stop_at="ask-push")
+    if (last["action"], last["slice"]) != ("ask-push", "S01") or log[-2:] != [
+        f"ask-commit {name} S01 -", f"ask-push {name} S01 -"
+    ]:
+        raise AssertionError("a temporary container must ask to push after the slice commit:\n"
+                             + "\n".join(log))
+    if p.git("log", "-1", "--format=%s", cwd=clone).stdout.strip() != f"Deliver {name} S01.":
+        raise AssertionError("the slice commit was not made in the clone")
+    p.expect_matches("C09-steps.txt", "\n".join(log) + "\n")
+
+
 STAGES = [
     Stage("C01", "cloud planning init and env", c01_env),
     Stage("C02", "cloud new change from templates and strict validate", c02_new),
@@ -357,4 +508,6 @@ STAGES = [
     Stage("C05", "cloud decisions held then flushed, reorder", c05_decisions_order),
     Stage("C06", "cloud amendments: begin, drop, add, end", c06_amendments),
     Stage("C07", "cloud push blocked before archive, allowed after", c07_push_guard),
+    Stage("C08", "cloud milestone driven only by step output", c08_step_driver),
+    Stage("C09", "cloud fresh clone in a temporary container asks to push after a slice commit", c09_fresh_clone_push),
 ]

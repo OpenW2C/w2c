@@ -57,6 +57,13 @@ def register(sub: argparse._SubParsersAction) -> None:
     group = mv.add_mutually_exclusive_group(required=True)
     group.add_argument("--before", default=None)
     group.add_argument("--after", default=None)
+    st = csub.add_parser("step", help="the one next action of a cloud run")
+    st.add_argument("--change", default=None)
+    st.add_argument("--json", action="store_true")
+    st.add_argument("--record", dest="record_action", default=None, metavar="ACTION")
+    st.add_argument("--result", dest="record_result", default=None, metavar="RESULT")
+    br = csub.add_parser("brief", help="print only what the current task needs")
+    br.add_argument("--change", default=None)
     _register_amend(csub)
 
 
@@ -124,6 +131,12 @@ def dispatch(args: argparse.Namespace) -> int:
         return commands.swap(root, args.left, args.right)
     if cmd == "move":
         return commands.move(root, args.name, args.before, args.after)
+    if cmd in ("step", "brief"):
+        from w2c.cloud import driver
+
+        if cmd == "brief":
+            return driver.brief_cmd(root, args.change)
+        return driver.step_cmd(root, args.change, args.json, args.record_action, args.record_result)
     if cmd in AMEND_COMMANDS:
         return _amend(root, args)
     raise SystemExit(f"unknown cloud command {cmd}")
