@@ -92,7 +92,7 @@ def _valid(data: object) -> bool:
     if expected is not None:
         if not isinstance(expected, dict) or not isinstance(expected.get("action"), str):
             return False
-        if not _str_or_none(expected.get("task")) or not _str_or_none(expected.get("ask_scope")):
+        if not all(_str_or_none(expected.get(k)) for k in ("task", "ask_scope", "reason")):
             return False
         group = expected.get("ask_group")
         if group is not None and (not isinstance(group, int) or isinstance(group, bool)):
@@ -146,6 +146,7 @@ class Context:
     ask_scope: str | None = None  # "slice" or "milestone" while an ask is pending
     ask_group: int | None = None
     recordable: set[str] = field(default_factory=set)
+    hold: bool = False  # another change still owes asks: save nothing, record nothing
 
 
 def _rel(root: Path, path: Path) -> str:
@@ -207,7 +208,6 @@ def _evaluate(root: Path, change: ledger.CloudChange, state: dict) -> tuple[dict
         return _out("stop", ctx, reason="AMEND_LOCK"), ctx
     tasks_md = change.path / "tasks.md"
     if not commands._change_tasks(change):
-        ctx.recordable.add("smoke")
         return _out("stop", ctx, reason="no-tasks"), ctx
 
     group, task, last_done, all_done = _position(change)
@@ -237,10 +237,11 @@ def _evaluate(root: Path, change: ledger.CloudChange, state: dict) -> tuple[dict
     # Rule 3: smoke for this change and task.
     smoke = state.get("smoke") or {}
     smoked = smoke.get("change") == change.name and smoke.get("task") == task_key
-    ctx.recordable.add("smoke")
     if not smoked:
+        ctx.recordable.add("smoke")
         return _out("smoke", ctx), ctx
     if smoke.get("result") != "pass":
+        ctx.recordable.add("smoke")
         return _out("stop", ctx, reason="smoke"), ctx
 
     # Rule 4: the branch is checked on every call.
@@ -298,18 +299,28 @@ def _evaluate(root: Path, change: ledger.CloudChange, state: dict) -> tuple[dict
         reason = "archive-not-applied" if archive == "yes" else "decline-not-applied"
         ctx.recordable.add("ask-archive")
         return _out("ask-archive", ctx, [_rel(root, change.path)], reason=reason), ctx
-    if cadence == w2c_local.GIT_DELIVERY_MILESTONE:
-        commit = _ask(answers, "ask-commit")
-        if commit in (None, "no-answer"):
-            return _ask_out(ctx, "ask-commit", commit)
-    push = _ask(answers, "ask-push")
-    if push in (None, "no-answer"):
-        return _ask_out(ctx, "ask-push", push)
-    if push == "yes":
-        pr = _ask(answers, "ask-pr")
-        if pr in (None, "no-answer"):
-            return _ask_out(ctx, "ask-pr", pr)
-    return _out("done", ctx), ctx
+    # The archive moves files the push check requires, so the commit question
+    # comes after it in both cadences.
+    pending = _milestone_ask(answers)
+    if pending is None:
+        return _out("done", ctx), ctx
+    return _ask_out(ctx, pending, _ask(answers, pending))
+
+
+def _milestone_ask(answers: dict) -> str | None:
+    """The post-archive ask still owed: commit, push, then a PR after a push yes."""
+    for action in ("ask-commit", "ask-push"):
+        if _ask(answers, action) in (None, "no-answer"):
+            return action
+    if _ask(answers, "ask-push") == "yes" and _ask(answers, "ask-pr") in (None, "no-answer"):
+        return "ask-pr"
+    return None
+
+
+def _owes_asks(change: ledger.CloudChange, state: dict) -> bool:
+    """A closed (archived or DONE) change whose post-archive asks are not all answered."""
+    closed = change.archived or change.status == "DONE"
+    return closed and state.get("change") == change.name and _milestone_ask(state["milestone_answers"]) is not None
 
 
 def _ask_out(ctx: Context, action: str, answer: str | None,
@@ -366,23 +377,40 @@ def _candidates(root: Path) -> list[ledger.CloudChange]:
     return sorted(found, key=_rank)
 
 
+def _owed_stop(target: ledger.CloudChange | None, owed: ledger.CloudChange) -> tuple[dict, Context]:
+    ctx = Context(change=target, hold=True)
+    return _out("stop", ctx, reason=f"owed-asks:{owed.name}"), ctx
+
+
 def _plan(root: Path, change: str | None) -> tuple[dict, Context]:
-    if change:
-        item = ledger.resolve(root, change)
-        return _evaluate(root, item, _state_for(root, item.name))
+    from w2c import ledger_store
+
     state = load_state(root)
-    finished: str | None = None
+    held: ledger.CloudChange | None = None
     if state is not None and state.get("change"):
         try:
-            item = ledger.resolve(root, state["change"])
+            held = ledger.resolve(root, state["change"])
         except Exception:  # noqa: BLE001 - a vanished change means a fresh start
-            item = None
-        if item is not None:
-            out, ctx = _evaluate(root, item, _state_for(root, item.name))
+            held = None
+    owed = held if held is not None and state is not None and _owes_asks(held, state) else None
+    if change:
+        item = ledger.resolve(root, change)
+        if owed is not None and owed.path != item.path:
+            return _owed_stop(item, owed)
+        return _evaluate(root, item, _state_for(root, item.name))
+    finished: str | None = None
+    candidates = _candidates(root)
+    if held is not None:
+        wanted = ledger.remote_branch(held)
+        if not wanted or wanted == ledger_store.current_branch(root):
+            out, ctx = _evaluate(root, held, _state_for(root, held.name))
             if out["action"] != "done":
                 return out, ctx
-            finished = item.name
-    for item in _candidates(root):
+            finished = held.name
+        elif owed is not None:
+            others = [c for c in candidates if c.path != owed.path]
+            return _owed_stop(others[0] if others else None, owed)
+    for item in candidates:
         if item.name == finished:
             continue
         return _evaluate(root, item, _state_for(root, item.name))
@@ -399,6 +427,7 @@ def _where(out: dict, ctx: Context) -> dict:
         "task": ctx.task.openspec_id if ctx.task is not None else None,
         "ask_scope": ctx.ask_scope,
         "ask_group": ctx.ask_group,
+        "reason": out["reason"],
         "recordable": sorted(ctx.recordable),
     }
 
@@ -410,7 +439,7 @@ def next_action(root: Path, change: str | None) -> dict:
     agent can record an action after doing it even when the files on disk
     already moved the driver on (a ticked box, an archived change)."""
     out, ctx = _plan(root, change)
-    if ctx.change is not None:
+    if ctx.change is not None and not ctx.hold:
         state = _state_for(root, ctx.change.name)
         state["expected"] = _where(out, ctx)
         _save_state(root, state)
@@ -431,13 +460,20 @@ def record(root: Path, action: str, result: str, change: str | None = None) -> N
     if result not in allowed:
         raise cli.W2CError(f"{action} takes --result {'|'.join(allowed)}, not {result!r}")
     out, ctx = _plan(root, change)
+    if ctx.hold:
+        raise cli.W2CError(f"{out['reason']}: answer them first with w2c cloud step --change "
+                           f"{out['reason'].split(':', 1)[1]}")
+    saved = load_state(root)
+    expected = saved.get("expected") if saved else None
+    if action == "smoke" and not (
+        expected and (expected["action"] == "smoke" or expected.get("reason") == "smoke")
+    ):
+        raise cli.W2CError("record smoke only after w2c cloud step returned smoke or stop reason smoke")
     where: dict | None = None
     name: str | None = None
     if ctx.change is not None and action in ctx.recordable:
         where, name = _where(out, ctx), ctx.change.name
     else:
-        saved = load_state(root)
-        expected = saved.get("expected") if saved else None
         if expected and action in expected["recordable"] and saved["change"] and (
             change is None or ledger.resolve(root, change).name == saved["change"]
         ):

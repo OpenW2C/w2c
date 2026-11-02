@@ -162,6 +162,21 @@ class DriverBase(unittest.TestCase):
     def rec(self, action: str, result: str) -> None:
         driver.record(self.root, action, result)
 
+    def smoke_pass(self) -> None:
+        step = self.step()
+        self.assertTrue(step["action"] == "smoke" or step["reason"] == "smoke", step)
+        self.rec("smoke", "pass")
+
+    def make_other(self, name: str, branch: str) -> Path:
+        folder = self.root / "openspec" / "changes" / name
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / ".openspec.yaml").write_text(
+            f"schema: spec-driven\nx-delivery-status: TODO\nx-delivery-cadence: {SLICE}\n"
+            "x-delivery-order: 2\n", encoding="utf-8")
+        (folder / "design.md").write_text(DESIGN.replace("| DEMO-1 |", f"| {branch} |"), encoding="utf-8")
+        (folder / "tasks.md").write_text(TASKS, encoding="utf-8")
+        return folder
+
     def ok(self, *argv: str) -> str:
         code, out, err = run_main(self.root, *argv)
         self.assertEqual(code, 0, out + err)
@@ -247,7 +262,7 @@ class RuleTests(DriverBase):
         self.rec("smoke", "fail")
         step = self.step()
         self.assertEqual((step["action"], step["reason"]), ("stop", "smoke"))
-        self.rec("smoke", "pass")
+        self.smoke_pass()
         self.assertEqual(self.action(), "implement")
         self.drive_to("complete")
         self.perform(self.step())
@@ -257,7 +272,7 @@ class RuleTests(DriverBase):
     def test_rule4_wrong_branch_isolates(self) -> None:
         self.make()
         git(self.root, "switch", "-q", "-c", "other")
-        self.rec("smoke", "pass")
+        self.smoke_pass()
         self.assertEqual(self.action(), "isolate")
         git(self.root, "switch", "-q", BRANCH)
         self.assertEqual(self.action(), "implement")
@@ -265,13 +280,13 @@ class RuleTests(DriverBase):
     def test_isolate_pass_while_still_on_wrong_branch_isolates_again(self) -> None:
         self.make()
         git(self.root, "switch", "-q", "-c", "other")
-        self.rec("smoke", "pass")
+        self.smoke_pass()
         self.rec("isolate", "pass")
         self.assertEqual(self.action(), "isolate")
 
     def test_rule5_task_stages_and_failures_return_to_implement(self) -> None:
         self.make()
-        self.rec("smoke", "pass")
+        self.smoke_pass()
         self.assertEqual(self.action(), "implement")
         self.rec("implement", "pass")
         self.assertEqual(self.action(), "verify")
@@ -347,11 +362,11 @@ class RuleTests(DriverBase):
         self.assertEqual(seen, ["milestone-reports", "ask-archive", "ask-commit", "ask-push", "ask-pr", "done"])
         self.assertTrue(any((self.root / "openspec/changes/archive").glob(f"*-{NAME}")))
 
-    def test_rule8_slice_cadence_skips_milestone_commit_and_push_no_skips_pr(self) -> None:
+    def test_rule8_slice_cadence_asks_commit_after_archive_and_push_no_skips_pr(self) -> None:
         self.make(cadence=SLICE)
         self.drive_to("milestone-reports")
         seen = self.sequence({"ask-push": "no"})
-        self.assertEqual(seen, ["milestone-reports", "ask-archive", "ask-push", "done"])
+        self.assertEqual(seen, ["milestone-reports", "ask-archive", "ask-commit", "ask-push", "done"])
 
     def test_rule9_no_answer_stops_with_gate_name(self) -> None:
         self.make(cadence=SLICE)
@@ -366,13 +381,13 @@ class RuleTests(DriverBase):
 class StateTests(DriverBase):
     def test_lost_state_restarts_at_implement(self) -> None:
         self.make()
-        self.rec("smoke", "pass")
+        self.smoke_pass()
         self.rec("implement", "pass")
         self.rec("verify", "pass")
         self.assertEqual(self.action(), "review")
         self.state_path.unlink()
         self.assertEqual(self.action(), "smoke")
-        self.rec("smoke", "pass")
+        self.smoke_pass()
         step = self.step()
         self.assertEqual((step["action"], step["task"]), ("implement", "T01"))
 
@@ -386,7 +401,7 @@ class StateTests(DriverBase):
         self.state_path.unlink()
         step = self.step()
         self.assertEqual((step["action"], step["slice"]), ("smoke", "S02"))
-        self.rec("smoke", "pass")
+        self.smoke_pass()
         self.assertEqual(self.action(), "slice-reports", "S01 asks are not repeated once S02 has ticks")
 
     def sequence_to(self, wanted: str) -> list[str]:
@@ -398,7 +413,7 @@ class StateTests(DriverBase):
 
     def test_bad_json_state_starts_fresh(self) -> None:
         self.make()
-        self.rec("smoke", "pass")
+        self.smoke_pass()
         self.rec("implement", "pass")
         for junk in ("{not json", "[1, 2]", json.dumps({"change": NAME, "task": 5, "smoke": "x"}), ""):
             self.state_path.write_text(junk, encoding="utf-8")
@@ -408,19 +423,19 @@ class StateTests(DriverBase):
 
     def test_foreign_change_state_starts_fresh(self) -> None:
         self.make()
-        self.rec("smoke", "pass")
+        self.smoke_pass()
         self.rec("implement", "pass")
         data = json.loads(self.state_path.read_text(encoding="utf-8"))
         data["change"] = "other-change"
         data["smoke"]["change"] = "other-change"
         self.state_path.write_text(json.dumps(data), encoding="utf-8")
         self.assertEqual(self.action(), "smoke")
-        self.rec("smoke", "pass")
+        self.smoke_pass()
         self.assertEqual(self.action(), "implement")
 
     def test_state_schema(self) -> None:
         self.make()
-        self.rec("smoke", "pass")
+        self.smoke_pass()
         self.rec("implement", "pass")
         data = json.loads(self.state_path.read_text(encoding="utf-8"))
         self.assertEqual(data["change"], NAME)
@@ -445,6 +460,55 @@ class StateTests(DriverBase):
         self.assertEqual(self.step(), {"action": "done", "change": NAME, "slice": None, "task": None,
                                        "files": [], "reason": None})
 
+    def test_state_change_on_another_branch_is_ignored(self) -> None:
+        self.make()
+        self.smoke_pass()
+        self.rec("implement", "pass")
+        self.make_other("add-import", "OTHER")
+        git(self.root, "switch", "-q", "-c", "OTHER")
+        step = self.step()
+        self.assertEqual((step["action"], step["change"]), ("smoke", "add-import"))
+
+    def archived_owing(self) -> bytes:
+        self.make(cadence=MILESTONE)
+        self.drive_to("ask-archive")
+        self.perform(self.step())
+        self.assertEqual(self.action(), "ask-commit")
+        return self.state_path.read_bytes()
+
+    def test_owed_post_archive_asks_stop_other_change(self) -> None:
+        before = self.archived_owing()
+        self.make_other("add-import", BRANCH)
+        step = self.step("add-import")
+        self.assertEqual((step["action"], step["change"], step["reason"]),
+                         ("stop", "add-import", f"owed-asks:{NAME}"))
+        self.assertEqual(self.state_path.read_bytes(), before)
+        code, out, err = run_main(self.root, "cloud", "step", "--change", "add-import",
+                                  "--record", "smoke", "--result", "pass")
+        self.assertEqual(code, 1, out + err)
+        self.assertEqual(self.state_path.read_bytes(), before)
+        self.make_other("add-other", "OTHER")
+        git(self.root, "switch", "-q", "-c", "OTHER")
+        step = self.step()
+        self.assertEqual((step["action"], step["reason"]), ("stop", f"owed-asks:{NAME}"))
+        self.assertEqual(self.state_path.read_bytes(), before)
+        git(self.root, "switch", "-q", BRANCH)
+        self.assertEqual(self.step()["action"], "ask-commit")
+        self.assertEqual(self.step(NAME)["action"], "ask-commit")
+
+    def test_record_smoke_only_after_step_asked_for_it(self) -> None:
+        self.make()
+        code, out, err = run_main(self.root, "cloud", "step", "--record", "smoke", "--result", "pass")
+        self.assertEqual(code, 1, "no step call yet")
+        self.assertFalse(self.state_path.exists())
+        self.smoke_pass()
+        self.assertEqual(self.action(), "implement")
+        before = self.state_path.read_bytes()
+        code, out, err = run_main(self.root, "cloud", "step", "--record", "smoke", "--result", "pass")
+        self.assertEqual(code, 1, out + err)
+        self.assertIn("record smoke only after", err)
+        self.assertEqual(self.state_path.read_bytes(), before)
+
     def test_ask_archive_yes_without_archive_asks_again(self) -> None:
         self.make(cadence=MILESTONE)
         self.drive_to("ask-archive")
@@ -453,7 +517,7 @@ class StateTests(DriverBase):
 
     def test_invalid_record_exits_1_and_changes_nothing(self) -> None:
         self.make()
-        self.rec("smoke", "pass")
+        self.smoke_pass()
         before = self.state_path.read_bytes()
         for argv in (
             ("--record", "implement", "--result", "yes"),

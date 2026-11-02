@@ -400,7 +400,6 @@ def drive(p: Project, cwd: Path, env: dict[str, str], name: str, code: dict, sto
             raise AssertionError(f"git {' '.join(args)} exited {proc.returncode}\n{proc.stdout}{proc.stderr}")
 
     log: list[str] = []
-    milestone = False
     for _ in range(120):
         step = json.loads(w2c("cloud", "step", "--json").stdout)
         action, sid, tid = step["action"], step["slice"], step["task"]
@@ -425,7 +424,6 @@ def drive(p: Project, cwd: Path, env: dict[str, str], name: str, code: dict, sto
         elif action in ("write-report", "slice-reports", "milestone-reports"):
             for rel in step["files"]:
                 p.write(cwd / rel, f"# {Path(rel).name}\n\nDone and checked.\n")
-            milestone = milestone or action == "milestone-reports"
         elif action == "complete":
             w2c("cloud", "complete", "--change", name, "--slice", sid, "--task", tid)
         elif action == "slice-complete":
@@ -437,11 +435,8 @@ def drive(p: Project, cwd: Path, env: dict[str, str], name: str, code: dict, sto
                 w2c("cloud", "milestone-complete", name)
             elif action == "ask-commit" and result == "yes":
                 git("add", "-A", "--", *[d for d in ("openspec", "app", "tests", "docs") if (cwd / d).exists()])
-                git("commit", "-q", "-m", f"Deliver {name} {sid or 'milestone'}.")
+                git("commit", "-q", "-m", f"Deliver {name} {sid}." if sid else f"Archive {name}.")
             elif action == "ask-push" and result == "yes":
-                if milestone:
-                    git("add", "-A", "openspec")
-                    git("commit", "-q", "-m", f"Archive {name}.")
                 git("push", "-q", "-u", "origin", BRANCH)
         w2c("cloud", "step", "--record", action, "--result", result)
     raise AssertionError(f"step never finished:\n" + "\n".join(log))

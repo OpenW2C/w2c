@@ -26,6 +26,7 @@ slice-complete add-square S02 -
 ask-commit add-square S02 -
 milestone-reports add-square - -
 ask-archive add-square - -
+ask-commit add-square - -
 ask-push add-square - -
 ask-pr add-square - -
 done add-square - -
