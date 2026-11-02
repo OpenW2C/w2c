@@ -355,7 +355,12 @@ def archive(root: Path, change: str) -> int:
         ledger.write_key(meta, "x-delivery-archive", None)
         ledger.write_key(meta, "x-delivery-status", "DONE")
         data = osp.archive(root, item.name)
-    except BaseException:
+    except BaseException as exc:
+        if not item.path.is_dir():
+            raise cli.W2CError(
+                f"{exc}; the change was moved into the archive, its closeout reports are "
+                f"kept in {backup}"
+            ) from exc
         if saved.exists():
             if reports.exists():
                 shutil.rmtree(reports)

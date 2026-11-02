@@ -180,6 +180,14 @@ def main(argv: list[str]) -> int:
             print(payload["instruction"])
         return 0
     if command == "archive":
+        if os.environ.get("FAKE_OPENSPEC_ARCHIVE") == "move-then-fail":
+            moved = _positional(argv[1:])[0]
+            src = root / "openspec" / "changes" / moved
+            dest = root / "openspec" / "changes" / "archive" / f"2026-10-18-{moved}"
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(src), str(dest))
+            print("archive died after the move", file=sys.stderr)
+            return 1
         if os.environ.get("FAKE_OPENSPEC_ARCHIVE") == "fail":
             print("archive blew up", file=sys.stderr)
             return 1

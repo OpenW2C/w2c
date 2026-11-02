@@ -6,6 +6,7 @@ from __future__ import annotations
 import contextlib
 import io
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -419,6 +420,22 @@ class CloseoutTests(CloudCommandBase):
         self.assertIn("archive blew up", message)
         self.assertEqual(sorted(p.name for p in (self.change / ".delivery").iterdir()), before)
         self.assertIn("x-delivery-status: INPROGRESS", self.meta())
+
+    def test_archive_failing_after_the_move_keeps_the_backup(self) -> None:
+        self.make()
+        self.finish_all()
+        self.report("VALIDATION.md")
+        self.report("SUMMARY.md")
+        os.environ["FAKE_OPENSPEC_ARCHIVE"] = "move-then-fail"
+        self.addCleanup(lambda: os.environ.pop("FAKE_OPENSPEC_ARCHIVE", None))
+        message = self.bad("cloud", "archive", NAME)
+        self.assertFalse(self.change.exists())
+        self.assertIn("moved into the archive", message)
+        match = re.search(r"kept in (\S+)", message)
+        self.assertIsNotNone(match, message)
+        backup = Path(match.group(1))
+        self.addCleanup(lambda: shutil.rmtree(backup, ignore_errors=True))
+        self.assertTrue((backup / ".delivery" / "SUMMARY.md").is_file())
 
     def test_failed_archive_keeps_declined_marker(self) -> None:
         self.make()
