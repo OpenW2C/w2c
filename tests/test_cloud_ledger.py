@@ -84,8 +84,10 @@ class CloudLedgerTests(unittest.TestCase):
     def test_duplicate_delivery_key_is_error(self) -> None:
         meta = self.root / ".openspec.yaml"
         meta.write_text("x-delivery-status: TODO\nx-delivery-status: DONE\n", encoding="utf-8")
-        with self.assertRaises(w2c.W2CError):
+        with self.assertRaises(w2c.W2CError) as ctx:
             ledger.read_keys(meta)
+        self.assertIn(str(meta), str(ctx.exception))
+        self.assertIn("x-delivery-status", str(ctx.exception))
 
     def test_list_changes_orders_by_order_then_name(self) -> None:
         make_change(self.root, "b", cloud(order="1"))
@@ -124,8 +126,26 @@ class CloudLedgerTests(unittest.TestCase):
     def test_resolve_refuses_ambiguous_legacy_id(self) -> None:
         make_change(self.root, "one", cloud(legacy_id="M001"))
         make_change(self.root, "two", cloud(legacy_id="M001"))
-        with self.assertRaises(w2c.W2CError):
+        with self.assertRaises(w2c.W2CError) as ctx:
             ledger.resolve(self.root, "M001")
+        self.assertIn("one", str(ctx.exception))
+        self.assertIn("two", str(ctx.exception))
+
+    def test_resolve_refuses_name_matching_other_changes_legacy_id(self) -> None:
+        make_change(self.root, "M001", cloud())
+        make_change(self.root, "other", cloud(legacy_id="M001"))
+        with self.assertRaises(w2c.W2CError) as ctx:
+            ledger.resolve(self.root, "M001")
+        self.assertIn("M001", str(ctx.exception))
+        self.assertIn("other", str(ctx.exception))
+
+    def test_resolve_refuses_archived_name_matching_other_legacy_id(self) -> None:
+        make_change(self.root, "M002", cloud("DONE"), archived="2026-01-02")
+        make_change(self.root, "other", cloud(legacy_id="M002"))
+        with self.assertRaises(w2c.W2CError) as ctx:
+            ledger.resolve(self.root, "M002")
+        self.assertIn("M002", str(ctx.exception))
+        self.assertIn("other", str(ctx.exception))
 
     def test_branch_names_none_on_detached_head_or_no_match(self) -> None:
         git(self.root, "init", "-b", "main")

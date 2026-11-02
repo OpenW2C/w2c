@@ -163,19 +163,19 @@ def list_changes(root: Path, *, include_archived: bool = False) -> list[CloudCha
 
 
 def resolve(root: Path, ident: str) -> CloudChange:
+    cli = _cli()
     changes = list_changes(root, include_archived=True)
-    ranks = (
-        [c for c in changes if not c.archived and c.name == ident],
-        [c for c in changes if c.archived and c.name == ident],
-        [c for c in changes if c.legacy_id and c.legacy_id == ident],
-    )
-    for matches in ranks:
-        if len(matches) == 1:
-            return matches[0]
-        if len(matches) > 1:
-            names = ", ".join(str(c.path) for c in matches)
-            raise _cli().W2CError(f"{ident!r} matches more than one change: {names}")
-    raise _cli().W2CError(f"no cloud change named {ident!r}")
+    active = [c for c in changes if not c.archived and c.name == ident]
+    archived = [c for c in changes if c.archived and c.name == ident]
+    legacy = [c for c in changes if c.legacy_id and c.legacy_id == ident]
+    named = active or archived
+    involved = named + [c for c in legacy if all(c.path != n.path for n in named)]
+    if len(involved) > 1:
+        names = ", ".join(sorted(f"{c.name} (archived)" if c.archived else c.name for c in involved))
+        raise cli.W2CError(f"{ident!r} matches more than one change: {names}")
+    if involved:
+        return involved[0]
+    raise cli.W2CError(f"no cloud change named {ident!r}")
 
 
 def remote_branch(change: CloudChange) -> str:
