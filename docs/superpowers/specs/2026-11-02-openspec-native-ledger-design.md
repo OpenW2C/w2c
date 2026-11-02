@@ -2,7 +2,7 @@
 
 After this change you can opt in to a cloud mode that lets an OpenSpec milestone be planned and run from any fresh clone, including a cloud agent session, while the existing 2.2.0 flow stays the default and keeps working unchanged.
 
-Status: approved design, 2026-11-02. Release: 2.3.0, a backward-compatible minor release.
+Status: approved design, 2026-11-02. Release: 3.0.0, one version for the whole scope. No existing behavior breaks; the owner chose a major version for this release.
 
 ## Problem
 
@@ -174,7 +174,7 @@ The OpenSpec checks for strict validation, artifact completion, Verify lines, pr
 
 - Claude Code cloud and Codex cloud install the programs in the environment's setup script. GitHub Copilot uses `.github/workflows/copilot-setup-steps.yml`. Cursor uses `.cursor/environment.json`. These setup files may name `w2c`.
 - `docs/cloud-sessions.md` gives the exact snippet for each platform.
-- Releases are tagged, starting with `v2.3.0`, and `install.sh --ref <tag>` installs a pinned version.
+- Releases are tagged, starting with `v3.0.0`, and `install.sh --ref <tag>` installs a pinned version.
 - When `w2c` is missing, the cloud skills offer, after asking, to run it on demand with `uvx --from git+https://github.com/OpenW2C/w2c@<tag> w2c`.
 - When a companion skill (grilling, brainstorming, requesting-code-review) is missing, as on Copilot or Cursor, the cloud skills follow written fallback rules instead of stopping.
 
@@ -243,7 +243,7 @@ After conversion, the 2.2 `w2c next --milestone M###` prints `CLOUD_MOVED M### <
 | 5–9 | Cloud commands, decisions and knowledge, amendments, smoke and shared hooks, the step driver and `brief` |
 | 10–12 | Copilot files for cloud init, conversion planner, conversion apply and restore |
 | 13–14 | Cloud skills and trials, the 2.2 routing lines, cloud access docs and `install.sh --ref` |
-| 15 | Release 2.3.0, the `AGENTS.md` rule, the pull-request template |
+| 15 | Release 3.0.0, the `AGENTS.md` rule, the pull-request template |
 
 Each phase extends the cloud suite of the full-cycle test.
 

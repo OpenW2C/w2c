@@ -5,19 +5,6 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.2.2] — 2026-11-02
-
-### Added
-
-- A full-cycle test, `python3 scripts/w2c-e2e.py`, runs the current flow on a dummy project with the real OpenSpec program and writes a checklist that ends in `E2E: PASS` or `E2E: FAIL`.
-- A CI job named `e2e` runs that test against OpenSpec 1.14.3 and 1.16.0. No behavior change.
-
-## [2.2.1] — 2026-11-02
-
-### Added
-
-- Design for an opt-in cloud mode that keeps OpenSpec milestone rules and state in the committed change, so a fresh clone or cloud session can plan and run a milestone while the current flow stays the default (`docs/superpowers/specs/2026-11-02-openspec-native-ledger-design.md`). No behavior change.
-
 ## [2.2.0] — 2026-10-31
 
 ### Added

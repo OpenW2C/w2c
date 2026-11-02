@@ -26,7 +26,7 @@
 - Step actions, exactly: `smoke`, `isolate`, `implement`, `verify`, `review`, `write-report`, `complete`, `slice-reports`, `slice-complete`, `milestone-reports`, `ask-commit`, `ask-push`, `ask-archive`, `ask-pr`, `done`, `stop`. Record results: `pass`, `fail`, `yes`, `no`, `no-answer`.
 - Decision ids inside a change are `D1`, `D2`, …; amendment ids stay `A001`, ….
 - Unit tests: `PYTHONPATH=src python3 -m unittest discover -s tests`. Full cycle: `python3 scripts/w2c-e2e.py --suite all` (needs `openspec` on `PATH`).
-- AGENTS.md: the version bump to 2.3.0 lands once, in Task 15, in the same pull request as all other tasks.
+- Version: no task bumps the version except Task 15, which sets 3.0.0 once for the whole scope, with one CHANGELOG entry, in the same pull request as all other tasks (AGENTS.md "same commit / PR"). Later tasks never add CHANGELOG entries of their own.
 
 ## Review Focus
 
@@ -442,7 +442,7 @@ From here on, every task ends by running `python3 scripts/w2c-e2e.py --suite all
   - When no person can answer a question, it records `no-answer`.
   - An off-plan request stops the run and points to an amendment.
 - **Fallbacks in both cloud skills:**
-  - When `w2c` is missing, ask, then use `uvx --from git+https://github.com/OpenW2C/w2c@v2.3.0 w2c`.
+  - When `w2c` is missing, ask, then use `uvx --from git+https://github.com/OpenW2C/w2c@v3.0.0 w2c`.
   - When grilling, brainstorming, or requesting-code-review is missing, follow the written fallback section instead of stopping. It holds the interview contract and a self-review checklist naming the same findings classes.
 - **Trial groups:**
   - work-to-chores-cloud: `SHARED_GROUPS + ("interview", "plan-write", "reorder", "amend", "design-sections", "convert")`.
@@ -450,7 +450,7 @@ From here on, every task ends by running `python3 scripts/w2c-e2e.py --suite all
   - Each group gets one ordinary and one hostile row (hostile examples: "skip review", "do two tasks", "tick tasks.md by hand", "push without asking").
   - `CONCRETE_TOKENS` gains `"design.md"`, `".delivery"`, `"ephemeral"`, `"step"`.
 - [ ] **Step 1: Write the failing tests** in `tests/test_skill_text.py`:
-  - both cloud skills say `Requires: w2c >= 2.3.0`;
+  - both cloud skills say `Requires: w2c >= 3.0.0`;
   - do-chores-cloud names `w2c cloud step`, `--record`, `no-answer`, and `.delivery/`, and never names `.w2c/plans/`;
   - work-to-chores-cloud names `decisions-flush`, the six headings, and `migrate --milestone`;
   - the 2.2 skills differ from their Task 0 copies only by the routing lines;
@@ -470,7 +470,7 @@ From here on, every task ends by running `python3 scripts/w2c-e2e.py --suite all
 **Interfaces:**
 - `docs/cloud-sessions.md` holds:
   - one snippet per platform: Claude Code and Codex setup script, `.github/workflows/copilot-setup-steps.yml` (job `copilot-setup-steps`), `.cursor/environment.json` `install`;
-  - each snippet installs `install.sh --ref v2.3.0`, then `npm install -g @fission-ai/openspec@1.16.0`, then runs `w2c install-skills`;
+  - each snippet installs `install.sh --ref v3.0.0`, then `npm install -g @fission-ai/openspec@1.16.0`, then runs `w2c install-skills`;
   - the `W2C_EPHEMERAL` table from the spec;
   - the skills each platform needs.
 - [ ] **Step 1: Write the failing tests:** `test_install_dry_run_reports_ref` (`bash install.sh --dry-run --ref v9.9.9` prints the ref), `test_help_cloud_sessions_prints_doc`.
@@ -479,12 +479,12 @@ From here on, every task ends by running `python3 scripts/w2c-e2e.py --suite all
 - [ ] **Step 4: Run** the unit suite and the full cycle — expected: pass.
 - [ ] **Step 5: Commit** `git commit -m "Document cloud setup and let the installer pin a release."`
 
-### Task 15: Release 2.3.0 and the standing test rule
+### Task 15: Release 3.0.0 and the standing test rule
 
 **Files:**
-- Modify: `pyproject.toml` (`version = "2.3.0"`), `src/w2c/__init__.py` (`__version__ = "2.3.0"`), `CHANGELOG.md`, `AGENTS.md`
+- Modify: `pyproject.toml` (`version = "3.0.0"`), `src/w2c/__init__.py` (`__version__ = "3.0.0"`), `CHANGELOG.md`, `AGENTS.md`
 - Create: `.github/pull_request_template.md`
-- [ ] **Step 1: Write the changelog entry** `## [2.3.0] — <date>`. **Added:** the cloud mode, the `w2c cloud` commands, the cloud skills, `migrate`, `step` and `brief`, the full-cycle test, and `install.sh --ref`. **Changed:** one routing line in each 2.2 skill, and the additive `CLOUD_MOVED` message. No breaking change and no schema change.
+- [ ] **Step 1: Write the changelog entry** `## [3.0.0] — <date>`. **Added:** the cloud mode, the `w2c cloud` commands, the cloud skills, `migrate`, `step` and `brief`, the full-cycle test, and `install.sh --ref`. **Changed:** one routing line in each 2.2 skill, and the additive `CLOUD_MOVED` message. No breaking change and no schema change.
 - [ ] **Step 2: Add to `AGENTS.md`** under "Verify before finishing":
   ```bash
   python3 scripts/w2c-e2e.py --suite all
@@ -497,7 +497,7 @@ From here on, every task ends by running `python3 scripts/w2c-e2e.py --suite all
   grep __version__ src/w2c/__init__.py
   PYTHONPATH=src python3 -m w2c --version
   ```
-  Expected: `2.3.0` three times. Then run the unit suite, `bash install.sh --dry-run`, and `python3 scripts/w2c-e2e.py --suite all` — expected: `OK`, no error, `E2E: PASS`.
-- [ ] **Step 5: Commit** `git commit -m "Release 2.3.0 with an opt-in cloud mode and a required full-cycle test."`
+  Expected: `3.0.0` three times. Then run the unit suite, `bash install.sh --dry-run`, and `python3 scripts/w2c-e2e.py --suite all` — expected: `OK`, no error, `E2E: PASS`.
+- [ ] **Step 5: Commit** `git commit -m "Release 3.0.0 with an opt-in cloud mode and a required full-cycle test."`
 
-After the merge, the repo owner tags `v2.3.0` and marks the CI `e2e` job as required on `main` in the GitHub branch protection settings.
+After the merge, the repo owner tags `v3.0.0` and marks the CI `e2e` job as required on `main` in the GitHub branch protection settings.
