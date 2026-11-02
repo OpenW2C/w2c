@@ -172,14 +172,13 @@ def read_first_problems(tasks_text: str | None) -> list[str]:
         return ["tasks.md missing"]
     head: list[str] = []
     for line in tasks_text.splitlines():
-        if GROUP_LINE_RE.match(line):
+        if line.startswith("## "):
             break
         head.append(line)
     top = "\n".join(head)
-    normal = top.lower().replace("-", " ")
     problems: list[str] = []
-    if layout.READ_FIRST_MARKER.lower().replace("-", " ") not in normal:
-        problems.append("tasks.md lacks the read-first block before the first group")
+    if layout.READ_FIRST_MARKER not in top:
+        problems.append("tasks.md lacks the read-first block before the first ## heading")
     if layout.STOP_SENTENCE not in top:
         problems.append("tasks.md read-first block lacks the stop sentence")
     return problems
@@ -270,9 +269,14 @@ def smoke_rows(root: Path, changes: list[CloudChange]) -> list[tuple[str, str, s
         else:
             for number, fields in slice_fields(tasks_text).items():
                 lacking = [f for f in layout.SLICE_FIELDS if f not in fields]
+                empty = [f for f in layout.SLICE_FIELDS if f in fields and not fields[f].strip()]
                 if lacking:
                     problems["slice-fields"].append(
                         f"{change.name} group {number}: lacks {', '.join(lacking)}"
+                    )
+                if empty:
+                    problems["slice-fields"].append(
+                        f"{change.name} group {number}: empty {', '.join(empty)}"
                     )
         problems["read-first-present"] += tag(change, read_first_problems(tasks_text))
         if (

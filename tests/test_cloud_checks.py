@@ -242,6 +242,28 @@ class MutationTests(CloudChecksBase):
         self.make(tasks=tasks.replace(layout.STOP_SENTENCE, "Be careful."))
         self.flips({"read-first-present"})
 
+    def test_read_first_template_is_a_quote_block(self) -> None:
+        text = template("tasks-read-first.md")
+        lines = [l for l in text.splitlines() if l.strip()]
+        self.assertTrue(all(l.startswith(">") for l in lines))
+        self.assertNotIn("\n## ", "\n" + text)
+        self.assertTrue(lines[0].startswith("> **" + layout.READ_FIRST_MARKER + ":**"))
+        for part in ("Delivery Plan", "Guardrails", "Commit and PR Conventions", "openspec/knowledge.md", "## N."):
+            self.assertIn(part, text)
+        self.assertIn(layout.STOP_SENTENCE, text.replace("\n> ", " "))
+        self.assertNotIn("w2c", text.lower())
+
+    def test_read_first_is_literal(self) -> None:
+        tasks = fill_tasks().replace(layout.READ_FIRST_MARKER, "Read First")
+        self.make(tasks=tasks)
+        self.flips({"read-first-present"})
+
+    def test_empty_slice_field_fails(self) -> None:
+        tasks = fill_tasks().replace("**Demo:** text for Demo", "**Demo:**   ")
+        self.assertNotEqual(tasks, fill_tasks())
+        self.make(tasks=tasks)
+        self.flips({"slice-fields"})
+
     def test_read_first_text_after_first_group_does_not_count(self) -> None:
         tasks = fill_tasks().replace(template("tasks-read-first.md"), "")
         tasks += "\n" + template("tasks-read-first.md")
