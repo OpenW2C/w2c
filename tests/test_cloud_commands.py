@@ -1,0 +1,363 @@
+#!/usr/bin/env python3
+"""Core cloud commands: new, next, complete, slice-complete, archive, status."""
+
+from __future__ import annotations
+
+import contextlib
+import io
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+SRC = ROOT / "src"
+sys.path.insert(0, str(SRC))
+
+_HOME = Path(tempfile.mkdtemp(prefix="w2c-cloud-cmd-home-"))
+os.environ["W2C_CONFIG"] = str(_HOME / "config.toml")
+os.environ["W2C_DATA_HOME"] = str(_HOME / "data")
+
+from w2c import cli as w2c  # noqa: E402
+from w2c.cloud import ledger  # noqa: E402
+
+FIXTURE = ROOT / "tests" / "fixtures" / "fake_openspec.py"
+ORIGINAL_PATH = os.environ.get("PATH", "")
+CADENCE = sorted(ledger.CADENCES)[0]
+NAME = "add-export"
+
+DESIGN = """# Design
+
+## Delivery Plan
+
+| Field | Value |
+| --- | --- |
+| Remote branch | DEMO-1 |
+"""
+
+TASKS = """# Tasks
+
+## 1. Export
+
+**Goal:** export
+
+- [ ] 1.1 Write exporter
+  - Verify: true
+- [ ] 1.2 Wire exporter
+  - Verify: true
+
+## 2. Docs
+
+**Goal:** docs
+
+- [ ] 2.1 Document it
+  - Verify: true
+"""
+
+
+def run_main(root: Path, *argv: str) -> tuple[int, str, str]:
+    out, err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        try:
+            code = w2c.main(["--root", str(root), *argv])
+        except SystemExit as exc:
+            code = int(exc.code or 0)
+    return code, out.getvalue(), err.getvalue()
+
+
+def git(root: Path, *args: str) -> None:
+    subprocess.run(
+        ["git", "-c", "user.name=t", "-c", "user.email=t@example.com", *args],
+        cwd=root, check=True, capture_output=True,
+    )
+
+
+class CloudCommandBase(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name) / "repo"
+        self.root.mkdir()
+        bindir = Path(self._tmp.name) / "bin"
+        bindir.mkdir()
+        dest = bindir / "openspec"
+        shutil.copy(FIXTURE, dest)
+        dest.chmod(0o755)
+        os.environ["PATH"] = str(bindir) + os.pathsep + ORIGINAL_PATH
+        self.addCleanup(lambda: os.environ.__setitem__("PATH", ORIGINAL_PATH))
+        git(self.root, "init", "-b", "DEMO-1")
+        (self.root / "README.md").write_text("x\n", encoding="utf-8")
+        git(self.root, "add", ".")
+        git(self.root, "commit", "-m", "init")
+
+    @property
+    def change(self) -> Path:
+        return self.root / "openspec" / "changes" / NAME
+
+    def meta(self, folder: Path | None = None) -> str:
+        return ((folder or self.change) / ".openspec.yaml").read_text(encoding="utf-8")
+
+    def make(self, status: str = "TODO", name: str = NAME, order: int = 1, extra: str = "") -> Path:
+        folder = self.root / "openspec" / "changes" / name
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / ".openspec.yaml").write_text(
+            f"schema: spec-driven\nx-delivery-status: {status}\n"
+            f"x-delivery-cadence: {CADENCE}\nx-delivery-order: {order}\n{extra}",
+            encoding="utf-8",
+        )
+        (folder / "design.md").write_text(DESIGN, encoding="utf-8")
+        (folder / "tasks.md").write_text(TASKS, encoding="utf-8")
+        return folder
+
+    def report(self, name: str, text: str = "done\n", folder: Path | None = None) -> None:
+        path = (folder or self.change) / ".delivery" / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+
+    def ok(self, *argv: str) -> str:
+        code, out, err = run_main(self.root, *argv)
+        self.assertEqual(code, 0, out + err)
+        return out
+
+    def bad(self, *argv: str) -> str:
+        code, out, err = run_main(self.root, *argv)
+        self.assertNotEqual(code, 0, out + err)
+        return out + err
+
+
+class NewTests(CloudCommandBase):
+    def test_new_writes_keys_and_no_ledger_files(self) -> None:
+        self.make(name="older", order=4)
+        out = self.ok("cloud", "new", "--slug", NAME, "--cadence", CADENCE)
+        self.assertIn(f"created openspec/changes/{NAME} ({NAME})", out)
+        meta = self.meta()
+        self.assertIn("x-delivery-status: PLANNING", meta)
+        self.assertIn("x-delivery-order: 5", meta)
+        self.assertIn(f"x-delivery-cadence: {CADENCE}", meta)
+        self.assertFalse((self.root / ".w2c").exists())
+
+    def test_new_without_cadence_prints_need_cadence(self) -> None:
+        code, out, _err = run_main(self.root, "cloud", "new", "--slug", NAME)
+        self.assertEqual(code, 1)
+        self.assertIn("NEED_CADENCE", out)
+        self.assertFalse(self.change.exists())
+
+    def test_new_takes_cadence_from_local_config(self) -> None:
+        (self.root / ".w2c").mkdir()
+        (self.root / ".w2c" / "config.toml").write_text(
+            f'git_delivery = "{CADENCE}"\n', encoding="utf-8"
+        )
+        self.ok("cloud", "new", "--slug", NAME)
+        self.assertIn(f"x-delivery-cadence: {CADENCE}", self.meta())
+
+    def test_new_rejects_unknown_cadence(self) -> None:
+        self.bad("cloud", "new", "--slug", NAME, "--cadence", "hourly")
+        self.assertFalse(self.change.exists())
+
+    def test_new_creates_knowledge_once(self) -> None:
+        self.ok("cloud", "new", "--slug", NAME, "--cadence", CADENCE)
+        knowledge = self.root / "openspec" / "knowledge.md"
+        text = knowledge.read_text(encoding="utf-8")
+        self.assertTrue(text.startswith("# Project Knowledge"))
+        for heading in ("## Rules", "## Patterns", "## Lessons Learned"):
+            self.assertIn(heading, text)
+        self.assertNotIn("w2c", text.lower())
+        attrs = (self.root / ".gitattributes").read_text(encoding="utf-8")
+        self.assertEqual(attrs.count("openspec/knowledge.md merge=union"), 1)
+        knowledge.write_text("custom\n", encoding="utf-8")
+        self.ok("cloud", "new", "--slug", "second", "--cadence", CADENCE)
+        self.assertEqual(knowledge.read_text(encoding="utf-8"), "custom\n")
+        attrs = (self.root / ".gitattributes").read_text(encoding="utf-8")
+        self.assertEqual(attrs.count("openspec/knowledge.md merge=union"), 1)
+        self.assertIn("x-delivery-order: 2", self.meta(self.root / "openspec/changes/second"))
+
+
+class NextCompleteTests(CloudCommandBase):
+    def test_next_and_complete_in_fresh_clone(self) -> None:
+        self.make()
+        git(self.root, "add", ".")
+        git(self.root, "commit", "-m", "plan")
+        clone = Path(self._tmp.name) / "clone"
+        subprocess.run(["git", "clone", "-q", str(self.root), str(clone)], check=True)
+        out = run_main(clone, "cloud", "next")[1]
+        self.assertIn(f"NEXT {NAME} S01 T01", out)
+        self.assertIn("Write exporter", out)
+        self.assertIn('"milestone_id"', out)
+        refused = run_main(clone, "cloud", "complete", "--change", NAME, "--slice", "S01", "--task", "T01")
+        self.assertNotEqual(refused[0], 0)
+        self.assertIn("missing report S01-T01-SUMMARY.md", refused[2])
+        self.report("S01-T01-SUMMARY.md", folder=clone / "openspec/changes" / NAME)
+        code, out, err = run_main(clone, "cloud", "complete", "--change", NAME, "--slice", "S01", "--task", "T01")
+        self.assertEqual(code, 0, err)
+        self.assertIn(f"complete {NAME} S01 T01", out)
+        self.assertIn("OPEN_IN_SLICE 1", out)
+        self.assertIn("- [x] 1.1", (clone / "openspec/changes" / NAME / "tasks.md").read_text(encoding="utf-8"))
+        self.assertIn("x-delivery-status: INPROGRESS", self.meta(clone / "openspec/changes" / NAME))
+        self.assertIn(f"NEXT {NAME} S01 T02", run_main(clone, "cloud", "next")[1])
+        self.assertFalse((clone / ".w2c").exists())
+        self.assertFalse((self.root / ".w2c").exists())
+
+    def test_complete_twice_and_dropped_refuse(self) -> None:
+        self.make()
+        text = (self.change / "tasks.md").read_text(encoding="utf-8").replace("[ ] 1.2", "[d] 1.2")
+        (self.change / "tasks.md").write_text(text, encoding="utf-8")
+        self.report("S01-T01-SUMMARY.md")
+        self.report("S01-T02-SUMMARY.md")
+        self.ok("cloud", "complete", "--change", NAME, "--slice", "S01", "--task", "T01")
+        self.assertIn("already complete", self.bad("cloud", "complete", "--change", NAME, "--slice", "S01", "--task", "T01"))
+        self.assertIn("is dropped", self.bad("cloud", "complete", "--change", NAME, "--slice", "S01", "--task", "T02"))
+
+    def test_next_prefers_inprogress_and_skips_done_and_locked(self) -> None:
+        self.make(status="TODO", name="alpha", order=1)
+        self.make(status="INPROGRESS", name="beta", order=2)
+        self.make(status="PAUSED", name="gamma", order=3)
+        for name in ("alpha", "beta", "gamma"):
+            (self.root / "openspec/changes" / name / "design.md").write_text(DESIGN, encoding="utf-8")
+        self.assertIn("NEXT beta S01 T01", self.ok("cloud", "next"))
+        self.assertIn("NEXT alpha S01 T01", self.ok("cloud", "next", "--change", "alpha"))
+        meta = self.root / "openspec/changes/beta/.openspec.yaml"
+        ledger.write_key(meta, "x-delivery-amend-lock", "set")
+        self.assertIn("NEXT alpha S01 T01", self.ok("cloud", "next"))
+        code, out, _ = run_main(self.root, "cloud", "next", "--change", "beta")
+        self.assertEqual(code, 1)
+        self.assertIn("AMEND_LOCK beta", out)
+
+    def test_next_stays_on_the_current_branch(self) -> None:
+        self.make(name="mine", order=2)
+        self.make(name="other", order=1)
+        (self.root / "openspec/changes/other/design.md").write_text(
+            DESIGN.replace("DEMO-1", "OTHER-9"), encoding="utf-8"
+        )
+        self.assertIn("NEXT mine S01 T01", self.ok("cloud", "next"))
+        self.assertIn("NEXT other S01 T01", self.ok("cloud", "next", "--change", "other"))
+
+    def test_next_none_when_everything_is_ticked(self) -> None:
+        self.make()
+        text = (self.change / "tasks.md").read_text(encoding="utf-8").replace("[ ]", "[x]")
+        (self.change / "tasks.md").write_text(text, encoding="utf-8")
+        self.assertIn("NEXT none", self.ok("cloud", "next"))
+
+
+class SliceCompleteTests(CloudCommandBase):
+    def finish_slice_one(self) -> None:
+        for tid in ("T01", "T02"):
+            self.report(f"S01-{tid}-SUMMARY.md")
+            self.ok("cloud", "complete", "--change", NAME, "--slice", "S01", "--task", tid)
+
+    def test_slice_complete_records_slices_done_and_tokens(self) -> None:
+        self.make()
+        self.finish_slice_one()
+        self.assertIn("missing report S01-UAT.md", self.bad("cloud", "slice-complete", "--change", NAME, "--slice", "S01"))
+        self.report("S01-UAT.md")
+        self.report("S01-SUMMARY.md")
+        out = self.ok("cloud", "slice-complete", "--change", NAME, "--slice", "S01")
+        self.assertIn(f"slice-complete {NAME} S01", out)
+        self.assertIn("OPEN_SLICES 1", out)
+        self.assertIn("x-delivery-slices-done: [1]", self.meta())
+        self.report("S02-T01-SUMMARY.md")
+        self.ok("cloud", "complete", "--change", NAME, "--slice", "S02", "--task", "T01")
+        self.report("S02-UAT.md")
+        self.report("S02-SUMMARY.md")
+        out = self.ok("cloud", "slice-complete", "--change", NAME, "--slice", "S02")
+        self.assertIn(f"NEED_MILESTONE_REPORTS {NAME}", out)
+        self.assertIn("x-delivery-slices-done: [1, 2]", self.meta())
+        self.report("VALIDATION.md")
+        self.report("SUMMARY.md")
+        self.ok("cloud", "slice-complete", "--change", NAME, "--slice", "S02")
+        self.assertIn("x-delivery-slices-done: [1, 2]", self.meta())
+
+    def test_slice_complete_refuses_open_tasks(self) -> None:
+        self.make()
+        self.assertIn("open tasks remain", self.bad("cloud", "slice-complete", "--change", NAME, "--slice", "S01"))
+
+
+class CloseoutTests(CloudCommandBase):
+    def finish_all(self) -> None:
+        for sid, tids in (("S01", ("T01", "T02")), ("S02", ("T01",))):
+            for tid in tids:
+                self.report(f"{sid}-{tid}-SUMMARY.md")
+                self.ok("cloud", "complete", "--change", NAME, "--slice", sid, "--task", tid)
+            self.report(f"{sid}-UAT.md")
+            self.report(f"{sid}-SUMMARY.md")
+            self.ok("cloud", "slice-complete", "--change", NAME, "--slice", sid)
+
+    def test_archive_gates_then_deletes_delivery_and_marks_done(self) -> None:
+        self.make()
+        self.assertIn("open", self.bad("cloud", "archive", NAME).lower())
+        self.finish_all()
+        self.assertIn("VALIDATION.md", self.bad("cloud", "archive", NAME))
+        self.report("VALIDATION.md")
+        self.assertIn("SUMMARY.md", self.bad("cloud", "archive", NAME))
+        self.report("SUMMARY.md")
+        out = self.ok("cloud", "archive", NAME)
+        self.assertIn(f"archived {NAME} as 2026-10-18-{NAME}", out)
+        archived = self.root / "openspec/changes/archive" / f"2026-10-18-{NAME}"
+        self.assertFalse((archived / ".delivery").exists())
+        self.assertIn("x-delivery-status: DONE", self.meta(archived))
+        self.assertNotIn("archive:", self.meta(archived))
+        self.assertIn("already", self.bad("cloud", "archive", NAME))
+        self.assertIn(f"{NAME} -> DONE", self.ok("cloud", "milestone-complete", NAME))
+        self.assertFalse((self.root / ".w2c").exists())
+
+    def test_archive_refuses_unlisted_group(self) -> None:
+        self.make()
+        self.finish_all()
+        self.report("VALIDATION.md")
+        self.report("SUMMARY.md")
+        ledger.write_key(self.change / ".openspec.yaml", "x-delivery-slices-done", "[1]")
+        self.assertIn("S02", self.bad("cloud", "archive", NAME))
+        self.assertTrue((self.change / ".delivery").is_dir())
+
+    def test_milestone_complete_declined_keeps_reports(self) -> None:
+        self.make()
+        self.finish_all()
+        self.assertIn(f"run w2c cloud archive {NAME} or pass --archive-declined",
+                      self.bad("cloud", "milestone-complete", NAME))
+        self.assertIn("VALIDATION.md", self.bad("cloud", "milestone-complete", NAME, "--archive-declined"))
+        self.report("VALIDATION.md")
+        self.report("SUMMARY.md")
+        out = self.ok("cloud", "milestone-complete", NAME, "--archive-declined")
+        self.assertIn(
+            f"OPENSPEC_ARCHIVE_DECLINED {NAME} follow-up: archive the change with w2c cloud archive {NAME}", out
+        )
+        meta = self.meta()
+        self.assertIn("x-delivery-status: DONE", meta)
+        self.assertIn("x-delivery-archive: declined", meta)
+        self.assertTrue((self.change / ".delivery" / "SUMMARY.md").is_file())
+
+    def test_status_set(self) -> None:
+        self.make()
+        self.ok("cloud", "status-set", NAME, "paused")
+        self.assertIn("x-delivery-status: PAUSED", self.meta())
+        self.assertIn("DONE", self.bad("cloud", "status-set", NAME, "DONE"))
+        self.bad("cloud", "status-set", NAME, "BOGUS")
+
+
+class StatusTests(CloudCommandBase):
+    def test_status_lines_and_next(self) -> None:
+        self.make()
+        out = self.ok("cloud", "status")
+        self.assertIn(f"{w2c.STATUS_EMOJI['TODO']} {NAME}: 0/3 tasks", out)
+        self.assertIn(f"Next: {NAME} S01 T01: Write exporter", out)
+        text = (self.change / "tasks.md").read_text(encoding="utf-8").replace("[ ]", "[x]")
+        (self.change / "tasks.md").write_text(text, encoding="utf-8")
+        out = self.ok("cloud", "status")
+        self.assertIn(f"{NAME}: 3/3 tasks", out)
+        self.assertIn("Next: none", out)
+        self.assertFalse((self.root / ".w2c").exists())
+
+
+class LegacyIsolationTests(CloudCommandBase):
+    def test_legacy_commands_ignore_cloud_changes(self) -> None:
+        self.make()
+        (self.root / ".w2c").mkdir()
+        (self.root / ".w2c" / "ROADMAP.md").write_text("# Roadmap\n\n## Milestones\n", encoding="utf-8")
+        out = self.ok("next")
+        self.assertIn("NEXT none", out)
+
+
+if __name__ == "__main__":
+    unittest.main()

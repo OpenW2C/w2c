@@ -1,0 +1,2 @@
+complete add-multiply S01 T01
+OPEN_IN_SLICE 1

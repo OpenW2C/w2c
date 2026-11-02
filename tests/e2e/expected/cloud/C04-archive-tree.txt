@@ -1,0 +1,6 @@
+.gitkeep
+<DATE>-add-multiply/.openspec.yaml
+<DATE>-add-multiply/design.md
+<DATE>-add-multiply/proposal.md
+<DATE>-add-multiply/specs/calc-multiply/spec.md
+<DATE>-add-multiply/tasks.md
