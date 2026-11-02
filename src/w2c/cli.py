@@ -1024,6 +1024,8 @@ def task_to_dict(t: Task) -> dict:
 
 def cloud_moved(root: Path, mid: str) -> bool:
     """Print CLOUD_MOVED when a converted milestone left the roadmap for a cloud change."""
+    if not re.fullmatch(r"M\d+", mid):
+        return False
     if any(m.mid == mid for m in parse_milestones(read_text(w2c_dir(root) / "ROADMAP.md"))):
         return False
     plans = w2c_dir(root) / "plans"

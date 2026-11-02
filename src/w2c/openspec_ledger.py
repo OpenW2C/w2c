@@ -225,7 +225,18 @@ def change_prefixes(root: Path) -> list[str]:
                 prefixes.append(f"openspec/changes/{name}")
     from w2c.cloud import ledger as cloud
 
-    for change in cloud.list_changes(root):
+    base = root / "openspec" / "changes"
+    changes = []
+    for folder in sorted(base.iterdir()) if base.is_dir() else []:
+        if not folder.is_dir() or folder.name == "archive":
+            continue
+        try:
+            item = cloud.load_change(folder)
+        except (cli.W2CError, UnicodeDecodeError, OSError):
+            continue
+        if item is not None:
+            changes.append(item)
+    for change in changes:
         if change.status != "DONE":
             prefix = f"openspec/changes/{change.name}"
             if prefix not in prefixes:

@@ -203,6 +203,37 @@ class SmokeAndPushTests(CloudCommandBase):
         (folder / "design.md").write_text(DESIGN.replace("DEMO-1", "OTHER-2"), encoding="utf-8")
         self.assertEqual(self.push_check()[0], 0)
 
+    def test_unreadable_change_blocks_only_its_own_branch(self) -> None:
+        dup = self.make(name="broken", order=2, extra="x-delivery-status: DONE\n")
+        (dup / "design.md").write_text(DESIGN.replace("DEMO-1", "OTHER-2"), encoding="utf-8")
+        bad = self.make(name="binary", order=3)
+        (bad / "design.md").write_text(DESIGN.replace("DEMO-1", "OTHER-2"), encoding="utf-8")
+        (bad / ".openspec.yaml").write_bytes(b"\xff\xfe\x00bad")
+        code, out = self.push_check()
+        self.assertEqual((code, out), (0, ""))
+        (dup / "design.md").write_text(DESIGN, encoding="utf-8")
+        code, out = self.push_check()
+        self.assertEqual(code, 1)
+        self.assertIn("broken: cannot read .openspec.yaml:", out)
+        self.assertNotIn("Traceback", out)
+
+    def test_base_dirt_skips_unreadable_cloud_change(self) -> None:
+        from w2c import openspec_ledger
+
+        self.make()
+        bad = self.make(name="broken", order=2, extra="x-delivery-status: DONE\n")
+        other = self.make(name="binary", order=3)
+        (other / ".openspec.yaml").write_bytes(b"\xff\xfe\x00bad")
+        self.assertEqual(openspec_ledger.change_prefixes(self.root), [f"openspec/changes/{NAME}"])
+
+    def test_cloud_moved_ignores_non_milestone_ids(self) -> None:
+        plan = self.root / ".w2c" / "plans" / "M007-old"
+        plan.mkdir(parents=True)
+        (self.root / ".w2c" / "ROADMAP.md").write_text("# Roadmap\n", encoding="utf-8")
+        (plan / "CONVERTED").write_text(f"{NAME}\n", encoding="utf-8")
+        out = self.ok("next", "--milestone", "M*")
+        self.assertNotIn("CLOUD_MOVED", out)
+
     def test_base_dirt_skips_cloud_change_folder(self) -> None:
         from w2c import base_dirt, openspec_ledger
 

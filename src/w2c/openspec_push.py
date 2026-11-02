@@ -103,12 +103,39 @@ def problems_for(root: Path, ref: str, sha: str) -> list[str]:
     return found
 
 
+def _folder_branch(folder: Path) -> str:
+    try:
+        text = (folder / "design.md").read_text(encoding="utf-8")
+        fields = _cli().parse_table_under_heading(text, "Delivery Plan")
+    except (OSError, UnicodeDecodeError):
+        return ""
+    return fields.get("Remote branch", "").strip()
+
+
+def _cloud_folders(root: Path) -> list[Path]:
+    base = root / "openspec" / "changes"
+    found: list[Path] = []
+    for parent in (base, base / "archive"):
+        if parent.is_dir():
+            found += [c for c in sorted(parent.iterdir()) if c.is_dir() and c.name != "archive"]
+    return found
+
+
 def _cloud_problems(root: Path, branch: str, sha: str) -> list[str]:
     from w2c.cloud import commands, ledger as cloud
 
     found: list[str] = []
-    for change in cloud.list_changes(root, include_archived=True):
-        if cloud.remote_branch(change) != branch:
+    for folder in _cloud_folders(root):
+        if _folder_branch(folder) != branch:
+            continue
+        try:
+            change = cloud.load_change(folder)
+        except (_cli().W2CError, UnicodeDecodeError, OSError) as exc:
+            archived = folder.parent.name == "archive"
+            name = cloud.ARCHIVE_PREFIX_RE.sub("", folder.name) if archived else folder.name
+            found.append(f"{name}: cannot read .openspec.yaml: {exc}")
+            continue
+        if change is None:
             continue
         name = change.name
         if change.archived:
