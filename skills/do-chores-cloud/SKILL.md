@@ -41,7 +41,9 @@ do chores cloud [--change <name>] [--max-units N]
 2. `openspec` on PATH. Run `w2c openspec-check`. If `needs` contains `NEED_OPENSPEC_INSTALL` or `NEED_OPENSPEC_INIT`, ask first. On yes, follow `Fetch https://raw.githubusercontent.com/Fission-AI/OpenSpec/main/install.md and follow it.` and stop where it says to stop. On no, stop.
 3. **requesting-code-review** invocable. If it is missing (for example on Copilot or Cursor), do not stop: use **Companion fallback** for every `review` action, and tell the user once.
 
-No `.w2c/` ledger is needed. The plan is the change under `openspec/changes/<name>/`; local state is only `.w2c/runtime/step.json`, which is never committed.
+No `.w2c/` ledger is needed. The plan is the change under `openspec/changes/<name>/`; local state is only the step state, kept in the checkout's own git directory (`.w2c/runtime/step.json` outside git), which is never committed. Each linked worktree has its own.
+
+Committed change files and the `.delivery/` reports must never contain the word "w2c", in any case, or a `.w2c/` path. Say "local planner files" instead.
 
 ## The loop (exactly this)
 
@@ -64,13 +66,13 @@ Record the action the driver asked for, never a different one. If `--record` exi
 | `implement` | Make the change for this one task, from the brief | `pass`, or `fail` if it is not finished |
 | `verify` | Run the task's `Verify:` command from the brief | `pass` on exit 0, else `fail` |
 | `review` | Invoke requesting-code-review on this task's diff (or **Companion fallback**) | `pass` when clean; `fail` on any Critical or Important finding (with the fallback: on any finding) |
-| `write-report` | Write each path in `files` (`.delivery/S##-T##-SUMMARY.md`): what happened, verification evidence, deviations, files changed | `pass` |
+| `write-report` | Write each path in `files` (`.delivery/S##-T##-SUMMARY.md`) from `w2c cloud template task-summary`: what happened, verification evidence, deviations, files changed | `pass` |
 | `complete` | `w2c cloud complete --change <change> --slice <slice> --task <task>` | `pass` |
-| `slice-reports` | Re-run every `Verify:` line in this group and the group's **Verification**; then write each path in `files`: `.delivery/S##-UAT.md` (human checklist, boxes unchecked) and `.delivery/S##-SUMMARY.md` (results; name each dropped task id) | `pass`, or `fail` if a Verify fails |
+| `slice-reports` | Re-run every `Verify:` line in this group and the group's **Verification**; then write each path in `files`: `.delivery/S##-UAT.md` from `w2c cloud template slice-uat` (human checklist, boxes unchecked) and `.delivery/S##-SUMMARY.md` from `w2c cloud template slice-summary` (results; name each dropped task id) | `pass`, or `fail` if a Verify fails |
 | `slice-complete` | `w2c cloud slice-complete --change <change> --slice <slice>` | `pass` |
-| `milestone-reports` | Run the Delivery Plan `Validation commands`, map each spec scenario to evidence, run `openspec validate <change> --strict`; write each path in `files` (`.delivery/VALIDATION.md` with a verdict, `.delivery/SUMMARY.md`) | `pass`, or `fail` |
-| `ask-archive` | Ask the user to archive the change | `yes`: run `w2c cloud archive <change>`, then `w2c cloud milestone-complete <change>`. `no`: run `w2c cloud milestone-complete <change> --archive-declined` and say the main specs were not updated |
-| `ask-commit` | First run the Delivery Plan `Validation commands`. If one fails, say so and show its output with the question. Then ask the user to commit. On yes, follow **Commit rules** | the user's answer: `yes`, `no`, or `no-answer` |
+| `milestone-reports` | Run the Delivery Plan `Validation commands`, map each spec scenario to evidence, run `openspec validate <change> --strict`; write each path in `files` (`.delivery/VALIDATION.md` from `w2c cloud template validation`, with a verdict; `.delivery/SUMMARY.md` from `w2c cloud template summary`) | `pass`, or `fail` |
+| `ask-archive` | Ask the user to archive the change | `yes`: run `w2c cloud archive <change>` (see **Archive refused**), then `w2c cloud milestone-complete <change>`. `no`: run `w2c cloud milestone-complete <change> --archive-declined` and say the main specs were not updated |
+| `ask-commit` | First run the Delivery Plan `Validation commands`. If one fails, say so and show its output with the question. Then ask the user to commit. On yes, follow **Commit rules**. The `reason` says which commit it is: none for a slice commit, `pre-archive` or `post-archive` at the end of the change | the user's answer: `yes`, `no`, or `no-answer` |
 | `ask-push` | First run the Delivery Plan `Validation commands`. If one fails, say so and show its output with the question. Then ask the user to push to `origin <Remote branch>`. On yes, push (no force, no `--no-verify`) | the user's answer: `yes`, `no`, or `no-answer` |
 | `ask-pr` | Ask the user to open a pull request. On yes, open it per the conventions | `yes`, `no`, or `no-answer` |
 
@@ -82,16 +84,17 @@ On a `fail` the driver sends you back (`implement` after a failed verify or revi
 
 - Every commit, push, and pull request needs an explicit **yes** from a person for that action. Ask each one separately, every time.
 - A **no** skips that git action only. Record `no` and continue the loop.
-- A commit or a push happens only as the answer to `ask-commit` or `ask-push`. Never commit, push, or open a pull request at any other point, even when the user asks for it in passing: say it will be asked at the right step.
+- A commit or a push happens only as the answer to `ask-commit` or `ask-push`, with one exception: the report commit the user chooses in **Archive refused**. Never commit, push, or open a pull request at any other point, even when the user asks for it in passing: say it will be asked at the right step.
 - When no person can answer (an unattended run, a scheduled job, no reply), record `no-answer`. Never guess `yes` or `no`. The driver then stops with `approval-needed:<ask>`.
-- **Temporary container:** when `w2c cloud env` prints `ephemeral: true`, the driver asks `ask-push` after each slice commit, because unpushed work is lost when the container ends. Say so with the question. It is still the user's yes or no.
-- At the end of the change the driver asks `ask-commit` twice, in both cadences: once after `milestone-reports` and before `ask-archive`, and once after an applied archive. A `no` on the first skips that commit only and moves on to `ask-archive`.
+- **Temporary container:** when `w2c cloud env` prints `ephemeral: true`, the driver asks `ask-push` after each slice commit except the last slice's, because unpushed work is lost when the container ends. Say so with the question. It is still the user's yes or no. After the last slice the end-of-change asks cover the push.
+- At the end of the change the driver asks `ask-commit` twice, in both cadences: once after `milestone-reports` and before `ask-archive` (reason `pre-archive`), and once after the archive question (reason `post-archive`). A `no` on the first skips that commit only and moves on to `ask-archive`.
+- **Declined archive:** after `ask-archive` `no`, the driver asks the `post-archive` `ask-commit` and then returns `done` with reason `push-blocked-until-archive`. There is no `ask-push` and no `ask-pr`: the push check refuses a finished change that is not archived. Tell the user to run `w2c cloud archive <change>` later, then commit and push.
 
 ## What each commit carries
 
 - **Slice commit** (`ask-commit` with a `slice`): the slice's product work and the `.delivery/` reports present then (task summaries, `S##-UAT.md`, `S##-SUMMARY.md`).
-- **Milestone commit before the archive** (`ask-commit` with no `slice`, before `ask-archive`): the remaining work and every `.delivery/` report, including `VALIDATION.md` and `SUMMARY.md`. This is how git history keeps the reports: `w2c cloud archive` removes `.delivery/`.
-- **Commit after the archive** (`ask-commit` after `ask-archive`): the move of the change into `openspec/changes/archive/` and the updated `openspec/specs/`. The push check needs it.
+- **Milestone commit before the archive** (`ask-commit` with reason `pre-archive`): the remaining work and every `.delivery/` report, including `VALIDATION.md` and `SUMMARY.md`. This is how git history keeps the reports: `w2c cloud archive` removes `.delivery/`.
+- **Commit after the archive** (`ask-commit` with reason `post-archive`): the move of the change into `openspec/changes/archive/` and the updated `openspec/specs/`. The push check needs it. After a declined archive it carries the change's DONE status instead.
 
 ## Commit rules
 
@@ -101,6 +104,15 @@ On a yes to `ask-commit`:
 - Never stage deny-listed paths from `## Commit and PR Conventions`, `.w2c/`, or `### Base dirt paths`.
 - Write the title and body from the conventions. Never name a `.delivery/` path, a closeout report, or a local planner file in commit or pull-request text; say "planning artifacts" with no paths.
 - Never add a `Co-authored-by:` trailer or any similar AI attribution line.
+
+## Archive refused
+
+`w2c cloud archive <change>` refuses with `REPORTS_UNCOMMITTED <change>` while `.delivery/` has uncommitted or untracked files, because the archive removes `.delivery/` and those reports would be lost. It names the files. Do not retry with a flag on your own. Tell the user which files are not committed and ask which they want:
+
+1. **Go back and commit the reports.** Their yes is the explicit approval for this one commit. Commit only those `.delivery/` files, following **Commit rules**, then run `w2c cloud archive <change>` again.
+2. **Archive anyway with a backup.** Run `w2c cloud archive <change> --keep-reports-backup`. It archives, keeps the reports in a folder outside the repository, and prints `REPORTS_KEPT <path>`. Show that path to the user.
+
+When no person can answer, do not archive: end the run and report the refusal. On either choice, once the archive succeeds, carry on as the **Action table** says for `ask-archive` `yes`: run `w2c cloud milestone-complete <change>`, record `ask-archive` `yes`, and go back to step 1 of the loop.
 
 ## Isolate
 
@@ -117,7 +129,7 @@ Later product commits never stage base dirt paths.
 
 ## Stop and done
 
-- `done`: say the change has nothing left on this branch, and give the **Report**. In a repo that also has 2.2 milestones, show `w2c cloud status --all` so the user sees what is left in both.
+- `done`: say the change has nothing left on this branch, and give the **Report**. With reason `push-blocked-until-archive`, also say the change was not pushed because its archive was declined, and that `w2c cloud archive <change>` is the follow-up. In a repo that also has 2.2 milestones, show `w2c cloud status --all` so the user sees what is left in both.
 - `stop` with reason:
   - `AMEND_LOCK`: the change is being amended. Stop. Tell the user to finish the amendment with work-to-chores-cloud.
   - `smoke`: show `w2c cloud smoke --change <change>` output. Do not implement. A plan problem goes to work-to-chores-cloud.
@@ -160,11 +172,13 @@ At the end of the run: change, slices and tasks completed, Verify commands and o
 - Skipping `w2c cloud brief` at a new task
 - Skipping review, or recording `review` `pass` with a Critical or Important finding open (with the fallback: with any finding open, or a class line missing)
 - Ticking `tasks.md` by hand or editing `x-delivery-*` keys
-- Committing or pushing except as the answer to `ask-commit` / `ask-push`
+- Committing or pushing except as the answer to `ask-commit` / `ask-push` (or the report commit chosen in **Archive refused**)
 - Committing, pushing, or opening a pull request without an explicit yes
 - Answering an ask for the user, or recording `yes` / `no` when no person answered instead of `no-answer`
 - Pushing with `--force` or `--no-verify`
 - Naming a `.delivery/` path in commit or pull-request text
+- Writing "w2c" or a `.w2c/` path into a committed change file or a `.delivery/` report
+- Passing `--keep-reports-backup` without the user's choice
 - Leaving `.delivery/` reports out of the slice commits or the milestone commit before the archive
 - Answering an ask for the user because a validation command failed or passed
 - Editing the plan, except the `### Base dirt paths` subsection after a `leave-untouched` choice

@@ -115,6 +115,130 @@ class CloudSkillTextTests(unittest.TestCase):
                          [(skill, "PASS") for skill in SKILL_NAMES])
 
 
+TEMPLATE = (REPO / "templates" / "cloud" / "design-delivery.md").read_text(encoding="utf-8")
+
+
+def _template_rows() -> dict[str, str]:
+    rows = {}
+    for line in TEMPLATE.split("## Guardrails")[0].splitlines():
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if line.startswith("| ") and len(cells) == 2 and cells[0] not in ("Field", "---"):
+            rows[cells[0]] = cells[1]
+    return rows
+
+
+def _conventions_as_the_skill_says(design: str) -> str:
+    """Fill `## Commit and PR Conventions` exactly as work-to-chores-cloud instructs."""
+    head, rest = design.split("## Commit and PR Conventions", 1)
+    body, tail = rest.split("\n## Decisions", 1)
+    out = []
+    planner_lines = 0
+    for line in body.splitlines():
+        if line.startswith("Planner:"):
+            planner_lines += 1
+            if planner_lines == 1:
+                continue  # delete the first Planner: line
+            out.append("Never stage: local planner files, `.env*`, `.idea/`")
+            continue
+        for label, value in (("**Commit title:**", "Short imperative subject."),
+                             ("**Commit body:**", "Optional, after a blank line."),
+                             ("**Pull request:**", "One per change, with a test plan.")):
+            if line == label:
+                line = f"{label} {value}"
+        out.append(line)
+    return head + "## Commit and PR Conventions" + "\n".join(out) + "\n\n## Decisions" + tail
+
+
+class CloudPlanRulesTests(unittest.TestCase):
+    def test_new_writes_design_and_tasks_and_templates_are_named(self) -> None:
+        text = _text("work-to-chores-cloud")
+        self.assertIn("writes two files, each only when it is absent: `design.md`", text)
+        self.assertIn("`tasks.md` (starting with the read-first block). It writes nothing else.", text)
+        self.assertNotIn("from the cloud templates with", text)
+        self.assertIn("append the output of `w2c cloud template slice-group`", text)
+        self.assertNotIn("templates/cloud/", text)
+        for name in ("task-summary", "slice-uat", "slice-summary", "validation", "summary"):
+            self.assertIn(name, text)
+            self.assertIn(f"w2c cloud template {name}", _text("do-chores-cloud"))
+        self.assertIn("`## Guardrails` — the template's guardrails, verbatim", text)
+        self.assertIn("the template text verbatim, with only the placeholders filled", text)
+
+    def test_conventions_built_as_instructed_pass_validation(self) -> None:
+        from w2c.cloud import checks
+
+        text = _text("work-to-chores-cloud")
+        for phrase in ("Keep every line of the section that does not start with `Planner:` exactly as written",
+                       "Delete the first `Planner:` line",
+                       "with one line: `Never stage: local planner files, `",
+                       "Put the value on the same line after **Commit title:**, **Commit body:**, and "
+                       "**Pull request:**"):
+            self.assertIn(phrase, text)
+        sentence = next(line for line in TEMPLATE.splitlines() if "is product content" in line)
+        self.assertIn(f'"{sentence}"', text)
+        self.assertEqual(checks.validate_conventions(TEMPLATE.replace("`openspec/` is product content", "x")),
+                         ["conventions must say openspec/ is product content and is never deny-listed"])
+        built = _conventions_as_the_skill_says(TEMPLATE)
+        self.assertEqual(checks.validate_conventions(built), [])
+        section = built.split("## Commit and PR Conventions", 1)[1].split("## Decisions", 1)[0]
+        self.assertNotIn("w2c", section.lower())
+        self.assertNotIn("Planner:", section)
+
+    def test_do_not_stage_never_writes_w2c_into_committed_text(self) -> None:
+        text = _text("work-to-chores-cloud")
+        start = text.index("### Commit and PR conventions")
+        block = text[start:text.index("### Manual test guide")]
+        self.assertIn("never write `.w2c/` or the word \"w2c\" into committed text", block)
+        self.assertNotIn("deny-list: local planner files, `.w2c/`", text)
+        for skill in ("work-to-chores-cloud", "do-chores-cloud"):
+            self.assertIn("Committed change files", _text(skill), skill)
+            self.assertIn("and the `.delivery/` reports must never contain the word \"w2c\"", _text(skill), skill)
+
+    def test_worktree_layout_exclude_and_delivery_plan_values(self) -> None:
+        text = _text("work-to-chores-cloud")
+        for phrase in ("Write `Worktree layout` and `Worktree dir` from that output",
+                       "If `exclude` is `missing`, ask once whether to add the worktree directory",
+                       "Record `exclude-yes`, `exclude-no`, or `already-set` with `w2c cloud decide`",
+                       "A bare container prints `exclude: n/a`; do not ask.",
+                       "| Worktree skill | `using-git-worktrees` if mode is `worktree`; `n/a` if `branch` |"):
+            self.assertIn(phrase, text)
+        table = text[text.index("### Delivery Plan values"):text.index("### Commit and PR conventions")]
+        rows = {}
+        for line in table.splitlines():
+            cells = [c.strip() for c in line.strip().strip("|").split("|")]
+            if line.startswith("| ") and len(cells) == 2 and cells[0] not in ("Field", "---"):
+                rows[cells[0]] = cells[1]
+        template = _template_rows()
+        self.assertNotIn("Plan commit", rows)
+        self.assertTrue(set(rows) <= set(template), set(rows) - set(template))
+        for field in ("Isolation mode", "Local branch", "Remote branch", "Isolation scope", "Setup when",
+                      "Reuse policy", "Worktree skill", "Worktree layout", "Worktree dir", "Exclude line",
+                      "Push rule", "Base dirt policy"):
+            self.assertIn(field, rows)
+        self.assertEqual(rows["Push rule"], template["Push rule"])
+        self.assertEqual(rows["Setup when"], f"`{template['Setup when']}`")
+        self.assertEqual(rows["Isolation scope"], f"`{template['Isolation scope']}`")
+
+    def test_delivery_profile_sources_integration_rows(self) -> None:
+        text = _text("work-to-chores-cloud")
+        block = text[text.index("### Delivery profile"):text.index("### Delivery Plan values")]
+        for phrase in ("read `.w2c/DELIVERY-PROFILE.md` if present",
+                       "Copy **Integration strategy** and **Integration branch (day-to-day)**",
+                       "(and **Production branch** when the strategy is `gitflow`)",
+                       "Do **not** stop."):
+            self.assertIn(phrase, block)
+
+    def test_cloud_skills_name_the_closing_asks(self) -> None:
+        do = _text("do-chores-cloud")
+        for phrase in ("reason `pre-archive`", "reason `post-archive`", "push-blocked-until-archive",
+                       "except the last slice's", "There is no `ask-push` and no `ask-pr`",
+                       "REPORTS_UNCOMMITTED", "--keep-reports-backup", "REPORTS_KEPT <path>",
+                       "Go back and commit the reports", "Archive anyway with a backup"):
+            self.assertIn(phrase, do)
+        plan = _text("work-to-chores-cloud")
+        self.assertIn("except the last one", plan)
+        self.assertIn("When the archive is declined, the change is committed but not pushed", plan)
+
+
 class InstallSkillsTests(unittest.TestCase):
     def test_install_copies_all_four_skills(self) -> None:
         home = Path(tempfile.mkdtemp(prefix="w2c-install-home-"))
