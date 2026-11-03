@@ -1,9 +1,12 @@
-"""Install work-to-chores / do-chores skills into the personal hub."""
+"""Install the work-to-chores / do-chores skills and their cloud pair into the personal hub."""
 from __future__ import annotations
 
 import shutil
 from pathlib import Path
 
+
+# Every skill install_skills copies: the 2.2 pair, then the cloud pair.
+SKILL_DIRS = ("work-to-chores", "do-chores", "work-to-chores-cloud", "do-chores-cloud")
 
 # Cloud mode: (skill folder, neutral instruction file stem).
 CLOUD_COPILOT_FILES = (
@@ -88,7 +91,7 @@ def install_skills(
     if skills is None:
         raise error_type("skills not found; reinstall w2c (curl install.sh or pipx)")
     hub = Path.home() / ".agents" / "skills"
-    for name in ("work-to-chores", "do-chores"):
+    for name in SKILL_DIRS:
         skill_src = skills / name
         skill_md = skill_src / "SKILL.md"
         if not skill_md.is_file():

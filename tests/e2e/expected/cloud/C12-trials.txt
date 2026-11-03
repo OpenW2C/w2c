@@ -1,0 +1,4 @@
+work-to-chores PASS
+do-chores PASS
+work-to-chores-cloud PASS
+do-chores-cloud PASS

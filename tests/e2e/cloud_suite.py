@@ -737,6 +737,34 @@ def c11_convert_all_and_restore(p: Project) -> None:
     p.expect_tokens(q.w2c("cloud", "migrate", "--restore"), "NOTHING_TO_RESTORE")
 
 
+SKILLS = ("work-to-chores", "do-chores", "work-to-chores-cloud", "do-chores-cloud")
+
+
+def c12_trials_and_skills(p: Project) -> None:
+    proc = p.w2c("trials")
+    p.expect_tokens(proc, *(f"{name} PASS" for name in SKILLS))
+    p.expect_matches("C12-trials.txt", proc.stdout)
+    lines = []
+    for name in SKILLS:
+        installed = p.home / ".agents" / "skills" / name
+        for file in ("SKILL.md", "USAGE.md", "trials.json", "SKILL.copilot.md"):
+            if (installed / file).read_bytes() != (REPO / "skills" / name / file).read_bytes():
+                raise AssertionError(f"installed {name}/{file} differs from the repo copy")
+        for hub in (".claude", ".cursor"):
+            link = p.home / hub / "skills" / name
+            lines.append(f"{hub}/skills/{name} {'linked' if link.resolve() == installed.resolve() else 'MISSING'}")
+    p.expect_matches("C12-installed.txt", "\n".join(lines) + "\n")
+    copilot = []
+    for name, stem in (("work-to-chores-cloud", "plan-work"), ("do-chores-cloud", "do-work")):
+        rel = f".github/instructions/{stem}.instructions.md"
+        path = p.root / rel
+        if not path.is_file():
+            raise AssertionError(f"cloud init did not write {rel}")
+        p.expect_tokens(path.read_text(encoding="utf-8"), f"name: {name}", "Requires: w2c >= 3.0.0")
+        copilot.append(rel)
+    p.expect_matches("C12-copilot.txt", "\n".join(copilot) + "\n")
+
+
 STAGES = [
     Stage("C01", "cloud planning init and env", c01_env),
     Stage("C02", "cloud new change from templates and strict validate", c02_new),
@@ -750,4 +778,5 @@ STAGES = [
     Stage("C10", "mixed repo: convert one 2.2 milestone, run the other locally, run the change in a fresh clone",
           c10_mixed_repo),
     Stage("C11", "convert every 2.2 milestone with --all, then restore byte for byte", c11_convert_all_and_restore),
+    Stage("C12", "w2c trials passes and the four skills are installed", c12_trials_and_skills),
 ]

@@ -9,6 +9,7 @@ import os
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 SRC = Path(__file__).resolve().parents[1] / "src"
@@ -18,7 +19,8 @@ _HOME = Path(tempfile.mkdtemp(prefix="w2c-trials-home-"))
 os.environ["W2C_CONFIG"] = str(_HOME / "config.toml")
 os.environ["W2C_DATA_HOME"] = str(_HOME / "data")
 
-from w2c.trials import check_trials, cmd_trials, load_trials, locate_trials  # noqa: E402
+from w2c import trials as w2c_trials  # noqa: E402
+from w2c.trials import check_trials, cmd_trials, load_trials, locate_trials, shared_group_problems  # noqa: E402
 
 
 def _valid(skill: str) -> dict:
@@ -148,6 +150,52 @@ class SkillTrialTests(unittest.TestCase):
         handle.close()
         problems = check_trials(load_trials(path), "work-to-chores")
         self.assertTrue(any("id must look like R01" in item for item in problems))
+
+    def test_shared_groups_exist_for_both_pairs(self) -> None:
+        self.assertEqual(shared_group_problems(), [])
+        for skill in ("work-to-chores", "do-chores", "work-to-chores-cloud", "do-chores-cloud"):
+            for group in w2c_trials.SHARED_GROUPS:
+                self.assertIn(group, w2c_trials.GROUPS_BOTH[skill], skill)
+
+    def test_shared_group_missing_from_a_cloud_skill_fails_parity(self) -> None:
+        groups = dict(w2c_trials.GROUPS_BOTH)
+        groups["do-chores-cloud"] = tuple(g for g in groups["do-chores-cloud"] if g != "base-dirt")
+        with unittest.mock.patch.object(w2c_trials, "GROUPS_BOTH", groups):
+            problems = shared_group_problems()
+            self.assertTrue(any("do-chores-cloud" in item and "base-dirt" in item for item in problems))
+            rows, code = w2c_trials.run_trials()
+        self.assertEqual(code, 1)
+        self.assertTrue(any(status == "FAIL" and "base-dirt" in detail for _, status, detail in rows))
+
+    def test_cloud_groups_are_the_brief_groups(self) -> None:
+        shared = w2c_trials.SHARED_GROUPS
+        self.assertEqual(
+            w2c_trials.GROUPS_BOTH["work-to-chores-cloud"],
+            shared + ("interview", "plan-write", "reorder", "amend", "design-sections", "convert"),
+        )
+        self.assertEqual(
+            w2c_trials.GROUPS_BOTH["do-chores-cloud"],
+            shared + ("step-loop", "closeout", "blocker", "ephemeral-push", "read-first", "no-answer", "off-plan"),
+        )
+        for token in ("design.md", ".delivery", "ephemeral", "step"):
+            self.assertIn(token, w2c_trials.CONCRETE_TOKENS)
+
+    def test_cloud_trials_use_openspec_mode_only(self) -> None:
+        problems = _problems(
+            "do-chores-cloud",
+            lambda data: data["trials"][0].__setitem__("mode", "classic"),
+        )
+        self.assertTrue(any("mode must be openspec" in item for item in problems))
+
+    def test_each_cloud_group_has_an_ordinary_and_a_hostile_row(self) -> None:
+        for skill in ("work-to-chores-cloud", "do-chores-cloud"):
+            data = _valid(skill)
+            for group in w2c_trials.GROUPS_BOTH[skill]:
+                kinds = {t["kind"] for t in data["trials"] if t["group"] == group}
+                self.assertEqual(kinds, {"ordinary", "hostile"}, f"{skill} {group}")
+            calm = _problems(skill, lambda d, g=w2c_trials.GROUPS_BOTH[skill][-1]: [
+                t.__setitem__("kind", "ordinary") for t in d["trials"] if t["group"] == g])
+            self.assertTrue(any("needs an ordinary and a hostile row" in item for item in calm), calm)
 
 
 if __name__ == "__main__":
