@@ -166,7 +166,9 @@ def design_problems(design_text: str | None) -> dict[str, list[str]]:
         out["manual-test-guide"].append(f"Manual test guide must be yes or no (got {manual!r})")
     elif manual == "yes":
         body = cli.section_under_heading(design_text, MANUAL_HEADING)
-        if body is None or not body.strip():
+        guide = [line for line in (body or "").splitlines()
+                 if line.strip() and line.strip() not in layout.MANUAL_GUIDE_NOTES]
+        if not guide:
             out["manual-test-guide"].append("Manual test guide is yes but ## Manual Test Guide is empty")
     return out
 
@@ -227,6 +229,13 @@ def neutral_problems(change: CloudChange) -> list[str]:
     return found
 
 
+def converted_history(change: CloudChange) -> bool:
+    """A DONE 2.2 milestone converted with its keys only (archived or declined)."""
+    return bool(change.legacy_id) and change.status == "DONE" and (
+        change.archived or change.archive == "declined"
+    )
+
+
 def smoke_rows(root: Path, changes: list[CloudChange]) -> list[tuple[str, str, str]]:
     """The cloud smoke rows. Archived changes are history: they skip the live
     OpenSpec rows and the report, neutrality, and Verify checks."""
@@ -266,6 +275,12 @@ def smoke_rows(root: Path, changes: list[CloudChange]) -> list[tuple[str, str, s
         tasks = change.path / "tasks.md"
         tasks_text = _read(tasks) if tasks.is_file() else None
         problems["delivery-keys-valid"] += tag(change, key_problems(change))
+        if converted_history(change):
+            # A finished 2.2 milestone converted with its keys only: its structure,
+            # closeout and task reports stayed in the 2.2 plan folder.
+            if not change.archived:
+                problems["neutral-artifacts"] += neutral_problems(change)
+            continue
         for name, found in design_problems(_read(design) if design.is_file() else None).items():
             problems[name] += tag(change, found)
         if tasks_text is None:

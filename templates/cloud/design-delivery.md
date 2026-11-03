@@ -27,6 +27,19 @@
 
 When `Base dirt policy` is `leave-untouched`, this plan carries a `### Base dirt paths` subsection listing the critical and other paths. Product commits never stage those paths.
 
+### Delivery profile
+
+When the project keeps a delivery profile, a copy of it sits under this heading.
+
+Record active delivery settings here. Agents read this after the Delivery Plan rows above.
+
+Scope, slices, and tasks live in this change's proposal.md and tasks.md — not in this subsection.
+
+Commit, push and pull-request cadence is the change's `x-delivery-cadence` key only — never duplicate that value in this subsection.
+
+- Task Handoff Gate still applies between tasks even when commits land at slice boundaries (`x-delivery-cadence`).
+- Honor this profile for merge targets (`develop` vs `main`); honor `x-delivery-cadence` for when to ask commit/push/PR.
+
 ## Guardrails
 
 - **Commit cadence** — commit, push and pull-request timing follows the change's `x-delivery-cadence` key in `.openspec.yaml`. Every commit, push and pull request still needs explicit user approval. Never commit, push, or open a PR without explicit user approval for that action.
@@ -64,5 +77,9 @@ Do not add `Co-authored-by:` trailers or similar AI co-author / "assisted by" li
 ## Decisions
 
 ## Manual Test Guide
+
+This guide is optional and for a human. It is not a completeness gate: completing the change does not require these steps to have been run.
+
+When to stop and call the change's behavior good enough. This is not a status field.
 
 ## Amendments

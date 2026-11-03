@@ -22,6 +22,7 @@ os.environ["W2C_CONFIG"] = str(_HOME / "config.toml")
 os.environ["W2C_DATA_HOME"] = str(_HOME / "data")
 
 from w2c import cli as w2c  # noqa: E402
+from w2c import delivery_profile  # noqa: E402
 from w2c import openspec as legacy_openspec  # noqa: E402
 from w2c.cloud import convert, layout  # noqa: E402
 
@@ -544,15 +545,13 @@ class ConvertTests(unittest.TestCase):
         ctx.write_text(ctx.read_text(encoding="utf-8") + "\n## Risks\n\nNone.\n", encoding="utf-8")
         write(plan_dir / "notes.txt", "loose notes\n")
         s01 = plan_dir / "M001-S01-PLAN.md"
-        s01.write_text(s01.read_text(encoding="utf-8").replace(
-            "# S01: Export\n", "# S01: Export\n\n<!-- keep the CSV header stable -->\n"), encoding="utf-8")
+        s01.write_text(s01.read_text(encoding="utf-8") + "\n## Rollout\n\nBehind a flag.\n", encoding="utf-8")
         repo.commit()
         plan = convert.plan_conversion(repo.root, ["M001"])
         self.assertTrue(any("## Release Notes" in b for b in plan.blockers), plan.blockers)
         self.assertTrue(any("## Risks" in b for b in plan.blockers), plan.blockers)
         self.assertTrue(any("notes.txt" in b for b in plan.blockers), plan.blockers)
-        self.assertTrue(any("M001-S01-PLAN.md" in b and "before the first heading" in b for b in plan.blockers),
-                        plan.blockers)
+        self.assertTrue(any("M001-S01-PLAN.md" in b and "## Rollout" in b for b in plan.blockers), plan.blockers)
 
     def test_slice_disagreement_is_a_blocker(self) -> None:
         cases = {
@@ -597,7 +596,8 @@ class ConvertTests(unittest.TestCase):
         self.assertIn((road, guard), known)
         for _path, number, old, new in plan.known_rewrites:
             self.assertEqual(convert.KNOWN_REWRITES[old], new)
-            self.assertNotIn("w2c", new.lower())
+            if not isinstance(new, convert.Drop):
+                self.assertIsNone(convert.FLAG_RE.search(new))
             self.assertGreater(number, 0)
         unknown = [(p, line) for p, _n, line in plan.unknown_w2c_lines]
         self.assertIn((road, "- Run w2c smoke before each push."), unknown)
@@ -609,22 +609,45 @@ class ConvertTests(unittest.TestCase):
         neutral = set()
         for name in ("design-delivery.md", "slice-group.md"):
             neutral |= set((TEMPLATES / "cloud" / name).read_text(encoding="utf-8").splitlines())
-        sources = [
-            TEMPLATES / "openspec" / "M-ROADMAP.md",
-            TEMPLATES / "openspec" / "M-S-PLAN.md",
-            TEMPLATES / "M-ROADMAP.md",
-            TEMPLATES / "M-S-PLAN.md",
-        ]
-        for source in sources:
-            for line in source.read_text(encoding="utf-8").splitlines():
-                if "w2c" in line.lower():
-                    with self.subTest(source=source.name, line=line):
+        sources = {
+            name: (TEMPLATES / name).read_text(encoding="utf-8")
+            for name in ("openspec/M-ROADMAP.md", "openspec/M-S-PLAN.md", "M-ROADMAP.md", "M-S-PLAN.md",
+                         "M-MANUAL-TEST.md", "DELIVERY-PROFILE.md")
+        }
+        sources["cli.M_ROADMAP_STUB"] = w2c.M_ROADMAP_STUB
+        for strategy in ("trunk-direct", "feature-branch", "gitflow"):
+            for ci in (True, False):
+                sources[f"compose {strategy} {ci}"] = delivery_profile.compose_delivery_profile(
+                    strategy=strategy, ci_pointers=ci)
+        flagged = 0
+        for source, text in sources.items():
+            for line in text.splitlines():
+                if convert.FLAG_RE.search(line):
+                    flagged += 1
+                    with self.subTest(source=source, line=line):
                         self.assertIn(line, convert.KNOWN_REWRITES)
+        self.assertGreater(flagged, 30)
+        for name in ("git_delivery", "milestone-complete", "first-do-chores", "M###-VALIDATION.md", "m012-summary.md"):
+            self.assertIsNotNone(convert.FLAG_RE.search(f"x {name} y"), name)
         for old, new in convert.KNOWN_REWRITES.items():
             with self.subTest(old=old):
-                self.assertIn("w2c", old.lower())
-                self.assertNotIn("w2c", new.lower())
-                self.assertIn(new, neutral)
+                self.assertIsNotNone(convert.FLAG_RE.search(old))
+                if isinstance(new, convert.Drop):
+                    self.assertTrue(new.reason)
+                    self.assertIsNone(convert.FLAG_RE.search(new.reason))
+                else:
+                    self.assertIsNone(convert.FLAG_RE.search(new))
+                    self.assertIn(new, neutral)
+        for drop in ("| Commit cadence | (from .w2c/config.toml git_delivery) |",
+                     "<!-- REQUIRED literal format -- the w2c CLI's parse_slices() only recognizes this exact"):
+            self.assertIsInstance(convert.KNOWN_REWRITES[drop], convert.Drop)
+        self.assertIsInstance(next(v for k, v in convert.KNOWN_REWRITES.items() if k.startswith("- **Plan commit**")),
+                              convert.Drop)
+        for key, lines in convert.CONVENTIONS_REPAIRS:
+            for line in lines:
+                self.assertIn(line, neutral, key)
+        for line in layout.MANUAL_GUIDE_NOTES:
+            self.assertIn(line, neutral)
 
     def test_slice_template_lines_match_the_templates(self) -> None:
         for name in ("openspec/M-S-PLAN.md", "M-S-PLAN.md"):
@@ -706,6 +729,195 @@ class ConvertTests(unittest.TestCase):
         self.assertNotIn("| D001 |", decisions[0].content)
         deleted = {a.path for a in kinds(plan, "delete-ledger-file")}
         self.assertEqual(deleted, {repo.w2c / n for n in ("STATE.md", "QUEUE.md", "ROADMAP.md", "DECISIONS.md", "contexts")})
+
+    # ------------------------------------------------------------ fix round 1
+
+    def test_declined_done_copies_milestone_reports_only(self) -> None:
+        repo = self.repo()
+        plan_dir = repo.add("M001", "add-export", "DONE", archive="declined")
+        for name in ("S01-T01-SUMMARY.md", "S01-UAT.md", "M001-VALIDATION.md", "M001-SUMMARY.md"):
+            write(plan_dir / name, f"# {name}\n")
+        repo.commit()
+        plan = convert.plan_conversion(repo.root, ["M001"])
+        self.assertEqual(plan.blockers, [])
+        delivery = repo.change("add-export") / ".delivery"
+        self.assertEqual({a.path for a in kinds(plan, "copy-report")},
+                         {delivery / "VALIDATION.md", delivery / "SUMMARY.md"})
+        self.assertEqual(kinds(plan, "append-section"), [])
+
+    def test_conventions_get_missing_neutral_lines_added(self) -> None:
+        repo = self.repo()
+        plan_dir = repo.add("M001", "add-export", "TODO")
+        road = plan_dir / "M001-ROADMAP.md"
+        text = road.read_text(encoding="utf-8")
+        legacy_mention = next(line for line in text.splitlines() if line.startswith("Never name any `.w2c/`"))
+        custom = "Never mention any `.w2c/` path or W2C artifact in commit or pull request text."
+        road.write_text(text.replace(legacy_mention, custom), encoding="utf-8")
+        for slice_file in plan_dir.glob("M001-S*-PLAN.md"):
+            slice_file.write_text(slice_file.read_text(encoding="utf-8").replace(legacy_mention, custom),
+                                  encoding="utf-8")
+        repo.commit()
+        plan = convert.plan_conversion(repo.root, ["M001"])
+        self.assertEqual(plan.blockers, [])
+        conv = [a for a in kinds(plan, "append-section") if heading(a) == "## Commit and PR Conventions"]
+        self.assertEqual(len(conv), 2, [a.detail for a in conv])
+        self.assertIn(custom, conv[0].content)
+        self.assertIn("**Do not mention:**", conv[1].content)
+        self.assertIn("`.delivery/`", conv[1].content)
+        self.assertIn("required line added", conv[1].detail)
+
+    def test_template_conventions_need_no_added_lines(self) -> None:
+        repo = self.repo()
+        repo.add("M001", "add-export", "TODO")
+        repo.commit()
+        plan = convert.plan_conversion(repo.root, ["M001"])
+        conv = [a for a in kinds(plan, "append-section") if heading(a) == "## Commit and PR Conventions"]
+        self.assertEqual(len(conv), 1)
+
+    def test_unset_fields_and_groups_without_a_slice_plan(self) -> None:
+        repo = self.repo()
+        plan_dir = repo.add("M001", "add-export", "TODO")
+        (plan_dir / "M001-S02-PLAN.md").unlink()
+        repo.commit()
+        plan = convert.plan_conversion(repo.root, ["M001"])
+        self.assertEqual(plan.blockers, [])
+        groups = {a.detail.split()[1]: a for a in kinds(plan, "write-group-fields")}
+        self.assertEqual(set(groups), {"1", "2"})
+        self.assertIn(f"**Threat Surface:** {convert.NOT_SET}", groups["1"].content)
+        self.assertIn("not set: Threat Surface", groups["1"].detail)
+        self.assertIn("no slice plan", groups["2"].detail)
+        for name in layout.SLICE_FIELDS:
+            self.assertIn(f"**{name}:** {convert.NOT_SET}", groups["2"].content)
+
+    def test_read_first_block_is_planned_once(self) -> None:
+        repo = self.repo()
+        repo.add("M001", "add-export", "TODO")
+        repo.add("M002", "add-import", "TODO")
+        tasks = repo.change("add-import") / "tasks.md"
+        block = (TEMPLATES / "cloud" / "tasks-read-first.md").read_text(encoding="utf-8")
+        tasks.write_text("# Tasks\n\n" + block + "\n" + TASKS.split("\n", 2)[2], encoding="utf-8")
+        repo.commit()
+        plan = convert.plan_conversion(repo.root, ["M001", "M002"])
+        read_first = kinds(plan, "write-read-first")
+        self.assertEqual([a.path for a in read_first], [repo.change("add-export") / "tasks.md"])
+        self.assertEqual(read_first[0].content, block)
+        self.assertIn("write-read-first", convert.ACTION_KINDS)
+
+    def test_slice_preamble_prose_goes_into_goal(self) -> None:
+        repo = self.repo()
+        plan_dir = repo.add("M001", "add-export", "TODO")
+        s01 = plan_dir / "M001-S01-PLAN.md"
+        s01.write_text(s01.read_text(encoding="utf-8").replace(
+            "This slice is delivery context only.", "Milestone M001 delivery envelope.\n\nThis slice is delivery context only."),
+            encoding="utf-8")
+        s02 = plan_dir / "M001-S02-PLAN.md"
+        s02.write_text(s02.read_text(encoding="utf-8").replace("**Goal:** Export records.", "**Goal:**").replace(
+            "# S02: Docs\n", "# S02: Docs\n\n<!-- keep the docs short -->\n"), encoding="utf-8")
+        repo.commit()
+        plan = convert.plan_conversion(repo.root, ["M001"])
+        self.assertEqual(plan.blockers, [])
+        groups = {a.detail.split()[1]: a for a in kinds(plan, "write-group-fields")}
+        self.assertIn("**Goal:** Export records.\nMilestone M001 delivery envelope.\n", groups["1"].content)
+        self.assertIn("**Goal:**\n<!-- keep the docs short -->\n", groups["2"].content)
+        self.assertIn("carried into Goal", groups["2"].detail)
+
+    def test_duplicate_sections_and_fields_are_concatenated(self) -> None:
+        repo = self.repo()
+        plan_dir = repo.add("M001", "add-export", "TODO")
+        road = plan_dir / "M001-ROADMAP.md"
+        road.write_text(road.read_text(encoding="utf-8") + "\n## Commit and PR conventions\n\nSign every tag.\n",
+                        encoding="utf-8")
+        for number in (1, 2):
+            path = plan_dir / f"M001-S0{number}-PLAN.md"
+            text = path.read_text(encoding="utf-8")
+            text = text.replace("**Demo:** Run the exporter.", "**Demo:** Run the exporter.\n**Goal:** Keep it small.")
+            text += "\n## Must-Haves\n\n- A JSON file.\n\n## Commit and PR conventions\n\nSign every tag.\n"
+            path.write_text(text, encoding="utf-8")
+        repo.commit()
+        plan = convert.plan_conversion(repo.root, ["M001"])
+        self.assertEqual(plan.blockers, [])
+        conv = [a for a in kinds(plan, "append-section") if heading(a) == "## Commit and PR Conventions"][0]
+        self.assertIn("**Commit title:** short imperative subject.", conv.content)
+        self.assertIn("Sign every tag.", conv.content)
+        group = [a for a in kinds(plan, "write-group-fields") if a.detail.startswith("group 1 ")][0]
+        self.assertIn("**Goal:** Export records.\nKeep it small.\n", group.content)
+        must = group.content.split("**Must-Haves:**", 1)[1]
+        self.assertLess(must.index("A CSV file."), must.index("A JSON file."))
+
+    def test_bare_container_main_checkout_is_the_first_worktree(self) -> None:
+        repo = self.repo()
+        repo.add("M001", "add-export", "TODO", branch="DEMO-7")
+        repo.commit()
+        bare = self.tmp / "container" / ".bare"
+        git(self.tmp, "clone", "-q", "--bare", str(repo.root), str(bare))
+        wt = self.tmp / "container" / "DEMO-1"
+        git(bare, "worktree", "add", "-q", str(wt), BRANCH)
+        shutil.copytree(repo.w2c, wt / ".w2c")
+        plan = convert.plan_conversion(wt, ["M001"])
+        self.assertEqual(plan.blockers, [])
+        meta = wt / "openspec" / "changes" / "add-export" / ".openspec.yaml"
+        self.assertIn(meta, {a.path for a in kinds(plan, "write-key")})
+
+    def test_delivery_profile_is_copied_under_the_delivery_plan(self) -> None:
+        repo = self.repo()
+        repo.add("M001", "add-export", "TODO")
+        profile = delivery_profile.compose_delivery_profile(strategy="gitflow", ci_pointers=True)
+        write(repo.w2c / "DELIVERY-PROFILE.md", profile)
+        repo.commit()
+        plan = convert.plan_conversion(repo.root, ["M001"])
+        copies = [a for a in kinds(plan, "append-section") if heading(a) == "## Delivery Plan > ### Delivery profile"]
+        self.assertEqual(len(copies), 1)
+        self.assertIn("#### Project Delivery Profile", copies[0].content)
+        self.assertIn("##### Gitflow (release train)", copies[0].content)
+        self.assertIn("back-merge", copies[0].content)
+        profile_path = repo.w2c / "DELIVERY-PROFILE.md"
+        flagged = {line for line in profile.splitlines() if convert.FLAG_RE.search(line)}
+        known = {old for path, _n, old, _new in plan.known_rewrites if path == profile_path}
+        self.assertEqual(known, flagged)
+        delivery = [a for a in kinds(plan, "append-section") if heading(a) == "## Delivery Plan"][0]
+        self.assertIn("| Integration strategy | gitflow |", delivery.content)
+
+    def test_knowledge_sync_keeps_every_context_line(self) -> None:
+        repo = self.repo()
+        repo.add("M001", "add-export", "TODO")
+        ctx = repo.w2c / "contexts" / "CONTEXTv1.1.md"
+        ctx.write_text(ctx.read_text(encoding="utf-8").replace(
+            "## Patterns\n", "Rules above apply to every service.\n\n## Patterns\n")
+            + "\n## Glossary\n\n- Export: a CSV written to disk.\n", encoding="utf-8")
+        repo.commit()
+        plan = convert.plan_conversion(repo.root, ["M001"])
+        sync = kinds(plan, "sync-knowledge")[0]
+        self.assertIn("Rules above apply to every service.", sync.content)
+        self.assertIn("## Glossary\n- Export: a CSV written to disk.", sync.content)
+        self.assertIn("Glossary: 1 (new section)", sync.detail)
+        self.assertNotIn("Use UTF-8", sync.content)
+        self.assertNotIn("# Project Knowledge", sync.content)
+
+    def test_two_two_only_names_are_flagged(self) -> None:
+        repo = self.repo()
+        plan_dir = repo.add("M001", "add-export", "TODO", extra="\n- Run milestone-complete at the end.")
+        repo.commit()
+        plan = convert.plan_conversion(repo.root, ["M001"])
+        road = plan_dir / "M001-ROADMAP.md"
+        self.assertIn((road, "- Run milestone-complete at the end."),
+                      {(p, line) for p, _n, line in plan.unknown_w2c_lines})
+        self.assertIn("| Setup when | first-do-chores |", {old for _p, _n, old, _new in plan.known_rewrites})
+
+    def test_all_retires_an_empty_roadmap_and_keeps_every_table_row(self) -> None:
+        repo = self.repo()
+        decisions = repo.w2c / "DECISIONS.md"
+        decisions.write_text(decisions.read_text(encoding="utf-8")
+                             + "| X1 | 2026-11-02 | project | Imported | Kept | Old tool | No | human |\n",
+                             encoding="utf-8")
+        repo.commit()
+        plan = convert.plan_conversion(repo.root, None)
+        self.assertEqual(plan.blockers, [])
+        frozen = kinds(plan, "write-decisions-file")
+        self.assertEqual(len(frozen), 1)
+        for row in ("| D001 |", "| D002 |", "| D003 |", "| D004 |", "| X1 |"):
+            self.assertIn(row, frozen[0].content)
+        self.assertEqual(frozen[0].content.count("| # | When |"), 1)
+        self.assertTrue(kinds(plan, "delete-ledger-file"))
 
     def test_plan_conversion_changes_no_file(self) -> None:
         repo = self.repo()

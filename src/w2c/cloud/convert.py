@@ -23,6 +23,7 @@ ACTION_KINDS: tuple[str, ...] = (
     "rename-key",
     "append-section",
     "write-group-fields",
+    "write-read-first",
     "copy-report",
     "copy-decisions",
     "sync-knowledge",
@@ -35,6 +36,7 @@ ACTION_KINDS: tuple[str, ...] = (
 )
 
 APPEND_NEW = "new"
+NOT_SET = "(not set in the 2.2 plan)"
 APPEND_EXISTING = "append-to-existing"
 CLASSIC_HINT = "re-plan it with work to chores cloud"
 LEGACY_LINK_KEY = "x-w2c-milestone"
@@ -64,6 +66,7 @@ SECTION_MAP: dict[tuple[str, str], tuple[str, str]] = {
     ("context", "## Validation"): ("design.md", "## Guardrails"),
     ("context", "## Completion Criteria"): ("design.md", "## Guardrails"),
     ("slice", "**Goal:**"): ("tasks.md", "**Goal:**"),
+    ("slice", "text before the first heading"): ("tasks.md", "**Goal:**"),
     ("slice", "**Demo:**"): ("tasks.md", "**Demo:**"),
     **{("slice", f"## {f}"): ("tasks.md", f"**{f}:**") for f in _SLICE_SECTION_FIELDS},
     ("slice", "## Git Operation Plan"): ("design.md", "## Delivery Plan"),
@@ -71,6 +74,8 @@ SECTION_MAP: dict[tuple[str, str], tuple[str, str]] = {
     ("slice", "## Commit and PR conventions"): ("design.md", "## Commit and PR Conventions"),
     ("manual-test", "MANUAL-TEST.md"): ("design.md", "## Manual Test Guide"),
     ("amendments", "AMENDMENTS.md"): ("design.md", "## Amendments"),
+    ("profile", "DELIVERY-PROFILE.md"): ("design.md", "## Delivery Plan"),
+    ("knowledge", "CONTEXTvX.Y.md"): ("openspec/knowledge.md", "the same heading"),
 }
 
 # Context sections land inside a design section as `###` subsections.
@@ -79,6 +84,7 @@ SUBSECTIONS: dict[tuple[str, str], str] = {
     ("context", "## Decision Rationale"): "### Decision Rationale",
     ("context", "## Validation"): "### Validation",
     ("context", "## Completion Criteria"): "### Completion Criteria",
+    ("profile", "DELIVERY-PROFILE.md"): "### Delivery profile",
 }
 
 _NEUTRAL_CADENCE = (
@@ -140,25 +146,86 @@ _LEGACY_SLICE_CADENCE = (
 )
 _LEGACY_SLICE_STATUS = "- Do not mark tasks complete by editing checkboxes. Use `w2c complete`."
 
-# Every 2.x template line that names the tool, mapped to the neutral line in
-# templates/cloud/ that carries the same rule. Applied only with approval.
-KNOWN_REWRITES: dict[str, str] = {
+_NEUTRAL_CLOSEOUT = (
+    "- **Closeout reports** — write `S##-T##-SUMMARY.md` before completing a task; `S##-UAT.md` and "
+    "`S##-SUMMARY.md` before completing a slice; `VALIDATION.md` and `SUMMARY.md` before the change is "
+    "done. All live under `.delivery/`."
+)
+_NEUTRAL_SLICE_ORDER = (
+    "- **Slice closeout order** — after a group's last task, re-run every Verify in that group, then write "
+    "the slice UAT and slice summary, then complete the slice. After the last group, write `VALIDATION.md` "
+    "and `SUMMARY.md`, then archive the change, then complete it."
+)
+_NEUTRAL_AI = (
+    'Do not add `Co-authored-by:` trailers or similar AI co-author / "assisted by" lines naming any AI tool.'
+)
+_NEUTRAL_PRODUCT = (
+    "`openspec/` is product content and is never deny-listed. Product commits stage only this change's "
+    "folder plus the archive result."
+)
+_NEUTRAL_PROFILE_READ = "Record active delivery settings here. Agents read this after the Delivery Plan rows above."
+_NEUTRAL_PROFILE_SCOPE = (
+    "Scope, slices, and tasks live in this change's proposal.md and tasks.md — not in this subsection."
+)
+_NEUTRAL_PROFILE_CADENCE = (
+    "Commit, push and pull-request cadence is the change's `x-delivery-cadence` key only — never duplicate "
+    "that value in this subsection."
+)
+_NEUTRAL_PROFILE_HANDOFF = (
+    "- Task Handoff Gate still applies between tasks even when commits land at slice boundaries "
+    "(`x-delivery-cadence`)."
+)
+_NEUTRAL_PROFILE_MERGE = (
+    "- Honor this profile for merge targets (`develop` vs `main`); honor `x-delivery-cadence` for when to "
+    "ask commit/push/PR."
+)
+_LEGACY_CLOSEOUT = (
+    "- **Closeout reports** — write `S##-T##-SUMMARY.md` before `complete`; `S##-UAT.md` + `S##-SUMMARY.md` "
+    "before `slice-complete`; `M###-VALIDATION.md` + `M###-SUMMARY.md` before milestone DONE."
+)
+
+
+@dataclass(frozen=True)
+class Drop:
+    """A legacy line whose rule has no place in a cloud change: dropped, with a reason, on approval."""
+
+    reason: str
+
+    def __str__(self) -> str:
+        return f"DROP ({self.reason})"
+
+
+# 2.2-only names that mark a copied line for a rewrite or a manual edit.
+FLAG_RE = re.compile(
+    r"w2c|git_delivery|milestone-complete|first-do-chores|M(?:\d+|#+)-(?:VALIDATION|SUMMARY)\.md", re.I
+)
+
+# Every 2.x template line that holds a flagged name, mapped to the neutral line in
+# templates/cloud/ that carries the same rule, or to a Drop when the rule has no
+# place in a cloud change. Applied only with approval.
+KNOWN_REWRITES: dict[str, str | Drop] = {
     "| Integration strategy | (from .w2c/DELIVERY-PROFILE.md) |":
         "| Integration strategy | (from the project's delivery profile) |",
-    # The row is a dropped field; its rule (cadence source) lives in this guardrail.
-    "| Commit cadence | (from .w2c/config.toml git_delivery) |": _NEUTRAL_CADENCE,
+    "| Commit cadence | (from .w2c/config.toml git_delivery) |":
+        Drop(layout.LEGACY_DROPPED_FIELDS["Commit cadence"]),
+    "| Setup when | first-do-chores |": "| Setup when | first-task |",
+    "| Completion condition | All slices verified; honor git_delivery + explicit approval gates |":
+        "| Completion condition | All slices verified; honor x-delivery-cadence and explicit approval gates |",
     "- **Commit cadence** — read `git_delivery` from `.w2c/config.toml`. Never commit, push, or open a "
     "PR without explicit user approval for that action.": _NEUTRAL_CADENCE,
-    # A dropped guardrail; its rule (planner files are never committed) lives in the deny-list line.
     "- **Plan commit** — when `track` is false, write `ledger-bind` and do not commit `.w2c/`. The `w2c` "
     "command shares one ledger across worktrees. When `track` is true, a separate plan commit may include "
-    "`.w2c/` plan files except `runtime/`. No push without approval.": _NEUTRAL_DENY,
+    "`.w2c/` plan files except `runtime/`. No push without approval.":
+        Drop(layout.LEGACY_DROPPED_GUARDRAILS["Plan commit"]),
     "- **Status writes** — never hand-edit STATE.md, QUEUE.md, ROADMAP status emojis, or task checkboxes. "
     "Use `w2c` on PATH. `w2c complete` is the only writer of checkboxes in `tasks.md`.": _NEUTRAL_STATUS,
     "- **Status writes** — never hand-edit STATE.md, QUEUE.md, ROADMAP status emojis, or task checkboxes. "
     "Use `w2c` on PATH.": _NEUTRAL_STATUS,
     "- **Status writes** — never hand-edit STATE.md, QUEUE.md, ROADMAP status emojis, or task checkboxes. "
     "Use `.w2c/scripts/w2c.sh`.": _NEUTRAL_STATUS,
+    _LEGACY_CLOSEOUT: _NEUTRAL_CLOSEOUT,
+    _LEGACY_CLOSEOUT + " Manual test steps in `M###-MANUAL-TEST.md` (if opted in) are for the human after "
+    "DONE — they do not gate completeness.": _NEUTRAL_CLOSEOUT,
     _LEGACY_COMMIT_PR: _NEUTRAL_COMMIT_PR,
     _LEGACY_INSPECT: _NEUTRAL_INSPECT,
     _LEGACY_DENY: _NEUTRAL_DENY,
@@ -167,10 +234,45 @@ KNOWN_REWRITES: dict[str, str] = {
     _LEGACY_SLICE_CADENCE: _NEUTRAL_CADENCE,
     _LEGACY_SLICE_COMMIT_PR.format(who="roadmap"): _NEUTRAL_COMMIT_PR,
     _LEGACY_SLICE_COMMIT_PR.format(who="ROADMAP"): _NEUTRAL_COMMIT_PR,
-    # The classic Slices comment: in cloud mode a slice is a `## N.` task group.
-    "<!-- REQUIRED literal format -- the w2c CLI's parse_slices() only recognizes this exact": "## N. TITLE",
-    "     checkbox line shape. A markdown table (or any other shape) here means w2c will see": "## N. TITLE",
+    "- After the last slice: write `M###-VALIDATION.md` + `M###-SUMMARY.md`, then archive, then "
+    "`milestone-complete`.": _NEUTRAL_SLICE_ORDER,
+    "- After the last slice: write `M###-VALIDATION.md` + `M###-SUMMARY.md`, then `milestone-complete`.":
+        _NEUTRAL_SLICE_ORDER,
+    "<!-- REQUIRED literal format -- the w2c CLI's parse_slices() only recognizes this exact":
+        Drop("2.2 slice-line format note; in a cloud change a slice is a ## N. task group"),
+    "     checkbox line shape. A markdown table (or any other shape) here means w2c will see":
+        Drop("2.2 slice-line format note; in a cloud change a slice is a ## N. task group"),
+    "     ZERO slices, and slice-complete / milestone-complete will fail with":
+        Drop("2.2 slice-line format note; in a cloud change a slice is a ## N. task group"),
+    # templates/M-MANUAL-TEST.md
+    "This file is an **optional human guide**. It is **not** a completeness gate: `w2c milestone-complete` "
+    "does not require these steps to have been run.": layout.MANUAL_GUIDE_NOTES[0],
+    "When to stop and call the milestone’s behavior good enough. This is not a `w2c` status bit.":
+        layout.MANUAL_GUIDE_NOTES[1],
+    # templates/DELIVERY-PROFILE.md and the profile w2c composes
+    "Record active delivery settings here. Agents read this **after** the abstract workflow files in "
+    "`.w2c/`.": _NEUTRAL_PROFILE_READ,
+    "Per-milestone scope, slices, and tasks live in **`.w2c/plans/`** — not in this file.": _NEUTRAL_PROFILE_SCOPE,
+    "`w2c init` does **not** create this file. Configure-client or agents write it after interviewing "
+    "Integration strategy and (separately) CI/CD pointers. Commit/push/PR **cadence** stays in "
+    "`.w2c/config.toml` `git_delivery` — never duplicate that enum here.": _NEUTRAL_PROFILE_CADENCE,
+    "Commit/push/PR **cadence** is `.w2c/config.toml` `git_delivery` only — do not duplicate that enum in "
+    "this file.": _NEUTRAL_PROFILE_CADENCE,
+    "| Commit cadence | (from `.w2c/config.toml` `git_delivery`) |":
+        Drop(layout.LEGACY_DROPPED_FIELDS["Commit cadence"]),
+    "- Task Handoff Gate still applies between tasks even when commits land at slice boundaries "
+    "(`git_delivery`).": _NEUTRAL_PROFILE_HANDOFF,
+    "- Honor this profile for merge targets (`develop` vs `main`); honor `git_delivery` for when to ask "
+    "commit/push/PR.": _NEUTRAL_PROFILE_MERGE,
 }
+
+# Required neutral Conventions lines, by the validate_conventions problem they answer.
+CONVENTIONS_REPAIRS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("Co-authored-by", ("**AI attribution — forbidden:**", _NEUTRAL_AI)),
+    ("staging deny-listed", ("**Do not stage / commit:**", _NEUTRAL_DENY)),
+    (".delivery/", ("**Do not mention:**", _NEUTRAL_MENTION)),
+    ("product content", (_NEUTRAL_PRODUCT,)),
+)
 
 # Slice-plan template lines whose rule the change carries once for every group.
 SLICE_TEMPLATE_GUARDRAILS: frozenset[str] = frozenset({
@@ -215,6 +317,7 @@ BULLET_LABEL_RE = re.compile(r"^- \*\*(.+?)\*\*")
 BOLD_FIELD_RE = re.compile(r"^\*\*([^*\n]+?):\*\*[ \t]*(.*)$")
 SLICE_BOX_RE = re.compile(r"^- \[[ xXdD]\] \*\*S\d+:")
 DECISION_LINE_RE = re.compile(r"^\|\s*(D\d+)\s*\|")
+DECISION_HEADER_RE = re.compile(r"^\|\s*#\s*\|\s*When\s*\|")
 CELL_SPLIT_RE = re.compile(r"(?<!\\)\|")
 AMEND_HEAD_RE = re.compile(r"^## (A\d+) (\S+) (\S+)[ \t]*$")
 TASK_REPORT_RE = re.compile(r"^S\d+-T\d+-SUMMARY\.md$")
@@ -242,7 +345,7 @@ class Action:
 class ConversionPlan:
     actions: list[Action] = field(default_factory=list)
     blockers: list[str] = field(default_factory=list)
-    known_rewrites: list[tuple[Path, int, str, str]] = field(default_factory=list)
+    known_rewrites: list[tuple[Path, int, str, str | Drop]] = field(default_factory=list)
     unknown_w2c_lines: list[tuple[Path, int, str]] = field(default_factory=list)
     next_before: dict[str, tuple[str, str, str] | None] = field(default_factory=dict)
 
@@ -398,9 +501,9 @@ class _Planner:
         self.plan.actions.append(Action(kind, path, detail, content))
 
     def scan(self, lines: list[Record]) -> None:
-        """Sort copied lines that name the tool into known rewrites and manual edits."""
+        """Sort copied lines that hold a 2.2-only name into known rewrites and manual edits."""
         for path, number, text in lines:
-            if "w2c" not in text.lower():
+            if not FLAG_RE.search(text):
                 continue
             key = (path, number, text)
             if key in self._scanned:
@@ -414,8 +517,13 @@ class _Planner:
     def _checkouts(self) -> list[tuple[Path, str]]:
         if not ledger_store.is_git(self.root):
             return [(self.root, "")]
+        proc = ledger_store.git(self.root, "worktree", "list", "--porcelain", check=False)
         found: list[tuple[Path, str]] = []
-        for path in ledger_store._worktree_paths(self.root):
+        for block in re.split(r"\n\s*\n", proc.stdout.strip()) if proc.returncode == 0 else []:
+            lines = block.splitlines()
+            if not lines or not lines[0].startswith("worktree ") or "bare" in lines:
+                continue
+            path = Path(lines[0].split(" ", 1)[1])
             if not path.is_dir():
                 continue
             if path.resolve() == self.root.resolve():
@@ -485,7 +593,9 @@ class _Planner:
         for checkout in list(self.touched):
             self._project(checkout)
         remaining = [mid for mid in by_id if mid not in selected]
-        if milestones is None and selected and not remaining:
+        if milestones is None and not remaining and (
+            selected or any((self.wdir / item).exists() for item in LEDGER_FILES)
+        ):
             self._retire_ledger()
         self._dirty()
         for mid in selected:
@@ -547,6 +657,8 @@ class _Planner:
         self._keys(mid, mil.status, order, text, folder, done=done, archived=archived, declined=declined)
         if not done:
             self._content(mid, plan_dir, text, folder, name)
+        elif declined and not archived:
+            self._reports(mid, plan_dir, folder, milestone_only=True)
         self.act("mark-converted", plan_dir / "CONVERTED", f"{mid} -> {name}", name)
         self.act("roadmap-remove", road_path, line.strip(), line)
 
@@ -594,6 +706,7 @@ class _Planner:
         self._context(mid, plan_dir / f"{mid}-CONTEXT.md", proposal, proposal_text, milestone)
         slice_guardrails = self._slices(mid, plan_dir, tasks, milestone)
         self._design(mid, plan_dir, design, design_text, milestone, slice_guardrails, name)
+        self._read_first(mid, tasks)
         self._reports(mid, plan_dir, folder)
         self._decisions(mid, design, design_text)
 
@@ -656,7 +769,7 @@ class _Planner:
                         if sub.title == "Base dirt paths":
                             found["base_dirt"] = sub.body
             elif title == "Commit and PR conventions":
-                found["conventions"] = section.body
+                found["conventions"] = (found["conventions"] or []) + section.body
                 found["conventions_source"] = source
             else:
                 self.block(f"{mid}: {road.name}:{section.heading[1]} ## {title} has no target")
@@ -702,6 +815,7 @@ class _Planner:
         base_dirt = _norm(milestone["base_dirt"] or [])
         carried: list[Record] = []
         seen: set[str] = set()
+        done_groups: set[int] = set()
         for path in sorted(plan_dir.iterdir()):
             match = plan_re.match(path.name)
             if not match or not path.is_file():
@@ -709,7 +823,7 @@ class _Planner:
             number = int(match.group(1))
             sid = f"S{number:02d}"
             where = path.name
-            fields, guards = self._slice_plan(mid, path, merged, extras_text, conv, base_dirt)
+            fields, guards, prose = self._slice_plan(mid, path, merged, extras_text, conv, base_dirt)
             for record in guards:
                 text = record[2].strip()
                 if not text or text in guard_lines:
@@ -726,6 +840,7 @@ class _Planner:
             if number not in groups:
                 self.block(f"{mid}: {sid} has a slice plan but tasks.md has no ## {number}. group")
                 continue
+            done_groups.add(number)
             have = existing.get(number, {})
             lines: list[Record] = []
             empty: list[str] = []
@@ -736,7 +851,7 @@ class _Planner:
                     if name in have:
                         continue
                     empty.append(name)
-                    lines.append(_gen(f"**{name}:**"))
+                    lines.append(_gen(f"**{name}:** {NOT_SET}"))
                     continue
                 if name in have:
                     appended.append(name)
@@ -752,18 +867,33 @@ class _Planner:
             detail = f"group {number} ({sid}) <- {where}"
             if appended:
                 detail += f"; {APPEND_EXISTING}: {', '.join(appended)}"
+            if prose:
+                detail += f"; text before the first heading carried into Goal: {prose} lines"
             if empty:
-                detail += f"; empty: {', '.join(empty)}"
+                detail += f"; not set: {', '.join(empty)}"
             self.act("write-group-fields", tasks, detail, _text(lines))
+        for number in groups:
+            if number in done_groups:
+                continue
+            have = existing.get(number, {})
+            missing = [name for name in layout.SLICE_FIELDS if name not in have]
+            if not missing:
+                continue
+            lines = [_gen(f"**{name}:** {NOT_SET}") for name in missing]
+            self.act("write-group-fields", tasks,
+                     f"group {number} (S{number:02d}) <- no slice plan; not set: {', '.join(missing)}", _text(lines))
         return carried
 
     def _slice_plan(self, mid: str, path: Path, merged: dict[str, str], extras_text: set[str],
-                    conv: list[str], base_dirt: list[str]) -> tuple[dict[str, list[Record]], list[Record]]:
+                    conv: list[str], base_dirt: list[str]) -> tuple[dict[str, list[Record]], list[Record], int]:
         where = path.name
         lines = _strip_frontmatter(_records(path))
         preamble, sections = _split(lines, 2)
         fields: dict[str, list[Record]] = {}
         guards: list[Record] = []
+        prose: list[Record] = []
+        conventions: list[Record] | None = None
+        conventions_at: int | None = None
         current: str | None = None
         for record in preamble:
             text = record[2]
@@ -774,7 +904,12 @@ class _Planner:
             bold = BOLD_FIELD_RE.match(text)
             if bold and bold.group(1).strip() in ("Goal", "Demo"):
                 current = bold.group(1).strip()
-                fields[current] = [record] if bold.group(2).strip() else []
+                value = bold.group(2).strip()
+                if current not in fields:
+                    fields[current] = [record] if value else []
+                elif value:
+                    # A repeated field: its value joins the first, in source order.
+                    fields[current].append((record[0], record[1], value))
                 continue
             if not text.strip():
                 current = None
@@ -782,11 +917,13 @@ class _Planner:
             if current is not None:
                 fields[current].append(record)
             elif text.strip() not in SLICE_TEMPLATE_PROSE:
-                self.block(f"{mid}: {where}:{record[1]} text before the first heading has no target")
+                prose.append(record)
+        if prose:
+            fields["Goal"] = fields.get("Goal", []) + prose
         for section in sections:
             title = section.title
             if title in _SLICE_SECTION_FIELDS:
-                fields[title] = section.body
+                fields[title] = fields.get(title, []) + section.body
             elif title == "Git Operation Plan":
                 own, subs = _subsections(section.body)
                 rows, other = _table(own)
@@ -809,11 +946,13 @@ class _Planner:
                     else:
                         self.block(f"{mid}: {where}:{sub.heading[1]} ### {sub.title} has no target")
             elif title == "Commit and PR conventions":
-                if _norm(section.body, _CONVENTIONS_INSTRUCTIONS) != conv:
-                    self.block(f"{mid}: {where}:{section.heading[1]} Commit and PR conventions differ from the milestone's")
+                conventions = (conventions or []) + section.body
+                conventions_at = conventions_at or section.heading[1]
             else:
                 self.block(f"{mid}: {where}:{section.heading[1]} ## {title} has no target")
-        return fields, guards
+        if conventions is not None and _norm(conventions, _CONVENTIONS_INSTRUCTIONS) != conv:
+            self.block(f"{mid}: {where}:{conventions_at} Commit and PR conventions differ from the milestone's")
+        return fields, guards, len(prose)
 
     # ---------------------------------------------------------- design
 
@@ -821,6 +960,13 @@ class _Planner:
                 slice_guardrails: list[Record], name: str) -> None:
         road_name = f"{mid}-ROADMAP.md"
         self._delivery_plan(mid, design, design_text, milestone)
+        profile = self.wdir / "DELIVERY-PROFILE.md"
+        if profile.is_file():
+            body = _trim(self._demote(_records(profile), top=4))
+            if body:
+                self.append(design, design_text, "## Delivery Plan", body, profile.name,
+                            sub=SUBSECTIONS[("profile", "DELIVERY-PROFILE.md")],
+                            note="copied whole; headings demoted under ####")
         guard_body, dropped = self._guardrail_body(milestone["guardrails"])
         guard_body = _trim(guard_body)
         if slice_guardrails:
@@ -840,6 +986,7 @@ class _Planner:
         if conventions:
             self.append(design, design_text, "## Commit and PR Conventions", conventions,
                         milestone.get("conventions_source", f"{road_name} ## Commit and PR conventions"))
+        self._repair_conventions(design, design_text, conventions)
         for target, sub, body, source in milestone["context"]:
             if target == "## Decisions":
                 self.append(design, design_text, target, body, source, sub=sub)
@@ -930,12 +1077,46 @@ class _Planner:
             out.append(record)
         return out, dropped
 
+    def _repair_conventions(self, design: Path, design_text: str, lines: list[Record]) -> None:
+        """Add the required neutral lines the converted Conventions would still lack."""
+        rewritten: list[str] = []
+        for record in lines:
+            new = KNOWN_REWRITES.get(record[2])
+            if isinstance(new, Drop):
+                continue
+            rewritten.append(new if new is not None else record[2])
+        existing = self.cli.section_under_heading(design_text, checks.CONVENTIONS_HEADING) or ""
+        body = existing.rstrip("\n") + "\n" + "".join(line + "\n" for line in rewritten)
+        problems = checks.validate_conventions(f"## {checks.CONVENTIONS_HEADING}\n{body}")
+        if any(problem.startswith("missing or empty") for problem in problems):
+            problems = [key for key, _lines in CONVENTIONS_REPAIRS]
+        for key, add in CONVENTIONS_REPAIRS:
+            found = next((problem for problem in problems if key in problem), None)
+            if found is None:
+                continue
+            self.append(design, design_text, "## Commit and PR Conventions", [_gen(line) for line in add],
+                        "templates/cloud/design-delivery.md",
+                        note=f"required line added; legacy text kept ({found})")
+
+    def _read_first(self, mid: str, tasks: Path) -> None:
+        if not tasks.is_file():
+            return
+        head = re.split(r"(?m)^## ", self.cli.read_text(tasks), maxsplit=1)[0]
+        if layout.READ_FIRST_MARKER in head:
+            return
+        try:
+            block = self.cli.load_checkout_template("cloud/tasks-read-first.md")
+        except self.cli.W2CError as exc:
+            self.block(f"{mid}: {exc}")
+            return
+        self.act("write-read-first", tasks, "insert the read-first block at the top of tasks.md", block)
+
     @staticmethod
-    def _demote(lines: list[Record]) -> list[Record]:
+    def _demote(lines: list[Record], top: int = 3) -> list[Record]:
         levels = [len(m.group(1)) for r in lines if (m := HEADING_RE.match(r[2]))]
         if not levels:
             return lines
-        shift = 3 - min(levels)
+        shift = top - min(levels)
         out: list[Record] = []
         for path, number, text in lines:
             match = HEADING_RE.match(text)
@@ -965,11 +1146,11 @@ class _Planner:
 
     # ---------------------------------------------------------- reports, decisions
 
-    def _reports(self, mid: str, plan_dir: Path, folder: Path) -> None:
+    def _reports(self, mid: str, plan_dir: Path, folder: Path, *, milestone_only: bool = False) -> None:
         dest = folder / layout.REPORT_DIR
         for path in sorted(plan_dir.iterdir()):
             item = path.name
-            if TASK_REPORT_RE.match(item) or SLICE_REPORT_RE.match(item):
+            if not milestone_only and (TASK_REPORT_RE.match(item) or SLICE_REPORT_RE.match(item)):
                 target = item
             elif item == f"{mid}-VALIDATION.md":
                 target = layout.REPORT_FILES["validation"]
@@ -1022,37 +1203,42 @@ class _Planner:
         self.act("edit-config", config, detail, layout.CONFIG_RULES_SNIPPET)
 
     def _knowledge(self, checkout: Path) -> None:
+        """Every line of the latest CONTEXT that knowledge.md lacks, compared by line text."""
         latest = self.cli.latest_context(self.root)
         if latest is None:
             return
         source = latest[2]
         target = checkout / commands.KNOWLEDGE_PATH
-        have = {line.strip() for line in self.cli.read_text(target).splitlines()}
-        _pre, sections = _split(_strip_frontmatter(_records(source)), 2)
-        missing: dict[str, list[Record]] = {}
+        have_text = self.cli.read_text(target)
+        have = {line.strip() for line in have_text.splitlines()}
+        preamble, sections = _split(_strip_frontmatter(_records(source)), 2)
+        lines = [r for r in _trim(preamble) if r[2].strip() and r[2].strip() not in have]
+        counts = [f"preamble: {len(lines)}"] if lines else []
         for section in sections:
-            if section.title not in KNOWLEDGE_SECTIONS:
-                continue
-            table = [r for r in section.body if r[2].lstrip().startswith("|")]
-            for record in table[2:]:
-                if record[2].strip() and record[2].strip() not in have:
-                    missing.setdefault(section.title, []).append(record)
-        if not missing and target.is_file():
+            body = _trim(section.body)
+            if not _has_heading(have_text, f"## {section.title}"):
+                missing, label = body, " (new section)"
+            else:
+                missing = [r for r in body if r[2].strip() and r[2].strip() not in have]
+                label = ""
+            if missing or label:
+                lines += [_gen(f"## {section.title}")] + missing
+                counts.append(f"{section.title}: {len(missing)}{label}")
+        if not lines and target.is_file():
             return
-        lines: list[Record] = []
-        for title in KNOWLEDGE_SECTIONS:
-            if title in missing:
-                lines += [_gen(f"## {title}")] + missing[title]
         self.scan(lines)
-        counts = ", ".join(f"{t}: {len(missing[t])}" for t in KNOWLEDGE_SECTIONS if t in missing)
-        mode = "create" if not target.is_file() else "add missing rows"
+        mode = "create" if not target.is_file() else "add missing lines"
         self.touch(checkout, target)
-        self.act("sync-knowledge", target, f"{mode} from {source.name} ({counts or 'no rows'})", _text(lines))
+        self.act("sync-knowledge", target, f"{mode} from {source.name} ({', '.join(counts) or 'nothing'})",
+                 _text(lines))
 
     def _retire_ledger(self) -> None:
         main = self.checkouts[0][0]
-        rows = [r for r in _records(self.wdir / "DECISIONS.md") if DECISION_LINE_RE.match(r[2])]
-        keep = [r for r in rows if len(_cells(r[2])) <= 2 or _cells(r[2])[2] not in self.copied_scopes]
+        rows = [r for r in _records(self.wdir / "DECISIONS.md")
+                if r[2].lstrip().startswith("|") and not SEPARATOR_RE.match(r[2].strip())
+                and not DECISION_HEADER_RE.match(r[2])]
+        keep = [r for r in rows if not (DECISION_LINE_RE.match(r[2]) and len(_cells(r[2])) > 2
+                                        and _cells(r[2])[2] in self.copied_scopes)]
         target = main / DECISIONS_FILE
         content = (
             "# Decisions\n\nFrozen copy of the decisions recorded before cloud mode. "
@@ -1062,7 +1248,7 @@ class _Planner:
         )
         self.scan(keep)
         self.touch(main, target)
-        ids = ", ".join(DECISION_LINE_RE.match(r[2]).group(1) for r in keep) or "none"
+        ids = ", ".join(_cells(r[2])[0] if _cells(r[2]) else "?" for r in keep) or "none"
         self.act("write-decisions-file", target, f"remaining DECISIONS.md rows: {ids}", content)
         for item in LEDGER_FILES:
             path = self.wdir / item

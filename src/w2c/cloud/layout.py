@@ -79,6 +79,14 @@ SLICE_TASK_MARKER = "SLICE-TASK-RULES"
 DESIGN_MARKER = "DELIVERY-SECTIONS-RULES"
 READ_FIRST_MARKER = "READ-FIRST"
 
+# Guidance lines the design template keeps under `## Manual Test Guide`; they are
+# not a guide by themselves.
+MANUAL_GUIDE_NOTES: tuple[str, ...] = (
+    "This guide is optional and for a human. It is not a completeness gate: completing the change "
+    "does not require these steps to have been run.",
+    "When to stop and call the change's behavior good enough. This is not a status field.",
+)
+
 REPORT_DIR = ".delivery"
 
 REPORT_FILES: dict[str, str] = {

@@ -371,6 +371,35 @@ class ArchivedChangeTests(CloudChecksBase):
         self.addCleanup(lambda: os.environ.pop("FAKE_OPENSPEC_APPLY_DONE", None))
         self.assertEqual(self.failing(), set(), self.rows())
 
+    STRUCTURAL = {"design-sections", "git-operation-plan", "commit-pr-conventions", "manual-test-guide",
+                  "slice-fields", "read-first-present"}
+
+    def test_native_archived_change_keeps_structural_rows(self) -> None:
+        self.make("old-work", archived="2026-01-01", design="# Design\n", tasks="# Tasks\n\n## 1. Old\n",
+                  keys=["schema: spec-driven", "x-delivery-status: DONE"])
+        self.assertTrue(self.STRUCTURAL <= self.failing(), self.rows())
+
+    def test_converted_archived_done_is_history(self) -> None:
+        self.make("old-work", archived="2026-01-01", design="# Design\n", tasks="# Tasks\n\n## 1. Old\n",
+                  keys=["schema: spec-driven", "x-delivery-status: DONE", "x-delivery-legacy-id: M001",
+                        "x-delivery-slices-done: [1]"])
+        self.assertEqual(self.failing(), set(), self.rows())
+
+    def test_converted_declined_done_is_history(self) -> None:
+        tasks = "# Tasks\n\n## 1. Old\n\n- [x] 1.1 Done work\n  - Verify: true\n"
+        self.make("old-work", design="# Design\n", tasks=tasks,
+                  keys=["schema: spec-driven", "x-delivery-status: DONE", "x-delivery-archive: declined",
+                        f"x-delivery-cadence: {CADENCE}", "x-delivery-legacy-id: M001", "x-delivery-slices-done: [1]"])
+        self.assertEqual(self.failing(), set(), self.rows())
+
+    def test_native_declined_done_keeps_closeout_and_structure(self) -> None:
+        self.make("old-work", design="# Design\n",
+                  keys=["schema: spec-driven", "x-delivery-status: DONE", "x-delivery-archive: declined",
+                        f"x-delivery-cadence: {CADENCE}"])
+        failing = self.failing()
+        self.assertIn("closeout-reports", failing)
+        self.assertIn("design-sections", failing)
+
     def test_unknown_bold_label_after_an_empty_field_fails_slice_fields(self) -> None:
         text = fill_tasks().replace(
             "**Files Likely Touched:** text for Files Likely Touched",
