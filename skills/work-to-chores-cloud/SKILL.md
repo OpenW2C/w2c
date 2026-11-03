@@ -26,8 +26,8 @@ Cloud mode keeps the whole plan in the repository, so a fresh clone or a tempora
 
 Before Stage 1:
 
-1. Check whether **grilling** and **brainstorming** are invocable. If either is missing (for example on Copilot or Cursor), do not stop: follow **Companion fallback** below for that skill. Log `--stage prereq --event retry --detail "fallback grilling|brainstorming"`.
-2. Confirm `w2c` is on PATH (`command -v w2c`) and `w2c --version` is 3.0.0 or later.
+1. Confirm `w2c` is on PATH (`command -v w2c`) and `w2c --version` is 3.0.0 or later. Do this first: every later step, including each `w2c event` log line, needs it. If it is missing, follow the uvx paragraph below before any other step, and log nothing until `w2c` (or the uvx prefix) works.
+2. Check whether **grilling** and **brainstorming** are invocable. If either is missing (for example on Copilot or Cursor), do not stop: follow **Companion fallback** below for that skill. Log `--stage prereq --event retry --detail "fallback grilling|brainstorming"`.
 3. Run `w2c openspec-check`. If `needs` contains `NEED_OPENSPEC_INSTALL` or `NEED_OPENSPEC_INIT`, follow **OpenSpec install (ask first)**.
 
 If `w2c` is missing or older than 3.0.0: ask the user whether to run it once through uvx. On yes, use this prefix for every `w2c` command in this run:
@@ -52,7 +52,7 @@ That prompt's own stops still apply: confirm before installing, no sudo, never e
 
 ### Cloud rules in `openspec/config.yaml` (ask first)
 
-Read `openspec/config.yaml`. The cloud rules are present when it contains `DELIVERY-SECTIONS-RULES`, `SLICE-TASK-RULES`, and `READ-FIRST`. If any is missing, show the user the snippet (`w2c.cloud.layout.CONFIG_RULES_SNIPPET`) and ask before adding it. On yes, merge it: add the lines under the existing `context:`, `rules:` (`design`, `tasks`) and `operations:` (`apply.guidance`) keys. Never write a second `context:`, `rules:`, or `operations:` key, and never remove a line that is already there. On no, continue, and say that OpenSpec's own instructions will not carry the delivery rules.
+Read `openspec/config.yaml`. The cloud rules are present when it contains `DELIVERY-SECTIONS-RULES`, `SLICE-TASK-RULES`, and `READ-FIRST`. If any is missing, run `w2c cloud rules`, show the user its output (the snippet to merge), and ask before adding it. On yes, merge it: add the lines under the existing `context:`, `rules:` (`design`, `tasks`) and `operations:` (`apply.guidance`) keys. Never write a second `context:`, `rules:`, or `operations:` key, and never remove a line that is already there. On no, continue, and say that OpenSpec's own instructions will not carry the delivery rules.
 
 ## Companion fallback
 
@@ -67,6 +67,7 @@ Use the CLI only for task checkboxes, change status, the run order, the Decision
 
 ```bash
 w2c cloud env
+w2c cloud rules          # prints the openspec/config.yaml snippet
 w2c cloud new --slug <name> [--cadence slice-commit-milestone-push-pr|milestone-commit-milestone-push-pr]
 w2c cloud decide [--change <name>] --scope ... --decision ... --choice ... --rationale ...
 w2c cloud decisions-flush --change <name>
@@ -188,7 +189,9 @@ Review collected knowledge for architectural or design gaps that would break the
 
 One piece of work is one change (`<name>` is a short kebab-case slug). Each `## N.` group in `tasks.md` is a slice. Each task is `- [ ] N.M <title>` with an indented `- Verify: <command>` line. Grill one capabilities question: which capabilities are new, which existing ones change, or none when behavior does not change.
 
-Embed this execution rule (do **not** execute it here): a task is not complete until Verify passes and **requesting-code-review** is clean; after a group's last task re-run its Verify lines, write the slice UAT and summary, complete the slice; after the last group write `VALIDATION.md` and `SUMMARY.md`, archive, complete.
+Embed this execution rule (do **not** execute it here): a task is not complete until Verify passes and **requesting-code-review** is clean; after a group's last task re-run its Verify lines, write the slice UAT and summary, complete the slice; after the last group write `VALIDATION.md` and `SUMMARY.md`, commit them (after a yes), archive, then commit the archive move (after a yes).
+
+The `.delivery/` reports reach git history only through commits: each slice commit carries the reports present then, the milestone commit before the archive carries `VALIDATION.md`, `SUMMARY.md`, and any report not yet committed, and `w2c cloud archive` then removes `.delivery/`, so the commit after the archive carries only the move.
 
 ### Commit cadence (required grilling)
 
@@ -267,8 +270,8 @@ Ask the user to review the plan (isolation, branch, cadence, slices, decisions).
 
 After smoke passes, ask for approval to commit the change folder. This is not a push.
 
-- **Branch mode:** apply the stored Base dirt policy (`w2c base-dirt`; the same warning-turn rules), create or check out the ticket branch without force, and commit only `openspec/changes/<name>/`.
-- **Worktree mode:** do not check the ticket branch out here. Run `w2c worktree-add --branch <name> --create-from HEAD` (`--exclude no` only for `exclude-no`), move `openspec/changes/<name>/` into that worktree, and commit it there.
+- **Branch mode:** apply the stored Base dirt policy (`w2c base-dirt`; the same warning-turn rules), create or check out the ticket branch (`<Remote branch>`, never the change slug) without force, and commit only `openspec/changes/<name>/`.
+- **Worktree mode:** do not check the ticket branch out here. Run `w2c worktree-add --branch <Remote branch> --create-from HEAD` (`--exclude no` only for `exclude-no`), move `openspec/changes/<name>/` into that worktree, and commit it there.
 
 Never stage deny-listed paths. Never name a `.delivery/` path or local planner file in the message. Never add a `Co-authored-by` trailer. On no, leave the files uncommitted and say that a fresh clone will not see the plan until it is committed.
 

@@ -229,6 +229,10 @@ class DriverBase(unittest.TestCase):
             self.perform(step, answers)
         raise AssertionError(f"never reached {wanted}; seen {seen}")
 
+    def smoke_pass_if_asked(self) -> None:
+        if self.action() == "smoke":
+            self.smoke_pass()
+
     def sequence(self, answers: dict[str, str] | None = None, limit: int = 80) -> list[str]:
         seen: list[str] = []
         for _ in range(limit):
@@ -359,14 +363,47 @@ class RuleTests(DriverBase):
         self.make(cadence=MILESTONE)
         self.drive_to("milestone-reports")
         seen = self.sequence()
-        self.assertEqual(seen, ["milestone-reports", "ask-archive", "ask-commit", "ask-push", "ask-pr", "done"])
+        self.assertEqual(seen, ["milestone-reports", "ask-commit", "ask-archive", "ask-commit", "ask-push",
+                                "ask-pr", "done"])
         self.assertTrue(any((self.root / "openspec/changes/archive").glob(f"*-{NAME}")))
 
     def test_rule8_slice_cadence_asks_commit_after_archive_and_push_no_skips_pr(self) -> None:
         self.make(cadence=SLICE)
         self.drive_to("milestone-reports")
         seen = self.sequence({"ask-push": "no"})
-        self.assertEqual(seen, ["milestone-reports", "ask-archive", "ask-commit", "ask-push", "done"])
+        self.assertEqual(seen, ["milestone-reports", "ask-commit", "ask-archive", "ask-commit", "ask-push", "done"])
+
+    def test_rule8_pre_archive_commit_comes_before_archive_with_reports_on_disk(self) -> None:
+        self.make(cadence=SLICE)
+        self.drive_to("milestone-reports")
+        self.perform(self.step())
+        self.smoke_pass_if_asked()
+        step = self.step()
+        self.assertEqual((step["action"], step["slice"]), ("ask-commit", None))
+        delivery = self.change / ".delivery"
+        self.assertTrue((delivery / "VALIDATION.md").is_file())
+        self.assertTrue((delivery / "S01-UAT.md").is_file())
+        self.assertFalse(any((self.root / "openspec/changes/archive").glob(f"*-{NAME}")))
+
+    def test_rule8_pre_archive_commit_no_moves_on_to_archive(self) -> None:
+        self.make(cadence=MILESTONE)
+        self.drive_to("milestone-reports")
+        seen = self.sequence({"ask-commit": "no", "ask-push": "no"})
+        self.assertEqual(seen, ["milestone-reports", "ask-commit", "ask-archive", "ask-commit", "ask-push", "done"])
+
+    def test_rule8_pre_archive_commit_no_answer_stops_then_resumes(self) -> None:
+        self.make(cadence=MILESTONE)
+        self.drive_to("milestone-reports")
+        self.perform(self.step())
+        self.smoke_pass_if_asked()
+        self.assertEqual(self.action(), "ask-commit")
+        self.rec("ask-commit", "no-answer")
+        step = self.step()
+        self.assertEqual((step["action"], step["reason"]), ("stop", "approval-needed:ask-commit"))
+        self.rec("ask-commit", "yes")
+        self.assertEqual(self.action(), "ask-archive")
+        state = json.loads(self.state_path.read_text(encoding="utf-8"))
+        self.assertEqual(state["milestone_answers"], {"pre-archive-commit": "yes"})
 
     def test_rule9_no_answer_stops_with_gate_name(self) -> None:
         self.make(cadence=SLICE)

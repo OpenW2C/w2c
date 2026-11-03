@@ -3,9 +3,9 @@
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
-import subprocess
 import sys
 import tempfile
 import unittest
@@ -25,7 +25,8 @@ from w2c.skills_install import install_skills  # noqa: E402
 from w2c.trials import SKILL_NAMES, run_trials  # noqa: E402
 
 SKILLS = REPO / "skills"
-TASK0 = "bee6a3c"
+# Copies of the 2.2 skills at the planning commit (bee6a3c), so a shallow checkout can compare.
+BASELINE = REPO / "tests" / "fixtures" / "baseline-2.2"
 ROUTING = "  Not for cloud mode (use work-to-chores-cloud / do-chores-cloud)."
 CLOUD_MOVED = "   If stdout contains `CLOUD_MOVED`, stop and tell the user to run do-chores-cloud. Do not implement that milestone."
 ALLOWED = {
@@ -52,6 +53,22 @@ class CloudSkillTextTests(unittest.TestCase):
             self.assertIn(token, text)
         self.assertNotIn(".w2c/plans/", text)
 
+    def test_do_chores_cloud_closeout_and_recovery_rules(self) -> None:
+        text = _text("do-chores-cloud")
+        for token in ("before `ask-archive`", "`w2c cloud archive` removes `.delivery/`",
+                      "archive-not-applied", "decline-not-applied", "--record isolate --result pass",
+                      "go back to step 1 of the loop", "### Base dirt paths", "w2c cloud decide",
+                      "none, because", "Any finding, in any class, fails the review",
+                      "First run the Delivery Plan `Validation commands`"):
+            self.assertIn(token, text)
+
+    def test_reorder_trial_asks_before_moving(self) -> None:
+        data = json.loads(_text("work-to-chores-cloud", "trials.json"))
+        row = next(t for t in data["trials"] if t["id"] == "R13")
+        self.assertEqual((row["group"], row["kind"]), ("reorder", "ordinary"))
+        self.assertIn("placement question", row["must"][0])
+        self.assertIn("before running any move", row["must"][0])
+
     def test_work_to_chores_cloud_names_design_sections_and_convert(self) -> None:
         text = _text("work-to-chores-cloud")
         for token in ("decisions-flush", "migrate --milestone", "--dry-run", "w2c cloud new",
@@ -60,6 +77,10 @@ class CloudSkillTextTests(unittest.TestCase):
         self.assertIn("w2c cloud status --all", text)
         self.assertIn("ephemeral: true", text)
         self.assertIn("push the ticket branch to `origin/<Remote branch>`", text)
+        self.assertIn("w2c cloud rules", text)
+        self.assertIn("w2c worktree-add --branch <Remote branch> --create-from HEAD", text)
+        self.assertNotIn("--branch <name>", text)
+        self.assertLess(text.index("command -v w2c"), text.index("--stage prereq"))
         for heading in layout.DESIGN_HEADINGS:
             self.assertIn(heading, text)
         for field in layout.SLICE_FIELDS:
@@ -75,12 +96,9 @@ class CloudSkillTextTests(unittest.TestCase):
         for old, new in (("work-to-chores", "work-to-chores-cloud"), ("do-chores", "do-chores-cloud")):
             self.assertEqual(_text(new, "SKILL.copilot.md"), _text(old, "SKILL.copilot.md"))
 
-    def test_2_2_skills_differ_from_task0_only_by_routing_lines(self) -> None:
+    def test_2_2_skills_differ_from_baseline_only_by_routing_lines(self) -> None:
         for skill, allowed in ALLOWED.items():
-            old = subprocess.run(
-                ["git", "-C", str(REPO), "show", f"{TASK0}:skills/{skill}/SKILL.md"],
-                capture_output=True, text=True, check=True,
-            ).stdout
+            old = (BASELINE / "skills" / skill / "SKILL.md").read_text(encoding="utf-8")
             new = _text(skill)
             for line in allowed:
                 self.assertIn(line + "\n", new, f"{skill} lacks {line!r}")

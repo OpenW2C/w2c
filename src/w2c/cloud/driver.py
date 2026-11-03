@@ -34,6 +34,8 @@ WORK_RESULTS = ("pass", "fail")
 ASK_RESULTS = ("yes", "no", "no-answer")
 SLICE_ASKS = ("ask-commit", "ask-push")
 MILESTONE_ASKS = ("ask-archive", "ask-commit", "ask-push", "ask-pr")
+# The answer to the ask-commit that comes before ask-archive is kept under this key.
+PRE_ARCHIVE_COMMIT = "pre-archive-commit"
 RUNNABLE = frozenset({"INPROGRESS", "PLANNING", "TODO"})
 
 
@@ -101,7 +103,9 @@ def _valid(data: object) -> bool:
         if not isinstance(recordable, list) or not all(isinstance(a, str) for a in recordable):
             return False
     ms = data.get("milestone_answers", {})
-    if not isinstance(ms, dict) or not all(isinstance(ms.get(a), str) for a in MILESTONE_ASKS if a in ms):
+    if not isinstance(ms, dict) or not all(
+        isinstance(ms.get(a), str) for a in (*MILESTONE_ASKS, PRE_ARCHIVE_COMMIT) if a in ms
+    ):
         return False
     return True
 
@@ -143,7 +147,7 @@ class Context:
     change: ledger.CloudChange | None = None
     group: int | None = None
     task: object | None = None
-    ask_scope: str | None = None  # "slice" or "milestone" while an ask is pending
+    ask_scope: str | None = None  # "slice", "pre-archive" or "milestone" while an ask is pending
     ask_group: int | None = None
     recordable: set[str] = field(default_factory=set)
     hold: bool = False  # another change still owes asks: save nothing, record nothing
@@ -287,6 +291,13 @@ def _evaluate(root: Path, change: ledger.CloudChange, state: dict) -> tuple[dict
         if missing:
             ctx.recordable.add("milestone-reports")
             return _out("milestone-reports", ctx, missing), ctx
+    if not closed:
+        # The archive removes .delivery/, so the work and every report are
+        # committed first, in both cadences. A no skips this commit only.
+        pre = _ask(answers, PRE_ARCHIVE_COMMIT)
+        if pre in (None, "no-answer"):
+            ctx.ask_scope = "pre-archive"
+            return _ask_out(ctx, "ask-commit", pre, [_rel(root, change.path)])
     ctx.ask_scope = "milestone"
     archive = _ask(answers, "ask-archive")
     if change.archived:
@@ -299,8 +310,8 @@ def _evaluate(root: Path, change: ledger.CloudChange, state: dict) -> tuple[dict
         reason = "archive-not-applied" if archive == "yes" else "decline-not-applied"
         ctx.recordable.add("ask-archive")
         return _out("ask-archive", ctx, [_rel(root, change.path)], reason=reason), ctx
-    # The archive moves files the push check requires, so the commit question
-    # comes after it in both cadences.
+    # The archive moves files the push check requires, so a second commit
+    # question comes after it in both cadences.
     pending = _milestone_ask(answers)
     if pending is None:
         return _out("done", ctx), ctx
@@ -499,6 +510,8 @@ def record(root: Path, action: str, result: str, change: str | None = None) -> N
                 answers = {"group": where["ask_group"]}
             answers[action] = result
             state["slice_answers"] = answers
+        elif where["ask_scope"] == "pre-archive" and action == "ask-commit":
+            state["milestone_answers"][PRE_ARCHIVE_COMMIT] = result
         else:
             state["milestone_answers"][action] = result
     state["change"] = name

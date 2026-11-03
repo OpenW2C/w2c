@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import os
 import re
-import subprocess
 import sys
 import tempfile
 import unittest
@@ -23,7 +22,8 @@ from w2c.cloud import layout  # noqa: E402
 
 TPL = ROOT / "templates"
 CLOUD = TPL / "cloud"
-PLANNING_COMMIT = "bee6a3c"
+# Copies of these files at the planning commit (bee6a3c), so a shallow checkout can compare.
+BASELINE = ROOT / "tests" / "fixtures" / "baseline-2.2"
 
 
 def section(text: str, heading: str, level: str) -> str:
@@ -176,8 +176,7 @@ class CloudTemplateTests(unittest.TestCase):
                        for p in list((TPL / "openspec").glob("*")) + list(TPL.glob("*.md")))
         self.assertGreaterEqual(len(paths), 16)
         for rel in paths:
-            old = subprocess.run(["git", "show", f"{PLANNING_COMMIT}:{rel}"], cwd=ROOT,
-                                 capture_output=True, check=True).stdout
+            old = (BASELINE / rel).read_bytes()
             self.assertEqual((ROOT / rel).read_bytes(), old, rel)
 
 

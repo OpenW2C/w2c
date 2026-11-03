@@ -25,6 +25,7 @@ slice-reports add-fifth S02 -
 slice-complete add-fifth S02 -
 ask-commit add-fifth S02 -
 milestone-reports add-fifth - -
+ask-commit add-fifth - -
 ask-archive add-fifth - -
 ask-commit add-fifth - -
 ask-push add-fifth - -

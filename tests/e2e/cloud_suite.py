@@ -401,6 +401,7 @@ def drive(p: Project, cwd: Path, env: dict[str, str], name: str, code: dict, sto
             raise AssertionError(f"git {' '.join(args)} exited {proc.returncode}\n{proc.stdout}{proc.stderr}")
 
     log: list[str] = []
+    seen: set[str] = set()
     for _ in range(120):
         step = json.loads(w2c("cloud", "step", "--json").stdout)
         action, sid, tid = step["action"], step["slice"], step["task"]
@@ -408,6 +409,7 @@ def drive(p: Project, cwd: Path, env: dict[str, str], name: str, code: dict, sto
                    + (f" reason={step['reason']}" if step["reason"] else ""))
         if action == stop_at or action in ("done", "stop"):
             return log, step
+        seen.add(action)
         result = "pass"
         if action == "smoke":
             result = "pass" if w2c("cloud", "smoke", "--change", name, check=False).returncode == 0 else "fail"
@@ -436,7 +438,13 @@ def drive(p: Project, cwd: Path, env: dict[str, str], name: str, code: dict, sto
                 w2c("cloud", "milestone-complete", name)
             elif action == "ask-commit" and result == "yes":
                 git("add", "-A", "--", *[d for d in ("openspec", "app", "tests", "docs") if (cwd / d).exists()])
-                git("commit", "-q", "-m", f"Deliver {name} {sid}." if sid else f"Archive {name}.")
+                if sid:
+                    title = f"Deliver {name} {sid}."
+                elif "ask-archive" in seen:
+                    title = f"Archive {name}."
+                else:
+                    title = f"Finish {name} with its reports."
+                git("commit", "-q", "-m", title)
             elif action == "ask-push" and result == "yes":
                 git("push", "-q", "-u", "origin", BRANCH)
         w2c("cloud", "step", "--record", action, "--result", result)
@@ -464,6 +472,12 @@ def c08_step_driver(p: Project) -> None:
     if not archived:
         raise AssertionError(f"{name} was not archived")
     p.expect_tokens(archived[0].joinpath("tasks.md").read_text(encoding="utf-8"), "- [x] 1.1", "- [x] 1.2", "- [x] 2.1")
+    for report in ("VALIDATION.md", "SUMMARY.md", "S01-UAT.md", "S02-SUMMARY.md"):
+        rel = f"openspec/changes/{name}/.delivery/{report}"
+        if not p.git("log", "--format=%s", "--", rel).stdout.strip():
+            raise AssertionError(f"git history does not keep {rel}")
+    titles = p.git("log", "--format=%s").stdout
+    p.expect_tokens(titles, f"Finish {name} with its reports.", f"Archive {name}.")
     head = p.git("rev-parse", "HEAD").stdout.strip()
     if p.git("ls-remote", "origin", BRANCH).stdout.split()[0] != head:
         raise AssertionError("the driven milestone did not reach the remote")

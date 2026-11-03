@@ -635,6 +635,17 @@ class StatusTests(CloudCommandBase):
         self.assertLess(out.index(cloud_line), out.index("# State"))
 
 
+class RulesTests(unittest.TestCase):
+    def test_rules_prints_the_config_snippet(self) -> None:
+        from w2c.cloud import layout
+
+        code, out, err = run_main(Path(tempfile.gettempdir()), "cloud", "rules")
+        self.assertEqual((code, err), (0, ""))
+        self.assertEqual(out, layout.CONFIG_RULES_SNIPPET)
+        for marker in (layout.DESIGN_MARKER, layout.SLICE_TASK_MARKER, layout.READ_FIRST_MARKER):
+            self.assertIn(marker, out)
+
+
 class LegacyIsolationTests(CloudCommandBase):
     def test_legacy_commands_ignore_cloud_changes(self) -> None:
         self.make()

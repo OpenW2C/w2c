@@ -151,10 +151,10 @@
       "mode": "openspec",
       "group": "reorder",
       "ask": "Reorder changes: run add-export before add-import. Both are pending.",
-      "passes_when": "The order changes through the cloud command.",
+      "passes_when": "The placement question is asked and answered before the order changes.",
       "must": [
-        "The agent shows w2c cloud status and runs w2c cloud move add-export --before add-import.",
-        "The agent records the execution order with w2c cloud decide."
+        "The agent shows w2c cloud status and asks the placement question with a recommended option before running any move.",
+        "Only after the answer does the agent run w2c cloud move add-export --before add-import and record the execution order with w2c cloud decide."
       ]
     },
     {
