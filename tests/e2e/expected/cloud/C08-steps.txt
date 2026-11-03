@@ -25,9 +25,9 @@ slice-reports add-square S02 -
 slice-complete add-square S02 -
 ask-commit add-square S02 -
 milestone-reports add-square - -
-ask-commit add-square - -
+ask-commit add-square - - reason=pre-archive
 ask-archive add-square - -
-ask-commit add-square - -
+ask-commit add-square - - reason=post-archive
 ask-push add-square - -
 ask-pr add-square - -
 done add-square - -

@@ -284,6 +284,28 @@ class NewTests(CloudCommandBase):
         self.assertIn(f"x-delivery-cadence: {CADENCE}", meta)
         self.assertFalse((self.root / ".w2c").exists())
 
+    def test_new_writes_design_and_tasks_from_the_cloud_templates(self) -> None:
+        self.ok("cloud", "new", "--slug", NAME, "--cadence", CADENCE)
+        templates = ROOT / "templates" / "cloud"
+        self.assertEqual((self.change / "design.md").read_text(encoding="utf-8"),
+                         (templates / "design-delivery.md").read_text(encoding="utf-8"))
+        tasks = (self.change / "tasks.md").read_text(encoding="utf-8")
+        self.assertTrue(tasks.startswith((templates / "tasks-read-first.md").read_text(encoding="utf-8")))
+
+    def test_new_keeps_existing_design_and_tasks(self) -> None:
+        script = Path(self._tmp.name) / "bin" / "openspec"
+        script.write_text(
+            "#!/usr/bin/env python3\nimport json, sys\nfrom pathlib import Path\n"
+            "name = sys.argv[3]\nd = Path('openspec/changes') / name\nd.mkdir(parents=True)\n"
+            "(d / '.openspec.yaml').write_text('schema: spec-driven\\n')\n"
+            "(d / 'design.md').write_text('mine\\n')\n(d / 'tasks.md').write_text('ours\\n')\n"
+            "print(json.dumps({'change': {'metadataPath': str((d / '.openspec.yaml').resolve())}}))\n",
+            encoding="utf-8",
+        )
+        self.ok("cloud", "new", "--slug", NAME, "--cadence", CADENCE)
+        self.assertEqual((self.change / "design.md").read_text(encoding="utf-8"), "mine\n")
+        self.assertEqual((self.change / "tasks.md").read_text(encoding="utf-8"), "ours\n")
+
     def test_new_without_cadence_prints_need_cadence(self) -> None:
         code, out, _err = run_main(self.root, "cloud", "new", "--slug", NAME)
         self.assertEqual(code, 1)
@@ -454,6 +476,51 @@ class CloseoutTests(CloudCommandBase):
             self.report(f"{sid}-SUMMARY.md")
             self.ok("cloud", "slice-complete", "--change", NAME, "--slice", sid)
 
+    def commit(self) -> None:
+        git(self.root, "add", "-A")
+        git(self.root, "commit", "-q", "-m", "reports")
+
+    def test_archive_refuses_uncommitted_reports_and_names_them(self) -> None:
+        self.make()
+        self.finish_all()
+        self.report("VALIDATION.md")
+        self.report("SUMMARY.md")
+        self.commit()
+        self.report("SUMMARY.md", "changed\n")
+        self.report("S02-UAT.md", "late\n")
+        (self.change / ".delivery" / "NOTES.md").write_text("new\n", encoding="utf-8")
+        message = self.bad("cloud", "archive", NAME)
+        self.assertIn(f"REPORTS_UNCOMMITTED {NAME}", message)
+        for name in ("SUMMARY.md", "S02-UAT.md", "NOTES.md"):
+            self.assertIn(f"openspec/changes/{NAME}/.delivery/{name}", message)
+        self.assertIn("--keep-reports-backup", message)
+        self.assertTrue(self.change.is_dir())
+        self.assertEqual((self.change / ".delivery" / "NOTES.md").read_text(encoding="utf-8"), "new\n")
+        self.assertNotIn("DONE", self.meta())
+
+    def test_archive_keep_reports_backup_proceeds_and_keeps_the_backup(self) -> None:
+        self.make()
+        self.finish_all()
+        self.report("VALIDATION.md")
+        self.report("SUMMARY.md", "uncommitted summary\n")
+        out = self.ok("cloud", "archive", NAME, "--keep-reports-backup")
+        self.assertIn(f"archived {NAME} as 2026-10-18-{NAME}", out)
+        match = re.search(r"^REPORTS_KEPT (\S+)$", out, re.M)
+        self.assertIsNotNone(match, out)
+        kept = Path(match.group(1))
+        self.addCleanup(lambda: shutil.rmtree(kept.parent, ignore_errors=True))
+        self.assertEqual((kept / "SUMMARY.md").read_text(encoding="utf-8"), "uncommitted summary\n")
+        archived = self.root / "openspec/changes/archive" / f"2026-10-18-{NAME}"
+        self.assertFalse((archived / ".delivery").exists())
+
+    def test_archive_with_committed_reports_prints_no_backup(self) -> None:
+        self.make()
+        self.finish_all()
+        self.report("VALIDATION.md")
+        self.report("SUMMARY.md")
+        self.commit()
+        self.assertNotIn("REPORTS_KEPT", self.ok("cloud", "archive", NAME))
+
     def test_archive_gates_then_deletes_delivery_and_marks_done(self) -> None:
         self.make()
         self.assertIn("open", self.bad("cloud", "archive", NAME).lower())
@@ -462,6 +529,7 @@ class CloseoutTests(CloudCommandBase):
         self.report("VALIDATION.md")
         self.assertIn("SUMMARY.md", self.bad("cloud", "archive", NAME))
         self.report("SUMMARY.md")
+        self.commit()
         out = self.ok("cloud", "archive", NAME)
         self.assertIn(f"archived {NAME} as 2026-10-18-{NAME}", out)
         archived = self.root / "openspec/changes/archive" / f"2026-10-18-{NAME}"
@@ -504,6 +572,7 @@ class CloseoutTests(CloudCommandBase):
         self.report("VALIDATION.md")
         self.report("SUMMARY.md")
         self.ok("cloud", "milestone-complete", NAME, "--archive-declined")
+        self.commit()
         self.ok("cloud", "archive", NAME)
         archived = self.root / "openspec/changes/archive" / f"2026-10-18-{NAME}"
         self.assertNotIn("x-delivery-archive", self.meta(archived))
@@ -541,6 +610,7 @@ class CloseoutTests(CloudCommandBase):
         tasks.write_text(tasks.read_text(encoding="utf-8").replace("[ ] 2.1", "[d] 2.1"), encoding="utf-8")
         self.report("VALIDATION.md")
         self.report("SUMMARY.md")
+        self.commit()
         self.ok("cloud", "archive", NAME)
         self.assertTrue((self.root / "openspec/changes/archive" / f"2026-10-18-{NAME}").is_dir())
 
@@ -558,6 +628,7 @@ class CloseoutTests(CloudCommandBase):
         self.report("VALIDATION.md")
         self.report("SUMMARY.md")
         before = sorted(p.name for p in (self.change / ".delivery").iterdir())
+        self.commit()
         os.environ["FAKE_OPENSPEC_ARCHIVE"] = "fail"
         self.addCleanup(lambda: os.environ.pop("FAKE_OPENSPEC_ARCHIVE", None))
         message = self.bad("cloud", "archive", NAME)
@@ -570,6 +641,7 @@ class CloseoutTests(CloudCommandBase):
         self.finish_all()
         self.report("VALIDATION.md")
         self.report("SUMMARY.md")
+        self.commit()
         os.environ["FAKE_OPENSPEC_ARCHIVE"] = "move-then-fail"
         self.addCleanup(lambda: os.environ.pop("FAKE_OPENSPEC_ARCHIVE", None))
         message = self.bad("cloud", "archive", NAME)
@@ -587,6 +659,7 @@ class CloseoutTests(CloudCommandBase):
         self.report("VALIDATION.md")
         self.report("SUMMARY.md")
         self.ok("cloud", "milestone-complete", NAME, "--archive-declined")
+        self.commit()
         os.environ["FAKE_OPENSPEC_ARCHIVE"] = "fail"
         self.addCleanup(lambda: os.environ.pop("FAKE_OPENSPEC_ARCHIVE", None))
         self.bad("cloud", "archive", NAME)
@@ -633,6 +706,25 @@ class StatusTests(CloudCommandBase):
         self.assertIn(cloud_line, out)
         self.assertIn("Active milestone: M002", out)
         self.assertLess(out.index(cloud_line), out.index("# State"))
+
+
+class TemplateTests(unittest.TestCase):
+    def test_template_prints_each_cloud_template_verbatim(self) -> None:
+        names = {
+            "design": "design-delivery.md", "read-first": "tasks-read-first.md",
+            "slice-group": "slice-group.md", "task-summary": "reports/TASK-SUMMARY.md",
+            "slice-uat": "reports/SLICE-UAT.md", "slice-summary": "reports/SLICE-SUMMARY.md",
+            "validation": "reports/VALIDATION.md", "summary": "reports/SUMMARY.md",
+        }
+        for name, rel in names.items():
+            code, out, err = run_main(ROOT, "cloud", "template", name)
+            self.assertEqual(code, 0, err)
+            self.assertEqual(out, (ROOT / "templates" / "cloud" / rel).read_text(encoding="utf-8"), name)
+
+    def test_template_refuses_an_unknown_name(self) -> None:
+        code, out, err = run_main(ROOT, "cloud", "template", "roadmap")
+        self.assertNotEqual(code, 0)
+        self.assertIn("unknown template roadmap", out + err)
 
 
 class RulesTests(unittest.TestCase):

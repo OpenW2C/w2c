@@ -12,6 +12,9 @@ def register(sub: argparse._SubParsersAction) -> None:
     csub = cloud.add_subparsers(dest="cloud_cmd", required=True)
     csub.add_parser("env", help="report whether this is a temporary container")
     csub.add_parser("rules", help="print the cloud rules snippet for openspec/config.yaml")
+    tpl = csub.add_parser("template", help="print a cloud template verbatim")
+    tpl.add_argument("name", help="design, read-first, slice-group, task-summary, slice-uat, "
+                                  "slice-summary, validation, or summary")
     new = csub.add_parser("new", help="create an OpenSpec change with delivery keys")
     new.add_argument("--slug", required=True)
     new.add_argument("--cadence", default=None, help="git delivery cadence for this change")
@@ -33,6 +36,8 @@ def register(sub: argparse._SubParsersAction) -> None:
     sl.add_argument("--slice", dest="slice_id", required=True)
     arch = csub.add_parser("archive", help="archive a finished change and mark it DONE")
     arch.add_argument("change")
+    arch.add_argument("--keep-reports-backup", action="store_true",
+                      help="archive although .delivery/ has uncommitted files; keep a backup of them")
     mc = csub.add_parser("milestone-complete", help="mark a change DONE")
     mc.add_argument("change")
     mc.add_argument("--archive-declined", action="store_true")
@@ -110,6 +115,10 @@ def dispatch(args: argparse.Namespace) -> int:
 
         print(layout.CONFIG_RULES_SNIPPET, end="")
         return 0
+    if args.cloud_cmd == "template":
+        from w2c.cloud import commands as cloud_commands
+
+        return cloud_commands.template(args.name)
     from w2c import cli as w2c_cli
     from w2c.cloud import commands
 
@@ -128,7 +137,7 @@ def dispatch(args: argparse.Namespace) -> int:
     if cmd == "slice-complete":
         return commands.slice_complete(root, args.change, args.slice_id)
     if cmd == "archive":
-        return commands.archive(root, args.change)
+        return commands.archive(root, args.change, args.keep_reports_backup)
     if cmd == "milestone-complete":
         return commands.milestone_complete(root, args.change, args.archive_declined)
     if cmd == "status-set":

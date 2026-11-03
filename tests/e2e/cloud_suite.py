@@ -18,7 +18,6 @@ from tests.e2e.legacy_suite import tree
 
 CHANGE = "add-multiply"
 BRANCH = "DEMO-1"
-TEMPLATES = REPO / "templates" / "cloud"
 VERIFY = "python3 -m unittest discover -s tests -t ."
 
 PROPOSAL = (
@@ -46,7 +45,8 @@ def change_dir(p: Project) -> Path:
     return p.root / "openspec" / "changes" / CHANGE
 
 
-def filled_design() -> str:
+def filled_design(folder: Path) -> str:
+    """The design.md `w2c cloud new` wrote in `folder`, every Delivery Plan row filled."""
     values = {
         "Isolation mode": "branch", "Local branch": BRANCH, "Remote branch": BRANCH,
         "Worktree skill": "n/a", "Base dirt policy": "clean-at-plan", "Manual test guide": "no",
@@ -56,7 +56,7 @@ def filled_design() -> str:
         field, current = match.group(1), match.group(2).strip()
         return f"| {field} | {values.get(field, current or 'none')} |"
 
-    text = (TEMPLATES / "design-delivery.md").read_text(encoding="utf-8")
+    text = (folder / "design.md").read_text(encoding="utf-8")
     return re.sub(
         r"^\| ([^|]+?) \|([^|\n]*)\|$",
         lambda m: m.group(0) if m.group(1) in ("Field", "---") else fill(m),
@@ -64,9 +64,11 @@ def filled_design() -> str:
     )
 
 
-def filled_tasks() -> str:
-    out = ["# Tasks\n\n", (TEMPLATES / "tasks-read-first.md").read_text(encoding="utf-8"), "\n"]
-    template = (TEMPLATES / "slice-group.md").read_text(encoding="utf-8")
+def filled_tasks(p: Project, folder: Path) -> str:
+    """The tasks.md `w2c cloud new` wrote in `folder`, then one group per slice from
+    `w2c cloud template slice-group`."""
+    out = [(folder / "tasks.md").read_text(encoding="utf-8").rstrip("\n") + "\n\n"]
+    template = p.w2c("cloud", "template", "slice-group").stdout
     head = template[: template.index("- [ ] N.1")]
     for number, (title, tasks) in enumerate(GROUPS, start=1):
         block = head.replace("## N. TITLE", f"## {number}. {title}")
@@ -122,14 +124,15 @@ def c02_new(p: Project) -> None:
     meta = p.read(f"openspec/changes/{CHANGE}/.openspec.yaml")
     p.expect_tokens(meta, "x-delivery-status: PLANNING", "x-delivery-order: 1",
                     "x-delivery-cadence: slice-commit-milestone-push-pr")
-    p.expect_files("openspec/knowledge.md", ".gitattributes")
+    p.expect_files("openspec/knowledge.md", ".gitattributes", f"openspec/changes/{CHANGE}/design.md",
+                   f"openspec/changes/{CHANGE}/tasks.md")
     p.expect_tokens(p.read(".gitattributes"), "openspec/knowledge.md merge=union")
     no_local_files(p)
     change = change_dir(p)
     p.write(change / "proposal.md", PROPOSAL)
-    p.write(change / "design.md", filled_design())
+    p.write(change / "design.md", filled_design(change))
     p.write(change / "specs" / "calc-multiply" / "spec.md", SPEC)
-    p.write(change / "tasks.md", filled_tasks())
+    p.write(change / "tasks.md", filled_tasks(p, change))
     valid = p.run(["openspec", "validate", CHANGE, "--strict"], check=False)
     if valid.returncode != 0:
         raise AssertionError(f"openspec validate --strict failed\n{valid.stdout}{valid.stderr}")
@@ -184,6 +187,12 @@ def c04_closeout_archive(p: Project) -> None:
     p.expect_tokens(refused, f"run w2c cloud archive {CHANGE} or pass --archive-declined")
     report(p, "VALIDATION.md")
     report(p, "SUMMARY.md")
+    dirty = p.w2c("cloud", "archive", CHANGE, check=False)
+    if dirty.returncode == 0:
+        raise AssertionError("archive should be refused while .delivery/ is not committed")
+    p.expect_tokens(dirty, f"REPORTS_UNCOMMITTED {CHANGE}", f"openspec/changes/{CHANGE}/.delivery/SUMMARY.md")
+    p.git("add", "openspec")
+    p.git("commit", "-q", "-m", "Finish the multiply change with its reports.")
     arch = p.w2c("cloud", "archive", CHANGE)
     p.expect_tokens(arch, f"archived {CHANGE} as")
     p.expect_matches("C04-archive.txt", arch.stdout)
@@ -209,19 +218,24 @@ def c05_decisions_order(p: Project) -> None:
     def order_key(name: str) -> str:
         return re.search(r"x-delivery-order: (\d+)", p.read(f"openspec/changes/{name}/.openspec.yaml")).group(1)
 
-    p.w2c("cloud", "new", "--slug", first)
-    p.w2c("cloud", "new", "--slug", second)
     held = p.w2c("cloud", "decide", "--scope", "export", "--decision", "Format",
                  "--choice", "csv | json", "--rationale", "simple", "--when", "2026-01-01")
     p.expect_tokens(held, "PENDING")
-    held = p.w2c("cloud", "decide", "--change", first, "--scope", "export", "--decision", "Limit",
+    held = p.w2c("cloud", "decide", "--scope", "export", "--decision", "Limit",
                  "--choice", "none", "--rationale", "later", "--when", "2026-01-01")
     p.expect_tokens(held, "PENDING")
+    p.w2c("cloud", "new", "--slug", first)
+    p.w2c("cloud", "new", "--slug", second)
+    first_design = p.root / "openspec" / "changes" / first / "design.md"
+    written = first_design.read_text(encoding="utf-8")
+    first_design.unlink()
     early = p.w2c("cloud", "decisions-flush", "--change", first, check=False)
     if early.returncode == 0:
-        raise AssertionError("flush should be refused before the design exists")
+        raise AssertionError("flush should be refused without a design")
+    first_design.write_text(written, encoding="utf-8")
     for name in (first, second):
-        p.write(p.root / "openspec" / "changes" / name / "design.md", filled_design())
+        folder = p.root / "openspec" / "changes" / name
+        p.write(folder / "design.md", filled_design(folder))
     flushed = p.w2c("cloud", "decisions-flush", "--change", first)
     p.expect_tokens(flushed, "2 flushed")
     p.expect_matches("C05-flush.txt", flushed.stdout)
@@ -255,11 +269,11 @@ def c06_amendments(p: Project) -> None:
     folder = p.root / "openspec" / "changes" / name
     p.w2c("cloud", "new", "--slug", name)
     p.write(folder / "proposal.md", PROPOSAL.replace("calc-multiply", "calc-divide").replace("multiply", "divide"))
-    p.write(folder / "design.md", filled_design())
+    p.write(folder / "design.md", filled_design(folder))
     p.write(folder / "specs" / "calc-divide" / "spec.md",
             SPEC.replace("Multiply two numbers", "Divide two numbers").replace("multiplies 3 by 4", "divides 12 by 4")
             .replace("product", "quotient").replace("is 12", "is 3").replace("Multiplying", "Dividing"))
-    p.write(folder / "tasks.md", filled_tasks().replace("multiply", "divide").replace("Multiply", "Divide"))
+    p.write(folder / "tasks.md", filled_tasks(p, folder).replace("multiply", "divide").replace("Multiply", "Divide"))
     p.w2c("cloud", "status-set", name, "INPROGRESS")
     refused = p.w2c("cloud", "amend-begin", "--change", name, "--decision", "D1", check=False)
     if refused.returncode == 0:
@@ -303,12 +317,12 @@ def c07_push_guard(p: Project) -> None:
     hook = p.read(".git/hooks/pre-push")
     p.expect_tokens(hook, "# w2c-hook: openspec-archive")
     p.write(folder / "proposal.md", PROPOSAL.replace("calc-multiply", "calc-negate").replace("multiply", "negate"))
-    p.write(folder / "design.md", filled_design())
+    p.write(folder / "design.md", filled_design(folder))
     p.write(folder / "specs" / "calc-negate" / "spec.md",
             SPEC.replace("calc-multiply", "calc-negate").replace("Multiply two numbers", "Negate a number")
             .replace("multiplies 3 by 4", "negates 5").replace("product of two numbers", "opposite of a number")
             .replace("is 12", "is -5").replace("Multiplying two integers", "Negating an integer"))
-    p.write(folder / "tasks.md", filled_tasks().replace("multiply", "negate").replace("Multiply", "Negate"))
+    p.write(folder / "tasks.md", filled_tasks(p, folder).replace("multiply", "negate").replace("Multiply", "Negate"))
     p.w2c("cloud", "status-set", name, "TODO")
 
     def note(file: str) -> None:
@@ -337,6 +351,8 @@ def c07_push_guard(p: Project) -> None:
         raise AssertionError("refused push still reached the remote")
     note("VALIDATION.md")
     note("SUMMARY.md")
+    p.git("add", "openspec")
+    p.git("commit", "-q", "-m", "Add the negate closeout notes.")
     arch = p.w2c("cloud", "archive", name)
     p.expect_tokens(arch, f"archived {name} as")
     p.git("add", "openspec")
@@ -357,13 +373,13 @@ def plan_change(p: Project, name: str, word: str) -> Path:
     p.w2c("cloud", "new", "--slug", name)
     cap = f"calc-{word}"
     p.write(folder / "proposal.md", PROPOSAL.replace("calc-multiply", cap).replace("multiply", word))
-    p.write(folder / "design.md", filled_design())
+    p.write(folder / "design.md", filled_design(folder))
     p.write(folder / "specs" / cap / "spec.md",
             SPEC.replace("Multiply two numbers", f"{word.title()} a number")
             .replace("multiplies 3 by 4", f"asks for the {word} of 3")
             .replace("product of two numbers", f"{word} of a number")
             .replace("is 12", "is right").replace("Multiplying two integers", f"Taking the {word} of an integer"))
-    p.write(folder / "tasks.md", filled_tasks().replace("multiply", word).replace("Multiply", word.title()))
+    p.write(folder / "tasks.md", filled_tasks(p, folder).replace("multiply", word).replace("Multiply", word.title()))
     p.w2c("cloud", "status-set", name, "TODO")
     return folder
 
@@ -483,7 +499,9 @@ def c08_step_driver(p: Project) -> None:
         raise AssertionError("the driven milestone did not reach the remote")
     if p.git("status", "--porcelain", "--", "openspec", "app", "tests", "docs").stdout.strip():
         raise AssertionError("the driven milestone left uncommitted product files")
-    p.expect_tokens(p.read(".w2c/runtime/step.json"), f'"change": "{name}"')
+    p.expect_tokens(p.read(".git/w2c/step.json"), f'"change": "{name}"')
+    if (p.root / ".w2c" / "runtime" / "step.json").exists():
+        raise AssertionError("step state must live in the git directory, not under .w2c/")
     no_local_files(p)
 
 

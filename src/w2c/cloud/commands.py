@@ -126,6 +126,45 @@ def _is_open(task) -> bool:
     return not task.done and not task.dropped
 
 
+# `w2c cloud template <name>` names, relative to templates/.
+TEMPLATES = {
+    "design": "cloud/design-delivery.md",
+    "read-first": "cloud/tasks-read-first.md",
+    "slice-group": "cloud/slice-group.md",
+    "task-summary": "cloud/reports/TASK-SUMMARY.md",
+    "slice-uat": "cloud/reports/SLICE-UAT.md",
+    "slice-summary": "cloud/reports/SLICE-SUMMARY.md",
+    "validation": "cloud/reports/VALIDATION.md",
+    "summary": "cloud/reports/SUMMARY.md",
+}
+# The files `w2c cloud new` starts a change with, each only when absent.
+STARTING_FILES = (("design.md", "design"), ("tasks.md", "read-first"))
+
+
+def template_text(name: str) -> str:
+    cli = _cli()
+    rel = TEMPLATES.get(name)
+    if rel is None:
+        raise cli.W2CError(f"unknown template {name}; use {', '.join(TEMPLATES)}")
+    return cli.load_checkout_template(rel)
+
+
+def template(name: str) -> int:
+    print(template_text(name), end="")
+    return 0
+
+
+def write_starting_files(folder: Path) -> list[str]:
+    """design.md and tasks.md from the cloud templates, each only when absent."""
+    written: list[str] = []
+    for filename, name in STARTING_FILES:
+        target = folder / filename
+        if not target.exists():
+            _cli().atomic_write(target, template_text(name))
+            written.append(filename)
+    return written
+
+
 def new(root: Path, slug: str, cadence: str | None) -> int:
     cli = _cli()
     slug = cli.slugify(slug)
@@ -150,6 +189,7 @@ def new(root: Path, slug: str, cadence: str | None) -> int:
     ledger.write_key(path, "x-delivery-status", "PLANNING")
     ledger.write_key(path, "x-delivery-order", str(top + 1))
     ledger.write_key(path, "x-delivery-cadence", str(cadence))
+    write_starting_files(path.parent)
     ensure_knowledge(root)
     from w2c import hooks as w2c_hooks
 
@@ -362,7 +402,23 @@ def all_closed(change: ledger.CloudChange) -> bool:
     return bool(tasks) and bool(numbers) and not open_groups and not any(_is_open(t) for t in tasks)
 
 
-def archive(root: Path, change: str) -> int:
+def uncommitted_reports(root: Path, reports: Path) -> list[str]:
+    """Files under `reports` with uncommitted or untracked changes; empty outside git."""
+    import subprocess
+
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(root), "status", "--porcelain", "--untracked-files=all", "--", str(reports)],
+            capture_output=True, text=True,
+        )
+    except OSError:
+        return []
+    if proc.returncode != 0:
+        return []
+    return [line[3:] for line in proc.stdout.splitlines() if len(line) > 3]
+
+
+def archive(root: Path, change: str, keep_reports_backup: bool = False) -> int:
     cli = _cli()
     item = _active(root, change)
     _refuse_if_locked(item)
@@ -371,6 +427,12 @@ def archive(root: Path, change: str) -> int:
     _require_closeout(item)
     meta = _meta(item)
     reports = ledger.delivery_dir(item)
+    dirty = uncommitted_reports(root, reports) if reports.exists() else []
+    if dirty and not keep_reports_backup:
+        raise cli.W2CError(
+            f"REPORTS_UNCOMMITTED {item.name}: the archive removes .delivery/; commit these files "
+            f"first or pass --keep-reports-backup: {', '.join(dirty)}"
+        )
     backup = Path(tempfile.mkdtemp(prefix="cloud-delivery-"))
     saved = backup / reports.name
     try:
@@ -394,12 +456,16 @@ def archive(root: Path, change: str) -> int:
             ledger.write_key(meta, "x-delivery-archive", item.archive or None)
         shutil.rmtree(backup, ignore_errors=True)
         raise
-    shutil.rmtree(backup, ignore_errors=True)
+    kept = keep_reports_backup and saved.exists()
+    if not kept:
+        shutil.rmtree(backup, ignore_errors=True)
     info = data.get("archive") if isinstance(data, dict) else None
     archived_as = str(info.get("archivedAs") or "") if isinstance(info, dict) else ""
     _event(root, stage="archive", event="complete", milestone=item.name,
            detail=f"archived {item.name}")
     print(f"archived {item.name} as {archived_as or item.name}")
+    if kept:
+        print(f"REPORTS_KEPT {saved}")
     return 0
 
 
