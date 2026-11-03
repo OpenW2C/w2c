@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -137,6 +138,100 @@ class W2CLocalTest(unittest.TestCase):
         self.assertNotIn(str(self.tmp.resolve()), w2c_local.load_global_config()["projects"])
         self.assertEqual(w2c.cmd_register(self.tmp), 0)
         self.assertIn(str(self.tmp.resolve()), w2c_local.load_global_config()["projects"])
+
+    # ---- cloud-mode Copilot files -------------------------------------
+    GD = "slice-commit-milestone-push-pr"
+
+    def _fake_skills(self, names=("work-to-chores-cloud", "do-chores-cloud")) -> Path:
+        base = Path(tempfile.mkdtemp(prefix="w2c-skills-"))
+        for n in names:
+            d = base / n
+            d.mkdir()
+            (d / "SKILL.md").write_text(f"BODY {n}\n", encoding="utf-8")
+            (d / "SKILL.copilot.md").write_text('---\napplyTo: "**"\n---\n', encoding="utf-8")
+        real = w2c.skills_dir()
+        for n in ("work-to-chores", "do-chores"):
+            if real is not None and (real / n).is_dir():
+                shutil.copytree(real / n, base / n)
+        return base
+
+    def _init(self, skills: Path, **kw) -> int:
+        with mock.patch.object(w2c, "skills_dir", return_value=skills):
+            return w2c.cmd_init(self.tmp, git_delivery=self.GD, **kw)
+
+    def test_cloud_init_writes_neutral_copilot_files_not_ignored(self) -> None:
+        skills = self._fake_skills()
+        self.assertEqual(self._init(skills, planning="cloud"), 0)
+        inst = self.tmp / ".github" / "instructions"
+        plan = inst / "plan-work.instructions.md"
+        do = inst / "do-work.instructions.md"
+        self.assertIn("BODY work-to-chores-cloud", plan.read_text(encoding="utf-8"))
+        self.assertIn('applyTo: "**"', plan.read_text(encoding="utf-8"))
+        self.assertIn("BODY do-chores-cloud", do.read_text(encoding="utf-8"))
+        self.assertFalse((inst / "work-to-chores.instructions.md").exists())
+        gi = (self.tmp / ".gitignore").read_text(encoding="utf-8").splitlines()
+        self.assertIn(".w2c/", gi)
+        self.assertFalse(any("instructions" in ln for ln in gi))
+        for f in (plan, do):
+            rc = subprocess.run(["git", "-C", str(self.tmp), "check-ignore", "-q", str(f)]).returncode
+            self.assertNotEqual(rc, 0)
+
+    def test_cloud_init_missing_skill_prints_note(self) -> None:
+        skills = self._fake_skills(names=("work-to-chores-cloud",))
+        import io
+        from contextlib import redirect_stdout
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            self.assertEqual(self._init(skills, planning="cloud"), 0)
+        self.assertIn("NOTE missing skill do-chores-cloud; Copilot file not written", buf.getvalue())
+        self.assertNotIn("missing skill work-to-chores-cloud", buf.getvalue())
+        inst = self.tmp / ".github" / "instructions"
+        self.assertTrue((inst / "plan-work.instructions.md").is_file())
+        self.assertFalse((inst / "do-work.instructions.md").exists())
+
+    def test_switching_default_to_cloud_replaces_copilot_files_after_flag(self) -> None:
+        skills = self._fake_skills()
+        self.assertEqual(self._init(skills), 0)
+        inst = self.tmp / ".github" / "instructions"
+        old = [inst / "work-to-chores.instructions.md", inst / "do-chores.instructions.md"]
+        self.assertTrue(all(f.is_file() for f in old))
+        gi_before = (self.tmp / ".gitignore").read_text(encoding="utf-8")
+        import io
+        from contextlib import redirect_stdout
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            self._init(skills, planning="cloud")
+        self.assertIn("NEED_COPILOT_REPLACE", buf.getvalue())
+        self.assertTrue(all(f.is_file() for f in old))
+        self.assertEqual((self.tmp / ".gitignore").read_text(encoding="utf-8"), gi_before)
+        self.assertNotEqual(w2c_local.load_repo_config(self.tmp).get("planning"), "cloud")
+        self.assertFalse((inst / "plan-work.instructions.md").exists())
+        self.assertEqual(self._init(skills, planning="cloud", replace_copilot=True), 0)
+        self.assertFalse(any(f.exists() for f in old))
+        gi = (self.tmp / ".gitignore").read_text(encoding="utf-8")
+        self.assertNotIn("work-to-chores.instructions.md", gi)
+        self.assertNotIn("do-chores.instructions.md", gi)
+        self.assertIn(".w2c/", gi)
+        self.assertTrue((inst / "plan-work.instructions.md").is_file())
+        self.assertTrue((inst / "do-work.instructions.md").is_file())
+        self.assertEqual(w2c_local.load_repo_config(self.tmp).get("planning"), "cloud")
+
+    def test_legacy_init_unchanged(self) -> None:
+        skills = self._fake_skills()
+        self.assertEqual(self._init(skills, planning="classic"), 0)
+        inst = self.tmp / ".github" / "instructions"
+        self.assertTrue((inst / "work-to-chores.instructions.md").is_file())
+        self.assertTrue((inst / "do-chores.instructions.md").is_file())
+        self.assertFalse((inst / "plan-work.instructions.md").exists())
+        gi = (self.tmp / ".gitignore").read_text(encoding="utf-8").splitlines()
+        self.assertEqual(
+            [ln for ln in gi if ln and not ln.startswith("#")],
+            list(w2c_local.DEFAULT_GITIGNORE_MARKERS),
+        )
+        self.assertEqual(
+            w2c_local.gitignore_markers(False), list(w2c_local.DEFAULT_GITIGNORE_MARKERS)
+        )
+        self.assertEqual(w2c_local.gitignore_markers(False, "cloud"), [".w2c/"])
 
 
 if __name__ == "__main__":

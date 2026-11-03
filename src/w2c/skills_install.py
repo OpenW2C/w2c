@@ -5,18 +5,33 @@ import shutil
 from pathlib import Path
 
 
-def write_copilot_instructions(root: Path, skills: Path | None) -> list[str]:
+# Cloud mode: (skill folder, neutral instruction file stem).
+CLOUD_COPILOT_FILES = (
+    ("work-to-chores-cloud", "plan-work"),
+    ("do-chores-cloud", "do-work"),
+)
+
+
+def write_copilot_instructions(
+    root: Path, skills: Path | None, mode: str = "openspec"
+) -> list[str]:
     written: list[str] = []
     if skills is None:
         return written
     dest_dir = root / ".github" / "instructions"
     dest_dir.mkdir(parents=True, exist_ok=True)
-    for name in ("work-to-chores", "do-chores"):
+    if mode == "cloud":
+        pairs = CLOUD_COPILOT_FILES
+    else:
+        pairs = tuple((n, n) for n in ("work-to-chores", "do-chores"))
+    for name, stem in pairs:
         body = skills / name / "SKILL.md"
         wrapper = skills / name / "SKILL.copilot.md"
         if not body.is_file():
+            if mode == "cloud":
+                print(f"NOTE missing skill {name}; Copilot file not written")
             continue
-        dest = dest_dir / f"{name}.instructions.md"
+        dest = dest_dir / f"{stem}.instructions.md"
         if wrapper.is_file():
             dest.write_text(
                 wrapper.read_text(encoding="utf-8") + "\n" + body.read_text(encoding="utf-8"),

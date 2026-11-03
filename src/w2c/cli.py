@@ -935,6 +935,7 @@ def cmd_init(
     track: bool | None = None,
     git_delivery: str | None = None,
     planning: str | None = None,
+    replace_copilot: bool = False,
 ) -> int:
     wdir = w2c_dir(root)
     wdir.mkdir(parents=True, exist_ok=True)
@@ -968,6 +969,22 @@ def cmd_init(
         chosen_planning = w2c_local.PLANNING_OPENSPEC if creating else None
     else:
         chosen_planning = w2c_local.normalize_planning(planning)
+    old_copilot = [root / rel for rel in w2c_local.COPILOT_INSTRUCTION_RELPATHS]
+    old_copilot = [p for p in old_copilot if p.is_file()]
+    already_cloud = (
+        not creating
+        and w2c_local.load_repo_config(root).get("planning") == w2c_local.PLANNING_CLOUD
+    )
+    switching = chosen_planning == w2c_local.PLANNING_CLOUD and not already_cloud
+    if switching and old_copilot:
+        if not replace_copilot:
+            print("NEED_COPILOT_REPLACE")
+            return 1
+        for p in old_copilot:
+            p.unlink()
+        w2c_local.remove_gitignore_lines(
+            root, tuple(str(r) for r in w2c_local.COPILOT_INSTRUCTION_RELPATHS)
+        )
     if creating:
         w2c_local.write_repo_config(
             root,
@@ -983,8 +1000,13 @@ def cmd_init(
             kwargs["planning"] = chosen_planning
         w2c_local.write_repo_config(root, **kwargs)
     track_flag = True if track is True else w2c_local.is_track_enabled(root)
-    w2c_local.ensure_gitignore(root, track=track_flag)
-    created.extend(write_copilot_instructions(root, skills_dir()))
+    mode = (
+        w2c_local.PLANNING_CLOUD
+        if w2c_local.load_repo_config(root).get("planning") == w2c_local.PLANNING_CLOUD
+        else w2c_local.PLANNING_OPENSPEC
+    )
+    w2c_local.ensure_gitignore(root, track=track_flag, mode=mode)
+    created.extend(write_copilot_instructions(root, skills_dir(), mode))
     w2c_local.register_project(root)
     append_event(
         root,
@@ -2285,6 +2307,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="mandatory git commit/push cadence (required unless already set or TTY prompt)",
     )
+    init_p.add_argument(
+        "--replace-copilot",
+        dest="replace_copilot",
+        action="store_true",
+        help="with --planning cloud: delete the 2.2 Copilot files and write the cloud ones",
+    )
     sub.add_parser("status", help="print STATE.md")
     smoke_p = sub.add_parser("smoke", help="ledger coherence checks")
     smoke_p.add_argument(
@@ -2542,6 +2570,7 @@ def dispatch(args: argparse.Namespace) -> int:
             track=True if getattr(args, "track", False) else None,
             git_delivery=getattr(args, "git_delivery", None),
             planning=getattr(args, "planning", None),
+            replace_copilot=bool(getattr(args, "replace_copilot", False)),
         )
     if cmd == "status":
         return cmd_status(root)

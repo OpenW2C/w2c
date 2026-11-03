@@ -29,6 +29,7 @@ DEFAULT_GITIGNORE_MARKERS = (
     ".github/instructions/do-chores.instructions.md",
 )
 TRACK_GITIGNORE_MARKERS = (".w2c/runtime/",)
+CLOUD_GITIGNORE_MARKERS = (".w2c/",)
 GITIGNORE_COMMENT = "# w2c (local planner unless track = true)"
 UNTRACK_INDEX_PATHS = [
     ".w2c",
@@ -316,17 +317,31 @@ def is_track_enabled(root: Path) -> bool:
     return bool(load_repo_config(root).get("track"))
 
 
-def gitignore_markers(track: bool) -> list[str]:
-    return list(TRACK_GITIGNORE_MARKERS if track else DEFAULT_GITIGNORE_MARKERS)
+def gitignore_markers(track: bool, mode: str = PLANNING_OPENSPEC) -> list[str]:
+    if track:
+        return list(TRACK_GITIGNORE_MARKERS)
+    if mode == PLANNING_CLOUD:
+        return list(CLOUD_GITIGNORE_MARKERS)
+    return list(DEFAULT_GITIGNORE_MARKERS)
 
 
-def ensure_gitignore(root: Path, *, track: bool) -> list[str]:
+def remove_gitignore_lines(root: Path, lines_to_drop: tuple[str, ...]) -> None:
+    gi = root / ".gitignore"
+    if not gi.is_file():
+        return
+    lines = gi.read_text(encoding="utf-8").splitlines()
+    kept = [ln for ln in lines if ln not in lines_to_drop]
+    if kept != lines:
+        gi.write_text(chr(10).join(kept).rstrip() + chr(10), encoding="utf-8")
+
+
+def ensure_gitignore(root: Path, *, track: bool, mode: str = PLANNING_OPENSPEC) -> list[str]:
     gi = root / ".gitignore"
     raw = gi.read_text(encoding="utf-8") if gi.is_file() else ""
     lines = raw.splitlines()
     if not track:
         lines = [ln for ln in lines if ln not in LEGACY_GITIGNORE_MARKERS]
-    wanted = gitignore_markers(track)
+    wanted = gitignore_markers(track, mode)
     existing = set(lines)
     missing = [m for m in wanted if m not in existing]
     if not missing and gi.is_file() and raw.splitlines() == lines:
