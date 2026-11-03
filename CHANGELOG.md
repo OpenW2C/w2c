@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - An opt-in cloud mode: `w2c init --planning cloud` and the `w2c cloud` command group (`new`, `next`, `status` with `--all`, `complete`, `slice-complete`, `archive`, `milestone-complete`, `status-set`, `decide`, `decisions-flush`, `order`, `swap`, `move`, the amendment commands, `smoke`, `env`, `step`, `brief`, `rules`, `migrate`).
 - The cloud skills `work-to-chores-cloud` and `do-chores-cloud`.
+- `w2c cloud template <name>` prints a cloud template. `w2c cloud new` writes `design.md` and `tasks.md` from the templates.
+- `w2c cloud archive` refuses while the closeout reports are uncommitted. `--keep-reports-backup` archives anyway and keeps a backup of them.
+- The step driver keeps its state per worktree.
 - `w2c cloud migrate` converts one milestone at a time to the cloud mode. It makes a backup, verifies the result, and can undo the change with `--restore`.
 - The full-cycle test `scripts/w2c-e2e.py` and its CI job.
 - `install.sh --ref` installs a chosen Git ref.
