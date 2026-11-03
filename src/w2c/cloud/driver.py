@@ -7,9 +7,11 @@ only when its box is ticked, a report is written only when it exists, a slice
 is done only when it is in `x-delivery-slices-done`, and the branch is checked
 on every call.
 
-State lives in `.w2c/runtime/step.json` (gitignored local runtime). A missing,
-unreadable, or foreign state file means a fresh start. Standard library only;
-the CLI package is imported lazily.
+State lives in `<git dir>/w2c/step.json`, the per-worktree git directory that
+is never committed, so two linked worktrees never share it. Outside git it is
+`.w2c/runtime/step.json`; that old location is read once when the new one is
+absent. A missing, unreadable, or foreign state file means a fresh start.
+Standard library only; the CLI package is imported lazily.
 """
 
 from __future__ import annotations
@@ -22,7 +24,8 @@ from w2c import local as w2c_local
 from w2c import openspec_ledger as osl
 from w2c.cloud import checks, commands, environment, layout, ledger
 
-STEP_STATE = Path(".w2c/runtime/step.json")
+STEP_STATE = Path(".w2c/runtime/step.json")  # outside git, and the pre-3.0.0 location
+GIT_STEP_STATE = Path("w2c/step.json")  # under `git rev-parse --git-dir`
 STATE_VERSION = 1
 
 TASK_STAGES: tuple[str, ...] = ("implement", "verify", "review", "write-report", "complete")
@@ -110,9 +113,32 @@ def _valid(data: object) -> bool:
     return True
 
 
+def _git_dir(root: Path) -> Path | None:
+    import subprocess
+
+    try:
+        proc = subprocess.run(["git", "-C", str(root), "rev-parse", "--git-dir"],
+                              capture_output=True, text=True)
+    except OSError:
+        return None
+    out = proc.stdout.strip()
+    if proc.returncode != 0 or not out:
+        return None
+    path = Path(out)
+    return path if path.is_absolute() else root / path
+
+
+def state_path(root: Path) -> Path:
+    """Where this checkout keeps its step state."""
+    git_dir = _git_dir(root)
+    return git_dir / GIT_STEP_STATE if git_dir is not None else root / STEP_STATE
+
+
 def load_state(root: Path) -> dict | None:
     """The state file, or None when it is missing, unreadable, or malformed."""
-    path = root / STEP_STATE
+    path = state_path(root)
+    if not path.exists() and path != root / STEP_STATE:
+        path = root / STEP_STATE  # migrate: read the old location once
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, ValueError):
@@ -134,7 +160,7 @@ def _state_for(root: Path, change: str) -> dict:
 
 
 def _save_state(root: Path, state: dict) -> None:
-    _cli().atomic_write(root / STEP_STATE, json.dumps(state, indent=2, sort_keys=True) + "\n")
+    _cli().atomic_write(state_path(root), json.dumps(state, indent=2, sort_keys=True) + "\n")
 
 
 # --------------------------------------------------------------------------- plan
@@ -232,7 +258,8 @@ def _evaluate(root: Path, change: ledger.CloudChange, state: dict) -> tuple[dict
         commit = _ask(slice_answers, "ask-commit")
         if commit is None or commit == "no-answer":
             pending_slice = "ask-commit"
-        elif commit == "yes" and environment.ephemeral_reason() is not None:
+        elif commit == "yes" and not all_done and environment.ephemeral_reason() is not None:
+            # After the last slice the milestone asks cover the push.
             if _ask(slice_answers, "ask-push") in (None, "no-answer"):
                 pending_slice = "ask-push"
     if pending_slice is not None:
@@ -297,7 +324,7 @@ def _evaluate(root: Path, change: ledger.CloudChange, state: dict) -> tuple[dict
         pre = _ask(answers, PRE_ARCHIVE_COMMIT)
         if pre in (None, "no-answer"):
             ctx.ask_scope = "pre-archive"
-            return _ask_out(ctx, "ask-commit", pre, [_rel(root, change.path)])
+            return _ask_out(ctx, "ask-commit", pre, [_rel(root, change.path)], reason="pre-archive")
     ctx.ask_scope = "milestone"
     archive = _ask(answers, "ask-archive")
     if change.archived:
@@ -311,18 +338,28 @@ def _evaluate(root: Path, change: ledger.CloudChange, state: dict) -> tuple[dict
         ctx.recordable.add("ask-archive")
         return _out("ask-archive", ctx, [_rel(root, change.path)], reason=reason), ctx
     # The archive moves files the push check requires, so a second commit
-    # question comes after it in both cadences.
-    pending = _milestone_ask(answers)
+    # question comes after it in both cadences. After a declined archive the
+    # push check refuses the finished change, so there is no push and no PR.
+    declined = _declined(change)
+    pending = _milestone_ask(answers, declined)
     if pending is None:
-        return _out("done", ctx), ctx
-    return _ask_out(ctx, pending, _ask(answers, pending))
+        return _out("done", ctx, reason="push-blocked-until-archive" if declined else None), ctx
+    reason = "post-archive" if pending == "ask-commit" else None
+    return _ask_out(ctx, pending, _ask(answers, pending), reason=reason)
 
 
-def _milestone_ask(answers: dict) -> str | None:
-    """The post-archive ask still owed: commit, push, then a PR after a push yes."""
-    for action in ("ask-commit", "ask-push"):
+def _declined(change: ledger.CloudChange) -> bool:
+    return not change.archived and change.status == "DONE" and change.archive == "declined"
+
+
+def _milestone_ask(answers: dict, declined: bool = False) -> str | None:
+    """The post-archive ask still owed: commit, push, then a PR after a push yes.
+    After a declined archive only the commit is asked."""
+    for action in ("ask-commit",) if declined else ("ask-commit", "ask-push"):
         if _ask(answers, action) in (None, "no-answer"):
             return action
+    if declined:
+        return None
     if _ask(answers, "ask-push") == "yes" and _ask(answers, "ask-pr") in (None, "no-answer"):
         return "ask-pr"
     return None
@@ -331,15 +368,16 @@ def _milestone_ask(answers: dict) -> str | None:
 def _owes_asks(change: ledger.CloudChange, state: dict) -> bool:
     """A closed (archived or DONE) change whose post-archive asks are not all answered."""
     closed = change.archived or change.status == "DONE"
-    return closed and state.get("change") == change.name and _milestone_ask(state["milestone_answers"]) is not None
+    return closed and state.get("change") == change.name and _milestone_ask(
+        state["milestone_answers"], _declined(change)) is not None
 
 
 def _ask_out(ctx: Context, action: str, answer: str | None,
-             files: list[str] | None = None) -> tuple[dict, Context]:
+             files: list[str] | None = None, reason: str | None = None) -> tuple[dict, Context]:
     ctx.recordable.add(action)
     if answer == "no-answer":
         return _out("stop", ctx, reason=f"approval-needed:{action}"), ctx
-    return _out(action, ctx, files), ctx
+    return _out(action, ctx, files, reason=reason), ctx
 
 
 def _task_step(root: Path, change: ledger.CloudChange, ctx: Context, state: dict, task,
@@ -410,6 +448,7 @@ def _plan(root: Path, change: str | None) -> tuple[dict, Context]:
             return _owed_stop(item, owed)
         return _evaluate(root, item, _state_for(root, item.name))
     finished: str | None = None
+    finished_reason: str | None = None
     candidates = _candidates(root)
     if held is not None:
         wanted = ledger.remote_branch(held)
@@ -417,7 +456,7 @@ def _plan(root: Path, change: str | None) -> tuple[dict, Context]:
             out, ctx = _evaluate(root, held, _state_for(root, held.name))
             if out["action"] != "done":
                 return out, ctx
-            finished = held.name
+            finished, finished_reason = held.name, out["reason"]
         elif owed is not None:
             others = [c for c in candidates if c.path != owed.path]
             return _owed_stop(others[0] if others else None, owed)
@@ -426,7 +465,7 @@ def _plan(root: Path, change: str | None) -> tuple[dict, Context]:
             continue
         return _evaluate(root, item, _state_for(root, item.name))
     ctx = Context()
-    out = _out("done", ctx)
+    out = _out("done", ctx, reason=finished_reason)
     out["change"] = finished
     return out, ctx
 

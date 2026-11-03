@@ -134,7 +134,7 @@ class DriverBase(unittest.TestCase):
 
     @property
     def state_path(self) -> Path:
-        return self.root / driver.STEP_STATE
+        return driver.state_path(self.root)
 
     def make(self, cadence: str = SLICE, status: str = "TODO", extra: str = "") -> Path:
         folder = self.change
@@ -210,12 +210,26 @@ class DriverBase(unittest.TestCase):
             answer = answers.get(action, "yes")
             if action == "ask-archive":
                 if answer == "yes":
-                    self.ok("cloud", "archive", NAME)
+                    self.archive()
                 elif answer == "no":
                     self.ok("cloud", "milestone-complete", NAME, "--archive-declined")
+            elif action == "ask-commit" and answer == "yes":
+                git(self.root, "add", "-A")
+                git(self.root, "commit", "-q", "--allow-empty", "-m", f"commit {step['slice'] or step['reason']}")
             self.rec(action, answer)
         else:
             raise AssertionError(f"cannot perform {step}")
+
+    def archive(self) -> None:
+        """Archive the change; keep a backup when its reports were not committed."""
+        from w2c.cloud import commands
+
+        dirty = commands.uncommitted_reports(self.root, self.change / ".delivery")
+        out = self.ok("cloud", "archive", NAME, *(["--keep-reports-backup"] if dirty else []))
+        for line in out.splitlines():
+            if line.startswith("REPORTS_KEPT "):
+                kept = Path(line.split(" ", 1)[1])
+                self.addCleanup(shutil.rmtree, kept.parent, True)
 
     def drive_to(self, wanted: str, answers: dict[str, str] | None = None, limit: int = 80) -> dict:
         seen: list[str] = []
@@ -569,6 +583,144 @@ class StateTests(DriverBase):
             self.assertEqual(code, 1, argv)
             self.assertTrue((out + err).strip(), argv)
             self.assertEqual(self.state_path.read_bytes(), before, argv)
+
+
+class ClosingAskTests(DriverBase):
+    def test_ephemeral_last_slice_commit_has_no_slice_push(self) -> None:
+        os.environ["W2C_EPHEMERAL"] = "1"
+        self.make(cadence=SLICE)
+        seen = []
+        while (step := self.step())["action"] != "slice-complete" or step["slice"] != "S02":
+            seen.append((step["action"], step["slice"]))
+            self.perform(step)
+        self.assertIn(("ask-push", "S01"), seen, "a slice before the last still asks to push")
+        self.perform(step)
+        self.smoke_pass_if_asked()
+        step = self.step()
+        self.assertEqual((step["action"], step["slice"]), ("ask-commit", "S02"))
+        self.rec("ask-commit", "yes")
+        self.smoke_pass_if_asked()
+        self.assertEqual(self.action(), "milestone-reports", "the milestone asks cover the push")
+        seen = self.sequence({"ask-pr": "no"})
+        self.assertEqual(seen, ["milestone-reports", "ask-commit", "ask-archive", "ask-commit", "ask-push",
+                                "ask-pr", "done"])
+
+    def test_milestone_ask_commits_name_pre_and_post_archive(self) -> None:
+        self.make(cadence=MILESTONE)
+        self.drive_to("milestone-reports")
+        self.perform(self.step())
+        self.smoke_pass_if_asked()
+        step = self.step()
+        self.assertEqual((step["action"], step["reason"]), ("ask-commit", "pre-archive"))
+        self.assertEqual(self.ok("cloud", "step"), f"STEP ask-commit {NAME} - -\nreason: pre-archive\n")
+        self.perform(step)
+        self.perform(self.step())
+        step = self.step()
+        self.assertEqual((step["action"], step["reason"]), ("ask-commit", "post-archive"))
+        self.rec("ask-commit", "yes")
+        step = self.step()
+        self.assertEqual((step["action"], step["reason"]), ("ask-push", None))
+
+    def test_declined_archive_asks_commit_then_done_push_blocked(self) -> None:
+        self.make(cadence=MILESTONE)
+        self.drive_to("milestone-reports")
+        seen = []
+        for _ in range(10):
+            step = self.step()
+            seen.append((step["action"], step["reason"]))
+            if step["action"] in ("done", "stop"):
+                break
+            self.perform(step, {"ask-archive": "no"})
+        self.assertEqual(seen, [("milestone-reports", None), ("ask-commit", "pre-archive"), ("ask-archive", None),
+                                ("ask-commit", "post-archive"), ("done", "push-blocked-until-archive")])
+        self.assertEqual(self.step()["reason"], "push-blocked-until-archive")
+        self.assertIn("x-delivery-archive: declined", (self.change / ".openspec.yaml").read_text(encoding="utf-8"))
+
+    def owing(self, decline: bool = False) -> None:
+        self.make(cadence=MILESTONE)
+        self.drive_to("ask-archive")
+        self.perform(self.step(), {"ask-archive": "no" if decline else "yes"})
+        step = self.step()
+        self.assertEqual((step["action"], step["reason"]), ("ask-commit", "post-archive"))
+        self.make_other("add-import", BRANCH)
+
+    def test_answering_every_owed_ask_lets_another_change_proceed(self) -> None:
+        self.owing()
+        self.assertEqual(self.step("add-import")["reason"], f"owed-asks:{NAME}")
+        self.rec("ask-commit", "yes")
+        self.assertEqual(self.step("add-import")["reason"], f"owed-asks:{NAME}")
+        self.rec("ask-push", "no")
+        step = self.step("add-import")
+        self.assertEqual((step["action"], step["change"]), ("smoke", "add-import"))
+        step = self.step()
+        self.assertEqual((step["action"], step["change"]), ("smoke", "add-import"))
+
+    def test_no_answer_on_an_owed_ask_keeps_the_stop(self) -> None:
+        self.owing()
+        self.rec("ask-commit", "no-answer")
+        self.assertEqual(self.step()["reason"], "approval-needed:ask-commit")
+        step = self.step("add-import")
+        self.assertEqual((step["action"], step["reason"]), ("stop", f"owed-asks:{NAME}"))
+        self.rec("ask-commit", "yes")
+        self.rec("ask-push", "no-answer")
+        step = self.step("add-import")
+        self.assertEqual((step["action"], step["reason"]), ("stop", f"owed-asks:{NAME}"))
+        self.assertEqual(self.step(NAME)["reason"], "approval-needed:ask-push")
+
+    def test_owed_asks_after_a_declined_archive(self) -> None:
+        self.owing(decline=True)
+        step = self.step("add-import")
+        self.assertEqual((step["action"], step["reason"]), ("stop", f"owed-asks:{NAME}"))
+        self.rec("ask-commit", "yes")
+        self.assertEqual(self.step(NAME)["reason"], "push-blocked-until-archive")
+        step = self.step("add-import")
+        self.assertEqual((step["action"], step["change"]), ("smoke", "add-import"))
+
+
+class StatePlaceTests(DriverBase):
+    def test_state_lives_in_the_git_dir_not_in_w2c(self) -> None:
+        self.make()
+        self.smoke_pass()
+        self.assertEqual(driver.state_path(self.root), self.root / ".git" / "w2c" / "step.json")
+        self.assertTrue(driver.state_path(self.root).is_file())
+        self.assertFalse((self.root / ".w2c").exists())
+
+    def test_old_location_is_read_once_for_migration(self) -> None:
+        self.make()
+        self.smoke_pass()
+        self.rec("implement", "pass")
+        new = driver.state_path(self.root)
+        old = self.root / driver.STEP_STATE
+        old.parent.mkdir(parents=True)
+        new.rename(old)
+        self.assertEqual(self.action(), "verify", "the old state is read")
+        self.assertTrue(new.is_file())
+        self.rec("verify", "pass")
+        self.assertEqual(self.action(), "review")
+        self.assertIn('"stage_action": "implement"', old.read_text(encoding="utf-8"))
+
+    def test_outside_git_state_is_under_w2c_runtime(self) -> None:
+        plain = Path(self._tmp.name) / "plain"
+        plain.mkdir()
+        self.assertEqual(driver.state_path(plain), plain / driver.STEP_STATE)
+
+    def test_two_linked_worktrees_do_not_share_state(self) -> None:
+        self.make()
+        git(self.root, "add", "-A")
+        git(self.root, "commit", "-q", "-m", "plan")
+        other = Path(self._tmp.name) / "other-tree"
+        git(self.root, "worktree", "add", "-q", "-b", "SIDE", str(other))
+        side = other / "openspec" / "changes" / NAME / "design.md"
+        side.write_text(DESIGN.replace("| DEMO-1 |", "| SIDE |"), encoding="utf-8")
+        self.smoke_pass()
+        self.rec("implement", "pass")
+        self.assertEqual(self.action(), "verify")
+        self.assertNotEqual(driver.state_path(other), driver.state_path(self.root))
+        self.assertEqual(driver.next_action(other, None)["action"], "smoke")
+        driver.record(other, "smoke", "pass")
+        self.assertEqual(driver.next_action(other, None)["action"], "implement")
+        self.assertEqual(self.action(), "verify")
+        self.assertIn(".git/worktrees/", driver.state_path(other).as_posix())
 
 
 class OutputTests(DriverBase):
