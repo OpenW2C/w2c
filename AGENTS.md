@@ -42,3 +42,9 @@ PYTHONPATH=src python3 -m w2c --version
 ```
 
 The printed CLI version must equal the bumped semver.
+
+```bash
+python3 scripts/w2c-e2e.py --suite all
+```
+
+Every change must pass the full-cycle test. A change that alters behavior updates the scenario and its stored outputs in the same change.
