@@ -1431,6 +1431,42 @@ class ApplyTests(unittest.TestCase):
         self.assertEqual(after.pop(".w2c/runtime/later.txt"), b"kept\n")
         self.assertEqual(after, before)
 
+    def test_linked_change_folder_outside_the_checkout_is_refused(self) -> None:
+        repo = self.repo()
+        repo.add("M001", "add-export", "INPROGRESS", slices=OPEN)
+        outside = self.tmp / "outside"
+        folder = repo.change("add-export")
+        shutil.move(str(folder), str(outside))
+        folder.symlink_to(outside, target_is_directory=True)
+        repo.commit()
+        before_outside = snapshot(outside)
+        before = snapshot(repo.root, repo.w2c)
+        with self.assertRaises(w2c.W2CError) as caught:
+            migrate(repo.root, ["M001"], yes_config=True, yes_rewrites=True)
+        self.assertIn("not inside a checkout", str(caught.exception))
+        self.assertEqual(snapshot(outside), before_outside)
+        self.assertEqual(snapshot(repo.root, repo.w2c), before)
+        self.assertEqual(convert._runs(repo.root), [], "refused before any backup was made")
+
+    def test_restore_refuses_a_manifest_that_points_outside(self) -> None:
+        repo = self.ready()
+        code, out = migrate(repo.root, ["M001"], yes_config=True, yes_rewrites=True)
+        self.assertEqual(code, 0, out)
+        victim = self.tmp / "outside" / "keep.txt"
+        write(victim, "keep")
+        run = convert._runs(repo.root)[-1]
+        manifest = convert._read_manifest(run)
+        manifest["files"].append({"path": str(victim), "checkout": str(repo.root), "state": "absent",
+                                  "created_dirs": []})
+        convert._write_manifest(run, manifest)
+        after_run = snapshot(repo.root, repo.w2c)
+        with self.assertRaises(w2c.W2CError) as caught:
+            migrate(repo.root, restore=True)
+        self.assertIn("refusing to restore", str(caught.exception))
+        self.assertIn(str(victim), str(caught.exception))
+        self.assertEqual(victim.read_text(encoding="utf-8"), "keep\n")
+        self.assertEqual(snapshot(repo.root, repo.w2c), after_run)
+
     def test_tracked_ledger_paths_are_listed_to_commit(self) -> None:
         for track in (True, False):
             with self.subTest(track=track):

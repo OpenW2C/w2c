@@ -937,6 +937,23 @@ def cmd_init(
     planning: str | None = None,
     replace_copilot: bool = False,
 ) -> int:
+    creating = not w2c_local.repo_config_path(root).is_file()
+    if planning is None:
+        chosen_planning = w2c_local.PLANNING_OPENSPEC if creating else None
+    else:
+        chosen_planning = w2c_local.normalize_planning(planning)
+    old_copilot = [root / rel for rel in w2c_local.COPILOT_INSTRUCTION_RELPATHS]
+    old_copilot = [p for p in old_copilot if p.is_file()]
+    already_cloud = (
+        not creating
+        and w2c_local.load_repo_config(root).get("planning") == w2c_local.PLANNING_CLOUD
+    )
+    switching = chosen_planning == w2c_local.PLANNING_CLOUD and not already_cloud
+    if switching and old_copilot:
+        if not replace_copilot:
+            # Refuse before anything is written, so the repo is left as it was.
+            print("NEED_COPILOT_REPLACE")
+            return 1
     wdir = w2c_dir(root)
     wdir.mkdir(parents=True, exist_ok=True)
     (wdir / "plans").mkdir(exist_ok=True)
@@ -964,22 +981,7 @@ def cmd_init(
         created.append("contexts/CONTEXTv1.0.md")
     rebuild_ledger(root)
     gd = resolve_git_delivery(root, git_delivery)
-    creating = not w2c_local.repo_config_path(root).is_file()
-    if planning is None:
-        chosen_planning = w2c_local.PLANNING_OPENSPEC if creating else None
-    else:
-        chosen_planning = w2c_local.normalize_planning(planning)
-    old_copilot = [root / rel for rel in w2c_local.COPILOT_INSTRUCTION_RELPATHS]
-    old_copilot = [p for p in old_copilot if p.is_file()]
-    already_cloud = (
-        not creating
-        and w2c_local.load_repo_config(root).get("planning") == w2c_local.PLANNING_CLOUD
-    )
-    switching = chosen_planning == w2c_local.PLANNING_CLOUD and not already_cloud
     if switching and old_copilot:
-        if not replace_copilot:
-            print("NEED_COPILOT_REPLACE")
-            return 1
         for p in old_copilot:
             p.unlink()
         w2c_local.remove_gitignore_lines(

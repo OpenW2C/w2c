@@ -338,7 +338,8 @@ def remove_gitignore_lines(root: Path, lines_to_drop: tuple[str, ...]) -> None:
     lines = gi.read_text(encoding="utf-8").splitlines()
     kept = [ln for ln in lines if ln not in lines_to_drop]
     if kept != lines:
-        gi.write_text(chr(10).join(kept).rstrip() + chr(10), encoding="utf-8")
+        body = chr(10).join(kept).rstrip()
+        gi.write_text(body + chr(10) if body else "", encoding="utf-8")
 
 
 def ensure_gitignore(root: Path, *, track: bool, mode: str = PLANNING_OPENSPEC) -> list[str]:

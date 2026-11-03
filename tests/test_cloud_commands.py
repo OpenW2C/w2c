@@ -196,6 +196,25 @@ class SmokeAndPushTests(CloudCommandBase):
         self.assertEqual(code, 1)
         self.assertIn(f"{NAME}: archive is declined; run w2c cloud archive {NAME} before push", out)
 
+    def test_push_check_skips_legacy_change_with_broken_metadata(self) -> None:
+        legacy = self.root / "openspec" / "changes" / "legacy-change"
+        legacy.mkdir(parents=True)
+        (legacy / ".openspec.yaml").write_bytes(b"schema: spec-driven\nx-delivery-order: \xff\xfe[\n")
+        (legacy / "design.md").write_text("# Design\n\n## Context\n\nOld 2.2 change.\n", encoding="utf-8")
+        code, out = self.push_check()
+        self.assertEqual(code, 0, out)
+        (legacy / "design.md").write_bytes(b"\xff\xfe not text")
+        code, out = self.push_check()
+        self.assertEqual(code, 0, out)
+
+    def test_push_check_reports_broken_cloud_metadata(self) -> None:
+        folder = self.make()
+        (folder / ".openspec.yaml").write_bytes(b"schema: spec-driven\nx-delivery-status: \xff\xfe\n")
+        code, out = self.push_check()
+        self.assertEqual(code, 1)
+        self.assertIn(f"{NAME}: cannot read .openspec.yaml", out)
+        self.assertNotIn("Traceback", out)
+
     def test_push_check_ignores_unfinished_and_other_branches(self) -> None:
         self.make()
         self.assertEqual(self.push_check()[0], 0)

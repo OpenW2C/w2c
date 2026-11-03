@@ -1746,9 +1746,39 @@ def _config_lines(root: Path, action: Action, *, approved: bool, dry_run: bool =
 # ---------------------------------------------------------------- actions
 
 
+def _safe_roots(root: Path) -> list[Path]:
+    """Real locations conversion may touch: every checkout and its `.w2c/` ledger,
+    which can itself be a link to a folder outside the checkout."""
+    found: list[Path] = []
+    for base in [path for path, _b in checkouts(root)] + [Path(root)]:
+        for place in (base, base / ".w2c"):
+            if place.exists():
+                real = place.resolve()
+                if real not in found:
+                    found.append(real)
+    return found
+
+
+def _inside(path: Path, roots: list[Path], *, follow: bool = True) -> bool:
+    """True when `path` really sits inside one of `roots` after links are resolved.
+    With follow=False the last part is not followed, for removing a link itself."""
+    if ".." in path.parts:
+        return False
+    real = path.resolve() if follow else path.parent.resolve() / path.name
+    return any(real.is_relative_to(base) for base in roots)
+
+
 def _allowed(path: Path, roots: list[Path]) -> None:
-    if not any(path.is_relative_to(base) for base in roots):
+    if not _inside(path, roots):
         raise _error(f"refusing to write {path}: it is not inside a checkout")
+
+
+def check_plan_paths(root: Path, plan: ConversionPlan) -> None:
+    """Refuse the whole plan, before the backup or any write, when an action's
+    path leads outside the checkouts (for example through a linked folder)."""
+    roots = _safe_roots(root)
+    for action in plan.actions:
+        _allowed(action.path, roots)
 
 
 def _copy_report(action: Action, yes_rewrites: bool) -> None:
@@ -1785,7 +1815,7 @@ def apply_conversion(root: Path, plan: ConversionPlan, *, yes_config: bool, yes_
     for verification (`finish_conversion`). Returns the lines to print."""
     cli = _cli()
     root = Path(root)
-    roots = [path for path, _b in checkouts(root)] + [root]
+    roots = _safe_roots(root)
     out = _rewrite_lines(root, plan, yes_rewrites)
     for action in plan.actions:
         kind, path = action.kind, action.path
@@ -2000,8 +2030,29 @@ def _remove(path: Path) -> None:
         path.unlink()
 
 
-def _restore_run(run: Path) -> int:
+def _check_restore_paths(manifest: dict, roots: list[Path]) -> None:
+    """Refuse, before anything changes, a manifest that points outside the checkouts."""
+    bad: list[str] = []
+    for record in manifest["files"]:
+        path = Path(record["path"])
+        if not _inside(path, roots, follow=record["state"] == "present"):
+            bad.append(str(path))
+        bad += [folder for folder in record.get("created_dirs", [])
+                if not _inside(Path(folder), roots, follow=False)]
+    saved = manifest.get("w2c")
+    if saved:
+        target = Path(saved["path"])
+        if not _inside(target, roots):
+            bad.append(str(target))
+        bad += [str(target / rel) for rel in saved.get("after") or {}
+                if not _inside(target / rel, roots, follow=False)]
+    if bad:
+        raise _error("refusing to restore: these paths are not inside a checkout: " + ", ".join(bad))
+
+
+def _restore_run(run: Path, root: Path) -> int:
     manifest = _read_manifest(run)
+    _check_restore_paths(manifest, _safe_roots(root))
     for record in reversed(manifest["files"]):
         path = Path(record["path"])
         if record["state"] == "present":
@@ -2061,7 +2112,7 @@ def _restore_latest(root: Path) -> int:
             print(f"RESTORE_REFUSED {len(drift)} file(s) changed after {_run_label(run)}; nothing restored. "
                   "Undo those edits or restore the files by hand.")
             return 1
-    count = _restore_run(run)
+    count = _restore_run(run, root)
     print(f"RESTORED {count} files and .w2c/ from {_run_label(run)}")
     return 0
 
@@ -2383,6 +2434,7 @@ def cmd_migrate(root: Path, milestones: list[str] | None, all_: bool, dry_run: b
         print("NOTHING_TO_CONVERT")
         return 0
     converted = list(_converted(plan))
+    check_plan_paths(root, plan)
     run = backup(root, plan, converted)
     try:
         for line in apply_conversion(root, plan, yes_config=yes_config, yes_rewrites=yes_rewrites):
@@ -2393,12 +2445,12 @@ def cmd_migrate(root: Path, milestones: list[str] | None, all_: bool, dry_run: b
         if failures:
             for failure in failures:
                 print(f"VERIFY_FAIL {failure}")
-            count = _restore_run(run)
+            count = _restore_run(run, root)
             print(f"RESTORED {count} files and .w2c/ from {_run_label(run)}")
             return 1
         finish_conversion(root, plan)
     except Exception:
-        count = _restore_run(run)
+        count = _restore_run(run, root)
         print(f"RESTORED {count} files and .w2c/ from {_run_label(run)}")
         raise
     manifest = _read_manifest(run)

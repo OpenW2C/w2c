@@ -242,6 +242,36 @@ class W2CLocalTest(unittest.TestCase):
         self.assertTrue((inst / "do-work.instructions.md").is_file())
         self.assertEqual(w2c_local.load_repo_config(self.tmp).get("planning"), "cloud")
 
+    def test_cloud_switch_refusal_writes_nothing(self) -> None:
+        skills = self._fake_skills()
+        inst = self.tmp / ".github" / "instructions"
+        for name in ("work-to-chores.instructions.md", "do-chores.instructions.md"):
+            (inst / name).parent.mkdir(parents=True, exist_ok=True)
+            (inst / name).write_text("old\n", encoding="utf-8")
+
+        def tree() -> dict[str, bytes]:
+            return {p.relative_to(self.tmp).as_posix(): (p.read_bytes() if p.is_file() else b"<dir>")
+                    for p in self.tmp.rglob("*") if ".git" not in p.relative_to(self.tmp).parts}
+
+        before = tree()
+        import io
+        from contextlib import redirect_stdout
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            self.assertEqual(self._init(skills, planning="cloud"), 1)
+        self.assertIn("NEED_COPILOT_REPLACE", buf.getvalue())
+        self.assertFalse((self.tmp / ".w2c").exists())
+        self.assertEqual(tree(), before)
+
+    def test_remove_gitignore_lines_leaves_empty_file_when_all_removed(self) -> None:
+        gi = self.tmp / ".gitignore"
+        gi.write_text("a\nb\n", encoding="utf-8")
+        w2c_local.remove_gitignore_lines(self.tmp, ("a", "b"))
+        self.assertEqual(gi.read_text(encoding="utf-8"), "")
+        gi.write_text("a\nkeep\nb\n", encoding="utf-8")
+        w2c_local.remove_gitignore_lines(self.tmp, ("a", "b"))
+        self.assertEqual(gi.read_text(encoding="utf-8"), "keep\n")
+
     def test_legacy_init_unchanged(self) -> None:
         skills = self._fake_skills()
         self.assertEqual(self._init(skills, planning="classic"), 0)
