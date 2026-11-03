@@ -1,0 +1,12 @@
+NEXT M001 S01 T01 — Add fourth to the calculator
+{
+  "task": {
+    "milestone_id": "M001",
+    "slice_id": "S01",
+    "task_id": "T01",
+    "title": "Add fourth to the calculator",
+    "plan_path": "<ROOT>/mixed/openspec/changes/add-fourth/tasks.md",
+    "verify": "python3 -m unittest discover -s tests -t .",
+    "openspec_id": "1.1"
+  }
+}

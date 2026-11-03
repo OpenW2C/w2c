@@ -64,6 +64,13 @@ def register(sub: argparse._SubParsersAction) -> None:
     st.add_argument("--result", dest="record_result", default=None, metavar="RESULT")
     br = csub.add_parser("brief", help="print only what the current task needs")
     br.add_argument("--change", default=None)
+    mg = csub.add_parser("migrate", help="convert 2.2 OpenSpec milestones to cloud changes (never commits)")
+    mg.add_argument("--milestone", dest="milestones", action="append", nargs="+", default=None, metavar="M###")
+    mg.add_argument("--all", dest="all_", action="store_true", help="every OpenSpec milestone")
+    mg.add_argument("--dry-run", action="store_true", help="print the plan; write nothing")
+    mg.add_argument("--restore", action="store_true", help="undo the last run exactly")
+    mg.add_argument("--yes-config", action="store_true", help="approve the openspec/config.yaml edit")
+    mg.add_argument("--yes-rewrites", action="store_true", help="approve the known legacy line rewrites")
     _register_amend(csub)
 
 
@@ -131,6 +138,12 @@ def dispatch(args: argparse.Namespace) -> int:
         return commands.swap(root, args.left, args.right)
     if cmd == "move":
         return commands.move(root, args.name, args.before, args.after)
+    if cmd == "migrate":
+        from w2c.cloud import convert
+
+        names = [name for group in (args.milestones or []) for name in group]
+        return convert.cmd_migrate(root, names or None, args.all_, args.dry_run, args.restore,
+                                   args.yes_config, args.yes_rewrites)
     if cmd in ("step", "brief"):
         from w2c.cloud import driver
 

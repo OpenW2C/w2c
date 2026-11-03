@@ -3,7 +3,10 @@
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
+import io
+import json
 import os
 import re
 import shutil
@@ -12,6 +15,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -23,6 +27,7 @@ os.environ["W2C_DATA_HOME"] = str(_HOME / "data")
 
 from w2c import cli as w2c  # noqa: E402
 from w2c import delivery_profile  # noqa: E402
+from w2c import local as w2c_local  # noqa: E402
 from w2c import openspec as legacy_openspec  # noqa: E402
 from w2c.cloud import convert, layout  # noqa: E402
 
@@ -933,6 +938,456 @@ class ConvertTests(unittest.TestCase):
         convert.plan_conversion(repo.root, None)
         convert.plan_conversion(repo.root, ["M001", "M003"])
         self.assertEqual(tree_hash(repo.root, store), before)
+
+
+
+FAKE_OPENSPEC = Path(__file__).resolve().parent / "fixtures" / "fake_openspec.py"
+OPEN = [(1, "Export", " "), (2, "Docs", " ")]
+
+
+def migrate(root: Path, milestones: list[str] | None = None, *, all_: bool = False, dry_run: bool = False,
+            restore: bool = False, yes_config: bool = False, yes_rewrites: bool = False) -> tuple[int, str]:
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        code = convert.cmd_migrate(root, milestones, all_, dry_run, restore, yes_config, yes_rewrites)
+    return code, out.getvalue()
+
+
+def snapshot(*bases: Path) -> dict[str, bytes]:
+    found: dict[str, bytes] = {}
+    for base in bases:
+        real = base.resolve()
+        for dirpath, dirs, files in os.walk(real):
+            dirs[:] = [d for d in dirs if d != ".git"]
+            for name in files:
+                path = Path(dirpath) / name
+                found[path.relative_to(real).as_posix()] = path.read_bytes()
+    return found
+
+
+class ApplyTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp(prefix="w2c-apply-"))
+        self.addCleanup(lambda: shutil.rmtree(self.tmp, ignore_errors=True))
+        bindir = self.tmp / "bin"
+        bindir.mkdir()
+        fake = bindir / "openspec"
+        fake.write_text(FAKE_OPENSPEC.read_text(encoding="utf-8"), encoding="utf-8")
+        fake.chmod(0o755)
+        path = os.environ.get("PATH", "")
+        os.environ["PATH"] = str(bindir) + os.pathsep + path
+        self.addCleanup(lambda: os.environ.__setitem__("PATH", path))
+        data = self.tmp / "data"
+        old = os.environ.get("W2C_DATA_HOME")
+        os.environ["W2C_DATA_HOME"] = str(data)
+        self.addCleanup(lambda: os.environ.__setitem__("W2C_DATA_HOME", old or ""))
+
+    def repo(self, base: Path | None = None, **kwargs) -> Repo:
+        return Repo(base or self.tmp, **kwargs)
+
+    def ready(self, status: str = "INPROGRESS", **kwargs) -> Repo:
+        repo = self.repo(**kwargs)
+        repo.add("M001", "add-export", status, slices=OPEN)
+        repo.commit()
+        return repo
+
+    # ------------------------------------------------------------ the brief's list
+
+    def test_apply_moves_rules_with_matching_fingerprints(self) -> None:
+        repo = self.ready()
+        plan = convert.plan_conversion(repo.root, ["M001"])
+        code, out = migrate(repo.root, ["M001"], yes_config=True, yes_rewrites=True)
+        self.assertEqual(code, 0, out)
+        design_text = (repo.change("add-export") / "design.md").read_text(encoding="utf-8")
+        prints = convert.section_fingerprints(design_text)
+        guard = [a for a in plan.actions if a.kind == "append-section" and a.detail.startswith("## Guardrails ")]
+        body = "".join(convert._rewrite(a.content, True) for a in guard)
+        import hashlib as _h
+        self.assertEqual(prints["## Guardrails"], _h.sha256(" ".join(body.split()).encode()).hexdigest())
+        for head in layout.DESIGN_HEADINGS:
+            self.assertIn(head, prints)
+        order = [design_text.index(h + "\n") for h in layout.DESIGN_HEADINGS]
+        self.assertEqual(order, sorted(order), "design sections follow the config rule order")
+        self.assertIn("**Verify loop**", design_text)
+        self.assertIn("| Remote branch | DEMO-1 |", design_text)
+        self.assertIn("People export their records.", (repo.change("add-export") / "proposal.md").read_text(encoding="utf-8"))
+        self.assertIn("CONVERTED M001 -> add-export", out)
+        tasks = (repo.change("add-export") / "tasks.md").read_text(encoding="utf-8")
+        self.assertIn(layout.READ_FIRST_MARKER, tasks.split("## 1.")[0])
+        self.assertIn("**Goal:** Export records.", tasks)
+
+    def test_unfinished_reports_copied_to_delivery(self) -> None:
+        repo = self.repo()
+        plan_dir = repo.add("M001", "add-export", "INPROGRESS", slices=[(1, "Export", "x"), (2, "Docs", " ")])
+        tasks = repo.change("add-export") / "tasks.md"
+        tasks.write_text(TASKS.replace("- [ ] 1.1", "- [x] 1.1"), encoding="utf-8")
+        for name in ("S01-T01-SUMMARY.md", "S01-UAT.md", "S01-SUMMARY.md"):
+            write(plan_dir / name, f"# {name}\n\nDone.\n")
+        repo.commit()
+        code, out = migrate(repo.root, ["M001"], yes_config=True, yes_rewrites=True)
+        self.assertEqual(code, 0, out)
+        delivery = repo.change("add-export") / ".delivery"
+        for name in ("S01-T01-SUMMARY.md", "S01-UAT.md", "S01-SUMMARY.md"):
+            self.assertEqual((delivery / name).read_bytes(), (plan_dir / name).read_bytes())
+        self.assertIn("x-delivery-slices-done: [1]", (repo.change("add-export") / ".openspec.yaml").read_text(encoding="utf-8"))
+
+    def test_decision_rows_copied_and_legacy_file_unchanged(self) -> None:
+        repo = self.ready()
+        before = (repo.w2c / "DECISIONS.md").read_bytes()
+        code, out = migrate(repo.root, ["M001"], yes_config=True, yes_rewrites=True)
+        self.assertEqual(code, 0, out)
+        self.assertEqual((repo.w2c / "DECISIONS.md").read_bytes(), before)
+        design = (repo.change("add-export") / "design.md").read_text(encoding="utf-8")
+        section = design.split("## Decisions\n", 1)[1].split("\n## ", 1)[0]
+        self.assertIn("| D001 | 2026-11-02 | M001 | How to export | CSV | Simple | Yes | human |", section)
+        self.assertIn("| # | When |", section)
+        self.assertIn("Use the stdlib.", section)
+        self.assertNotIn("| D002 |", section)
+
+    def test_knowledge_sync_adds_only_missing_rows(self) -> None:
+        repo = self.ready()
+        code, out = migrate(repo.root, ["M001"], yes_config=True, yes_rewrites=True)
+        self.assertEqual(code, 0, out)
+        text = (repo.root / "openspec" / "knowledge.md").read_text(encoding="utf-8")
+        self.assertEqual(text.count("| R1 | all | Use UTF-8 | Portability | 2026 |"), 1)
+        rules = text.split("## Rules\n", 1)[1].split("\n## ", 1)[0]
+        self.assertIn("| R1 | all | Use UTF-8 | Portability | 2026 |\n| R2 | all | Keep tests fast | Speed | 2026 |", rules)
+        self.assertIn("| P1 | Small modules | src | none |", text.split("## Patterns", 1)[1])
+        self.assertIn("| L1 | Slow CI | Big fixtures | Trim | tests |", text.split("## Lessons Learned", 1)[1])
+        self.assertNotIn("Old rule", text)
+        self.assertIn("openspec/knowledge.md merge=union", (repo.root / ".gitattributes").read_text(encoding="utf-8"))
+
+    def test_converted_marker_reserves_the_id(self) -> None:
+        repo = self.ready()
+        code, out = migrate(repo.root, ["M001"], yes_config=True, yes_rewrites=True)
+        self.assertEqual(code, 0, out)
+        self.assertEqual((repo.plan("M001", "add-export") / "CONVERTED").read_text(encoding="utf-8"), "add-export\n")
+        self.assertNotIn("M001", (repo.w2c / "ROADMAP.md").read_text(encoding="utf-8"))
+        self.assertEqual(w2c.next_milestone_id(repo.root), "M002")
+        moved = io.StringIO()
+        with contextlib.redirect_stdout(moved):
+            self.assertEqual(w2c.cmd_next(repo.root, "M001", None, None), 0)
+        self.assertIn("CLOUD_MOVED M001 add-export", moved.getvalue())
+        self.assertNotIn("M001", (repo.w2c / "QUEUE.md").read_text(encoding="utf-8"))
+
+    def test_config_edit_waits_for_flag(self) -> None:
+        repo = self.ready()
+        config = repo.root / "openspec" / "config.yaml"
+        before = config.read_bytes()
+        code, out = migrate(repo.root, ["M001"], yes_rewrites=True)
+        self.assertEqual(code, 0, out)
+        self.assertEqual(config.read_bytes(), before)
+        self.assertIn("NEED_CONFIG_APPROVAL openspec/config.yaml", out)
+        self.assertIn("+context: |", out)
+        self.assertIn(layout.DESIGN_MARKER, out)
+        self.assertNotIn("COMMIT " + str(repo.root) + " openspec/config.yaml", out)
+        shutil.rmtree(self.tmp / "repo")
+        repo = self.ready()
+        code, out = migrate(repo.root, ["M001"], yes_config=True, yes_rewrites=True)
+        self.assertEqual(code, 0, out)
+        text = config.read_text(encoding="utf-8")
+        for marker in convert.CONFIG_MARKERS:
+            self.assertIn(marker, text)
+        self.assertEqual(text, "schema: spec-driven\n\n" + layout.CONFIG_RULES_SNIPPET)
+        self.assertIn("COMMIT " + str(repo.root) + " openspec/config.yaml", out)
+
+    def test_known_rewrite_waits_for_flag(self) -> None:
+        repo = self.ready()
+        plan = convert.plan_conversion(repo.root, ["M001"])
+        legacy = next(old for _p, _n, old, _new in plan.known_rewrites if old.startswith("- **Status writes**"))
+        number = next(n for _p, n, old, _new in plan.known_rewrites if old == legacy)
+        code, out = migrate(repo.root, ["M001"], yes_config=True)
+        self.assertEqual(code, 0, out)
+        design = (repo.change("add-export") / "design.md").read_text(encoding="utf-8")
+        self.assertIn(legacy, design)
+        self.assertIn(f"NEED_REWRITE_APPROVAL .w2c/plans/M001-add-export/M001-ROADMAP.md:{number} {legacy} -> "
+                      f"{convert.KNOWN_REWRITES[legacy]}", out)
+        self.assertIn("PENDING_EDIT neutral-artifacts", out)
+        self.assertNotIn("VERIFY_FAIL", out)
+        shutil.rmtree(self.tmp / "repo")
+        repo = self.ready()
+        code, out = migrate(repo.root, ["M001"], yes_config=True, yes_rewrites=True)
+        self.assertEqual(code, 0, out)
+        design = (repo.change("add-export") / "design.md").read_text(encoding="utf-8")
+        self.assertNotIn(legacy, design)
+        self.assertIn(convert.KNOWN_REWRITES[legacy], design)
+        self.assertNotIn("w2c", design.lower())
+        self.assertNotIn("PENDING_EDIT", out)
+
+    def test_unknown_line_prints_manual_edit(self) -> None:
+        repo = self.repo()
+        repo.add("M001", "add-export", "TODO", slices=OPEN, extra="\n- Run w2c smoke before each push.")
+        repo.commit()
+        road = repo.plan("M001", "add-export") / "M001-ROADMAP.md"
+        number = road.read_text(encoding="utf-8").splitlines().index("- Run w2c smoke before each push.") + 1
+        code, out = migrate(repo.root, ["M001"], yes_config=True, yes_rewrites=True)
+        self.assertEqual(code, 0, out)
+        self.assertIn(f"MANUAL_EDIT .w2c/plans/M001-add-export/M001-ROADMAP.md:{number} - Run w2c smoke before each push.", out)
+        self.assertIn("- Run w2c smoke before each push.",
+                      (repo.change("add-export") / "proposal.md").read_text(encoding="utf-8"))
+        self.assertIn("PENDING_EDIT neutral-artifacts", out)
+
+    def test_next_task_is_unchanged(self) -> None:
+        repo = self.repo()
+        repo.add("M001", "add-export", "INPROGRESS", slices=OPEN)
+        tasks = repo.change("add-export") / "tasks.md"
+        write(repo.plan("M001", "add-export") / "S01-T01-SUMMARY.md", "# T01\n\nDone.\n")
+        tasks.write_text(TASKS.replace("- [ ] 1.1", "- [x] 1.1"), encoding="utf-8")
+        repo.commit()
+        before = w2c.next_open_task(repo.root, milestone="M001")
+        code, out = migrate(repo.root, ["M001"], yes_config=True, yes_rewrites=True)
+        self.assertEqual(code, 0, out)
+        from w2c.cloud import commands
+        after = commands.next_task(repo.root, "M001", None, None)
+        self.assertEqual((before.sid, before.tid), ("S02", "T01"))
+        self.assertEqual((after.mid, after.sid, after.tid), ("add-export", "S02", "T01"))
+
+    def test_second_run_is_a_no_op(self) -> None:
+        repo = self.ready()
+        code, out = migrate(repo.root, all_=True, yes_config=True, yes_rewrites=True)
+        self.assertEqual(code, 0, out)
+        before = snapshot(repo.root)
+        for args in (["M001"], None):
+            code, out = migrate(repo.root, args, all_=args is None, yes_config=True, yes_rewrites=True)
+            self.assertEqual(code, 0, out)
+            self.assertIn("NOTHING_TO_CONVERT", out)
+            self.assertEqual(snapshot(repo.root), before)
+
+    def test_interrupted_run_can_rerun_and_restore(self) -> None:
+        repo = self.ready()
+        before = snapshot(repo.root)
+        with mock.patch.object(convert, "_verify", side_effect=KeyboardInterrupt):
+            with self.assertRaises(KeyboardInterrupt):
+                migrate(repo.root, ["M001"], yes_config=True, yes_rewrites=True)
+        interrupted = snapshot(repo.root)
+        self.assertNotEqual(interrupted, before)
+        for dry in (False, True):
+            code, out = migrate(repo.root, ["M001"], dry_run=dry, yes_config=True, yes_rewrites=True)
+            self.assertEqual(code, 1, out)
+            self.assertIn("run w2c cloud migrate --restore first", out)
+            self.assertEqual(snapshot(repo.root), interrupted)
+        code, out = migrate(repo.root, restore=True)
+        self.assertEqual(code, 0, out)
+        self.assertEqual(snapshot(repo.root), before)
+        code, out = migrate(repo.root, ["M001"], yes_config=True, yes_rewrites=True)
+        self.assertEqual(code, 0, out)
+        self.assertIn("CONVERTED M001 -> add-export", out)
+
+    def test_all_with_no_legacy_left_writes_decisions_file_and_deletes_ledger(self) -> None:
+        repo = self.repo()
+        repo.add("M001", "add-export", "TODO", slices=OPEN)
+        repo.add("M002", "add-import", "DONE", slices=[(1, "Export", "x"), (2, "Docs", "x")], archive="declined")
+        for name in ("M002-VALIDATION.md", "M002-SUMMARY.md"):
+            write(repo.plan("M002", "add-import") / name, f"# {name}\n\nDone.\n")
+        repo.commit()
+        code, out = migrate(repo.root, all_=True, yes_config=True, yes_rewrites=True)
+        self.assertEqual(code, 0, out)
+        frozen = (repo.root / "openspec" / "decisions.md").read_text(encoding="utf-8")
+        for did in ("D002", "D003", "D004"):
+            self.assertIn(f"| {did} |", frozen)
+        self.assertNotIn("| D001 |", frozen)
+        for name in ("STATE.md", "QUEUE.md", "ROADMAP.md", "DECISIONS.md", "contexts"):
+            self.assertFalse((repo.w2c / name).exists(), name)
+        for mid, slug in (("M001", "add-export"), ("M002", "add-import")):
+            self.assertTrue((repo.plan(mid, slug) / "CONVERTED").is_file())
+        self.assertEqual(w2c.next_milestone_id(repo.root), "M003")
+        self.assertIn(f"COMMIT {repo.root} openspec/decisions.md", out)
+
+    def test_never_commits(self) -> None:
+        repo = self.ready()
+        head = git(repo.root, "rev-parse", "HEAD")
+        refs = git(repo.root, "for-each-ref")
+        index = (repo.root / ".git" / "index").read_bytes()
+        code, out = migrate(repo.root, ["M001"], yes_config=True, yes_rewrites=True)
+        self.assertEqual(code, 0, out)
+        self.assertEqual(git(repo.root, "rev-parse", "HEAD"), head)
+        self.assertEqual(git(repo.root, "for-each-ref"), refs)
+        self.assertEqual((repo.root / ".git" / "index").read_bytes(), index)
+        self.assertEqual(git(repo.root, "diff", "--cached", "--name-only"), "")
+        changed = git(repo.root, "status", "--porcelain").splitlines()
+        self.assertTrue(changed)
+        for line in changed:
+            path = line[3:].strip()
+            self.assertTrue(path in out or path.rstrip("/") in out, (path, out))
+
+    # ------------------------------------------------------------ controller additions
+
+    def test_refuses_after_an_incomplete_manifest(self) -> None:
+        repo = self.ready()
+        with mock.patch.object(convert, "apply_conversion", side_effect=KeyboardInterrupt):
+            with self.assertRaises(KeyboardInterrupt):
+                migrate(repo.root, ["M001"], yes_config=True, yes_rewrites=True)
+        before = snapshot(repo.root)
+        code, out = migrate(repo.root, ["M001"], yes_config=True, yes_rewrites=True)
+        self.assertEqual(code, 1)
+        self.assertIn("run w2c cloud migrate --restore first", out)
+        self.assertEqual(snapshot(repo.root), before)
+        runs = sorted(w2c_local.backup_dir_for(repo.root).glob("cloud-migrate-*"))
+        self.assertEqual(len(runs), 1)
+        manifest = json.loads((runs[0] / "manifest.json").read_text(encoding="utf-8"))
+        self.assertFalse(manifest["complete"])
+
+    def test_second_restore_has_nothing_to_restore(self) -> None:
+        repo = self.ready()
+        before = snapshot(repo.root, repo.w2c)
+        code, out = migrate(repo.root, ["M001"], yes_config=True, yes_rewrites=True)
+        self.assertEqual(code, 0, out)
+        code, out = migrate(repo.root, restore=True)
+        self.assertEqual(code, 0, out)
+        self.assertIn("RESTORED", out)
+        self.assertEqual(snapshot(repo.root, repo.w2c), before)
+        code, out = migrate(repo.root, restore=True)
+        self.assertEqual(code, 0, out)
+        self.assertIn("NOTHING_TO_RESTORE", out)
+        self.assertEqual(snapshot(repo.root, repo.w2c), before)
+
+    def test_failed_verify_restores_and_exits_one(self) -> None:
+        repo = self.ready()
+        before = snapshot(repo.root, repo.w2c)
+        os.environ["FAKE_OPENSPEC_VALIDATE"] = "fail"
+        self.addCleanup(lambda: os.environ.pop("FAKE_OPENSPEC_VALIDATE", None))
+        code, out = migrate(repo.root, ["M001"], yes_config=True, yes_rewrites=True)
+        self.assertEqual(code, 1, out)
+        self.assertIn("VERIFY_FAIL openspec-validate-strict", out)
+        self.assertIn("RESTORED", out)
+        self.assertEqual(snapshot(repo.root, repo.w2c), before)
+        os.environ.pop("FAKE_OPENSPEC_VALIDATE")
+        code, out = migrate(repo.root, ["M001"], yes_config=True, yes_rewrites=True)
+        self.assertEqual(code, 0, out)
+
+    def test_blockers_are_printed_and_nothing_written(self) -> None:
+        repo = self.ready()
+        write(repo.plan("M001", "add-export") / "notes.txt", "loose\n")
+        before = snapshot(repo.root, repo.w2c)
+        code, out = migrate(repo.root, ["M001"], yes_config=True, yes_rewrites=True)
+        self.assertEqual(code, 1)
+        self.assertIn("BLOCKED M001: M001-add-export/notes.txt has no target", out)
+        self.assertEqual(snapshot(repo.root, repo.w2c), before)
+        self.assertFalse(list(w2c_local.backup_dir_for(repo.root).glob("cloud-migrate-*")))
+
+    def test_dry_run_prints_the_plan_and_writes_nothing(self) -> None:
+        repo = self.ready()
+        before = snapshot(repo.root, repo.w2c)
+        code, out = migrate(repo.root, ["M001"], dry_run=True)
+        self.assertEqual(code, 0, out)
+        for token in ("PLAN write-key openspec/changes/add-export/.openspec.yaml x-delivery-status: INPROGRESS",
+                      "PLAN append-section openspec/changes/add-export/design.md ## Guardrails",
+                      "REWRITE .w2c/plans/M001-add-export/M001-ROADMAP.md:", "NEXT_BEFORE M001 S01 T01",
+                      "NEED_CONFIG_APPROVAL openspec/config.yaml"):
+            self.assertIn(token, out)
+        self.assertEqual(snapshot(repo.root, repo.w2c), before)
+        self.assertFalse(list(w2c_local.backup_dir_for(repo.root).glob("cloud-migrate-*")))
+
+    def test_flow_style_config_prints_manual_config(self) -> None:
+        repo = self.ready(config_yaml="schema: spec-driven\nrules: {tasks: [\"Keep it short.\"]}\n")
+        config = repo.root / "openspec" / "config.yaml"
+        before = config.read_bytes()
+        code, out = migrate(repo.root, ["M001"], yes_config=True, yes_rewrites=True)
+        self.assertEqual(code, 0, out)
+        self.assertEqual(config.read_bytes(), before)
+        self.assertIn("MANUAL_CONFIG openspec/config.yaml", out)
+        self.assertIn(layout.CONFIG_RULES_SNIPPET.splitlines()[0], out)
+        self.assertIn("CONVERTED M001 -> add-export", out)
+
+    def test_config_merges_into_block_rules_without_duplicating_the_key(self) -> None:
+        repo = self.ready(config_yaml="schema: spec-driven\n\n" + legacy_openspec.CONFIG_RULES_SNIPPET)
+        code, out = migrate(repo.root, ["M001"], yes_config=True, yes_rewrites=True)
+        self.assertEqual(code, 0, out)
+        text = (repo.root / "openspec" / "config.yaml").read_text(encoding="utf-8")
+        self.assertEqual(len(re.findall(r"(?m)^rules:", text)), 1, text)
+        self.assertEqual(len(re.findall(r"(?m)^  tasks:", text)), 1, text)
+        self.assertEqual(len(re.findall(r"(?m)^context:", text)), 1, text)
+        self.assertEqual(len(re.findall(r"(?m)^operations:", text)), 1, text)
+        self.assertIn("W2C-OPENSPEC-RULES", text)
+        tasks = text.split("  tasks:\n", 1)[1]
+        self.assertLess(tasks.index("W2C-OPENSPEC-RULES"), tasks.index(layout.SLICE_TASK_MARKER))
+        self.assertIn("  design:\n    - \"" + layout.RULE_PREFIX, text)
+        for marker in convert.CONFIG_MARKERS:
+            self.assertIn(marker, text)
+
+    def test_drop_applies_only_with_flag_and_prints_reason(self) -> None:
+        dropped = "| Commit cadence | (from `.w2c/config.toml` `git_delivery`) |"
+        reason = convert.KNOWN_REWRITES[dropped].reason
+        for yes in (False, True):
+            with self.subTest(yes_rewrites=yes):
+                base = self.tmp / f"drop-{yes}"
+                base.mkdir()
+                repo = Repo(base)
+                repo.add("M001", "add-export", "TODO", slices=OPEN)
+                write(repo.w2c / "DELIVERY-PROFILE.md",
+                      delivery_profile.compose_delivery_profile(strategy="gitflow", ci_pointers=True))
+                repo.commit()
+                code, out = migrate(repo.root, ["M001"], yes_config=True, yes_rewrites=yes)
+                self.assertEqual(code, 0, out)
+                design = (repo.change("add-export") / "design.md").read_text(encoding="utf-8")
+                token = "REWRITE" if yes else "NEED_REWRITE_APPROVAL"
+                self.assertRegex(out, rf"(?m)^{token} \.w2c/DELIVERY-PROFILE\.md:\d+ {re.escape(dropped)} -> "
+                                      rf"\(drop: {re.escape(reason)}\)$")
+                if yes:
+                    self.assertNotIn(dropped, design)
+                else:
+                    self.assertIn(dropped, design)
+
+    def test_worktree_targeted_writes(self) -> None:
+        repo = self.repo()
+        git(repo.root, "checkout", "-q", "-b", "main")
+        repo.add("M001", "add-export", "TODO", slices=OPEN, branch="DEMO-2")
+        repo.commit()
+        wt = self.tmp / "wt"
+        git(repo.root, "worktree", "add", "-q", "-b", "DEMO-2", str(wt))
+        main_before = snapshot(repo.change("add-export"))
+        code, out = migrate(repo.root, ["M001"], yes_config=True, yes_rewrites=True)
+        self.assertEqual(code, 0, out)
+        self.assertEqual(snapshot(repo.change("add-export")), main_before)
+        meta = (wt / "openspec" / "changes" / "add-export" / ".openspec.yaml").read_text(encoding="utf-8")
+        self.assertIn("x-delivery-legacy-id: M001", meta)
+        self.assertIn("openspec/knowledge.md merge=union", (wt / ".gitattributes").read_text(encoding="utf-8"))
+        self.assertIn(f"COMMIT {wt} openspec/changes/add-export/design.md", out)
+        self.assertNotIn(f"COMMIT {repo.root} openspec/changes", out)
+
+    def test_cli_wires_migrate(self) -> None:
+        repo = self.ready()
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = w2c.main(["--root", str(repo.root), "cloud", "migrate", "--milestone", "M001", "--dry-run"])
+        self.assertEqual(code, 0, out.getvalue())
+        self.assertIn("NEXT_BEFORE M001 S01 T01", out.getvalue())
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
+            code = w2c.main(["--root", str(repo.root), "cloud", "migrate", "--dry-run"])
+        self.assertEqual(code, 1)
+        self.assertIn("--milestone or --all", err.getvalue())
+
+
+    def test_merge_config_forms(self) -> None:
+        merged = convert.merge_config("context: |\n    Old line.\nrules:\n  tasks:\n  - \"keep\"\n"
+                                      "operations:\n  archive:\n    guidance:\n      - a\n")
+        self.assertTrue(merged.startswith("context: |\n    Old line.\n    Project knowledge"), merged)
+        self.assertIn("  - \"keep\"\n  - \"" + layout.RULE_PREFIX + " " + layout.SLICE_TASK_MARKER, merged)
+        self.assertIn("operations:\n  archive:\n    guidance:\n      - a\n  apply:\n    guidance:\n      - \"", merged)
+        for key in ("context", "rules", "operations"):
+            self.assertEqual(len(re.findall(rf"(?m)^{key}:", merged)), 1, key)
+        self.assertEqual(convert.merge_config(merged), merged)
+        for unsafe in ("rules:\n  design: [a]\n", "context: hello\n", "rules: &base\n  tasks:\n  - a\n",
+                       "rules:\n\ttasks:\n", "operations: {apply: {}}\n"):
+            with self.subTest(text=unsafe):
+                with self.assertRaises(convert._Unsafe):
+                    convert.merge_config(unsafe)
+
+
+    def test_milestone_with_legacy_id_is_skipped(self) -> None:
+        repo = self.repo()
+        repo.add("M001", "add-export", "TODO", slices=OPEN)
+        meta = repo.change("add-export") / ".openspec.yaml"
+        meta.write_text(meta.read_text(encoding="utf-8").replace("x-w2c-milestone:", "x-delivery-legacy-id:"),
+                        encoding="utf-8")
+        repo.commit()
+        plan = convert.plan_conversion(repo.root, ["M001"])
+        self.assertEqual((plan.skipped, plan.actions, plan.blockers), (["M001"], [], []))
+        code, out = migrate(repo.root, ["M001"], yes_config=True, yes_rewrites=True)
+        self.assertEqual(code, 0, out)
+        self.assertIn("SKIPPED M001", out)
+        self.assertIn("NOTHING_TO_CONVERT", out)
 
 
 if __name__ == "__main__":

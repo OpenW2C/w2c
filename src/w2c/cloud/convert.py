@@ -1,22 +1,32 @@
-"""Plan the conversion of 2.2 OpenSpec milestones to cloud changes.
+"""Convert 2.2 OpenSpec milestones to cloud changes (`w2c cloud migrate`).
 
 `plan_conversion` reads the 2.2 ledger, the plan folders, and the target
 changes, and returns every action and every blocker. It writes nothing. Every
 source section maps to a target, is consumed into a key, is a documented drop
 (`layout.LEGACY_DROPPED_FIELDS`, `layout.LEGACY_DROPPED_GUARDRAILS`), or is a
-blocker. The CLI package is imported lazily.
+blocker.
+
+`cmd_migrate` applies a plan: it refuses on blockers, backs up `.w2c/` and every
+target file under a per-run manifest, applies the actions, verifies them, and
+restores exactly when verification fails. It never runs a mutating git command.
+The CLI package is imported lazily.
 """
 
 from __future__ import annotations
 
+import difflib
+import hashlib
+import json
 import re
+import shutil
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 
 from w2c import ledger_store
 from w2c import local as w2c_local
 from w2c import openspec_ledger as osl
-from w2c.cloud import checks, commands, layout
+from w2c.cloud import checks, commands, layout, ledger
 
 ACTION_KINDS: tuple[str, ...] = (
     "write-key",
@@ -332,6 +342,25 @@ def _cli():
     return w2c_cli
 
 
+def checkouts(root: Path) -> list[tuple[Path, str]]:
+    """(path, branch) of every non-bare worktree; the first is the main checkout."""
+    if not ledger_store.is_git(root):
+        return [(root, "")]
+    proc = ledger_store.git(root, "worktree", "list", "--porcelain", check=False)
+    found: list[tuple[Path, str]] = []
+    for block in re.split(r"\n\s*\n", proc.stdout.strip()) if proc.returncode == 0 else []:
+        lines = block.splitlines()
+        if not lines or not lines[0].startswith("worktree ") or "bare" in lines:
+            continue
+        path = Path(lines[0].split(" ", 1)[1])
+        if not path.is_dir():
+            continue
+        if path.resolve() == root.resolve():
+            path = root
+        found.append((path, ledger_store.current_branch(path)))
+    return found or [(root, ledger_store.current_branch(root))]
+
+
 @dataclass
 class Action:
     kind: str
@@ -348,6 +377,8 @@ class ConversionPlan:
     known_rewrites: list[tuple[Path, int, str, str | Drop]] = field(default_factory=list)
     unknown_w2c_lines: list[tuple[Path, int, str]] = field(default_factory=list)
     next_before: dict[str, tuple[str, str, str] | None] = field(default_factory=dict)
+    # Milestones whose change already carries x-delivery-legacy-id: nothing to do.
+    skipped: list[str] = field(default_factory=list)
 
 
 # ------------------------------------------------------------------ parsing
@@ -515,21 +546,7 @@ class _Planner:
                 self.plan.unknown_w2c_lines.append((path, number or 0, text))
 
     def _checkouts(self) -> list[tuple[Path, str]]:
-        if not ledger_store.is_git(self.root):
-            return [(self.root, "")]
-        proc = ledger_store.git(self.root, "worktree", "list", "--porcelain", check=False)
-        found: list[tuple[Path, str]] = []
-        for block in re.split(r"\n\s*\n", proc.stdout.strip()) if proc.returncode == 0 else []:
-            lines = block.splitlines()
-            if not lines or not lines[0].startswith("worktree ") or "bare" in lines:
-                continue
-            path = Path(lines[0].split(" ", 1)[1])
-            if not path.is_dir():
-                continue
-            if path.resolve() == self.root.resolve():
-                path = self.root
-            found.append((path, ledger_store.current_branch(path)))
-        return found or [(self.root, ledger_store.current_branch(self.root))]
+        return checkouts(self.root)
 
     def touch(self, checkout: Path, path: Path) -> None:
         try:
@@ -592,6 +609,7 @@ class _Planner:
             self._milestone(mil, order, line, road_path)
         for checkout in list(self.touched):
             self._project(checkout)
+        selected = [mid for mid in selected if mid not in self.plan.skipped]
         remaining = [mid for mid in by_id if mid not in selected]
         if milestones is None and not remaining and (
             selected or any((self.wdir / item).exists() for item in LEDGER_FILES)
@@ -647,6 +665,10 @@ class _Planner:
         folder = osl.change_dir(checkout, name, archive)
         if folder is None or not (folder / ".openspec.yaml").is_file():
             self.block(f"{mid}: change folder {name} not found in {checkout}")
+            return
+        if ledger.read_keys(folder / ".openspec.yaml").get(ledger.PREFIX + "legacy-id"):
+            # Already converted (ruling 8): the change carries its legacy id.
+            self.plan.skipped.append(mid)
             return
         self.touch(checkout, folder)
         done = mil.status == "DONE"
@@ -1277,3 +1299,898 @@ def _cli_amend_header() -> str:
 def plan_conversion(root: Path, milestones: list[str] | None) -> ConversionPlan:
     """Every action and blocker for converting `milestones` (None: --all). Reads only."""
     return _Planner(Path(root)).run(milestones)
+
+
+# ====================================================================== apply
+
+RUN_PREFIX = "cloud-migrate-"
+MANIFEST_NAME = "manifest.json"
+MANIFEST_VERSION = 1
+RESTORE_FIRST = "run w2c cloud migrate --restore first"
+# Applied only after verification passes.
+DEFERRED_KINDS = frozenset({"roadmap-remove", "delete-ledger-file"})
+APPEND_DETAIL_RE = re.compile(r"^(## .+?)(?: > (### .+?))? \((?:new|append-to-existing)\) <- ")
+GROUP_DETAIL_RE = re.compile(r"^group (\d+) ")
+KEY_DETAIL_RE = re.compile(r"^(x-delivery-[a-z-]+): ")
+DECISION_HEAD_LINE_RE = re.compile(r"^\| # \| When \|")
+TOP_KEY_RE = re.compile(r"^([A-Za-z_][\w.-]*)[ \t]*:(.*)$")
+BLOCK_SCALAR_RE = re.compile(r"^[|>][+-]?[1-9]?$")
+
+
+def _error(message: str) -> Exception:
+    return _cli().W2CError(message)
+
+
+def _rewrite_line(line: str, yes_rewrites: bool) -> str | None:
+    """The line after approved rewrites; None when an approved Drop removes it."""
+    new = KNOWN_REWRITES.get(line)
+    if new is None or not yes_rewrites:
+        return line
+    return None if isinstance(new, Drop) else new
+
+
+def _rewrite(text: str, yes_rewrites: bool) -> str:
+    out: list[str] = []
+    for line in text.splitlines(keepends=True):
+        body = line.rstrip("\r\n")
+        new = _rewrite_line(body, yes_rewrites)
+        if new is not None:
+            out.append(new + line[len(body):])
+    return "".join(out)
+
+
+def _shown(new: str | Drop) -> str:
+    return f"(drop: {new.reason})" if isinstance(new, Drop) else new
+
+
+def _rel(base: Path, path: Path) -> str:
+    try:
+        return path.relative_to(base).as_posix()
+    except ValueError:
+        return str(path)
+
+
+def _lines(text: str) -> list[str]:
+    lines = text.splitlines(keepends=True)
+    if lines and not lines[-1].endswith("\n"):
+        lines[-1] += "\n"
+    return lines
+
+
+def _block(content: str) -> list[str]:
+    return _lines(content) if content.strip() else []
+
+
+def _level2(lines: list[str]) -> list[tuple[str, int, int]]:
+    """(heading, heading index, end index) of each `## ` section; fenced code is body."""
+    heads: list[tuple[str, int]] = []
+    fenced = False
+    for index, line in enumerate(lines):
+        text = line.rstrip("\r\n")
+        if FENCE_RE.match(text):
+            fenced = not fenced
+            continue
+        match = None if fenced else HEADING_RE.match(text)
+        if match and len(match.group(1)) == 2:
+            heads.append((f"## {match.group(2)}", index))
+    out = []
+    for number, (heading, start) in enumerate(heads):
+        end = heads[number + 1][1] if number + 1 < len(heads) else len(lines)
+        out.append((heading, start, end))
+    return out
+
+
+def section_bodies(text: str) -> dict[str, list[str]]:
+    """Body lines of each `## ` heading (first occurrence), subsections included."""
+    lines = text.splitlines()
+    bodies: dict[str, list[str]] = {}
+    for heading, start, end in _level2(lines):
+        bodies.setdefault(heading, lines[start + 1 : end])
+    return bodies
+
+
+def _collapse(lines: list[str], exclude: frozenset[str] | set[str] = frozenset()) -> str:
+    kept = [line for line in lines if line.strip() not in exclude]
+    return " ".join(" ".join(kept).split())
+
+
+def _sha(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def section_fingerprints(text: str, exclude: frozenset[str] | set[str] = frozenset()) -> dict[str, str]:
+    """Heading -> sha256 of the whitespace-collapsed body. Lines whose stripped text
+    is in `exclude` are left out on both sides of a comparison."""
+    return {heading: _sha(_collapse(body, exclude)) for heading, body in section_bodies(text).items()}
+
+
+def _trim_end(lines: list[str], start: int, end: int) -> int:
+    while end > start and not lines[end - 1].strip():
+        end -= 1
+    return end
+
+
+def _append_to_section(text: str, heading: str, content: str, order: tuple[str, ...] = ()) -> str:
+    """Append `content` at the end of `heading`'s section, creating the heading when
+    missing. A new heading listed in `order` goes before the first later one present."""
+    lines = _lines(text)
+    block = _block(content)
+    sections = _level2(lines)
+    found = next((s for s in sections if s[0] == heading), None)
+    if found is not None:
+        _h, start, end = found
+        stop = _trim_end(lines, start + 1, end)
+        tail = lines[stop:end] or (["\n"] if end < len(lines) else [])
+        insert = (["\n"] + block) if block else []
+        return "".join(lines[:stop] + insert + tail + lines[end:])
+    new = [heading + "\n", "\n"] + block
+    if heading in order:
+        later = order[order.index(heading) + 1 :]
+        at = next((start for name, start, _e in sections if name in later), None)
+        if at is not None:
+            return "".join(lines[:at] + new + (["\n"] if block else []) + lines[at:])
+    if lines and lines[-1].strip():
+        lines.append("\n")
+    return "".join(lines + new)
+
+
+def _insert_group_fields(text: str, number: int, content: str) -> str:
+    lines = _lines(text)
+    for heading, start, end in _level2(lines):
+        match = checks.GROUP_LINE_RE.match(heading)
+        if not match or int(match.group(1)) != number:
+            continue
+        task = next((i for i in range(start + 1, end) if osl.TASK_RE.match(lines[i].rstrip("\n"))), None)
+        if task is not None:
+            before = lines[:task]
+            if before and before[-1].strip():
+                before.append("\n")
+            return "".join(before + _block(content) + ["\n"] + lines[task:])
+        stop = _trim_end(lines, start + 1, end)
+        tail = lines[stop:end] or (["\n"] if end < len(lines) else [])
+        return "".join(lines[:stop] + ["\n"] + _block(content) + tail + lines[end:])
+    raise _error(f"tasks.md has no ## {number}. group")
+
+
+def _insert_read_first(text: str, block: str) -> str:
+    lines = _lines(text)
+    at = 0
+    if lines and lines[0].startswith("# "):
+        at = 1
+        while at < len(lines) and not lines[at].strip():
+            at += 1
+        head = lines[:1] + ["\n"]
+    else:
+        head = []
+    return "".join(head + _block(block) + ["\n"] + lines[at:])
+
+
+def _insert_decisions(text: str, rows: str) -> str:
+    lines = _lines(text)
+    found = next((s for s in _level2(lines) if s[0] == "## Decisions"), None)
+    if found is not None:
+        _h, start, end = found
+        head = next((i for i in range(start + 1, end) if DECISION_HEAD_LINE_RE.match(lines[i])), None)
+        if head is not None:
+            stop = head + 1
+            while stop < end and lines[stop].startswith("|"):
+                stop += 1
+            return "".join(lines[:stop] + _block(rows) + lines[stop:])
+    return _append_to_section(text, "## Decisions", commands.DECISION_HEADER + rows, layout.DESIGN_HEADINGS)
+
+
+def _sync_knowledge(text: str, content: str) -> str:
+    """Add the planned CONTEXT lines: preamble before the first section, table rows
+    after a section's last table row, other lines at the section end."""
+    preamble, sections = _split([_gen(line) for line in content.splitlines()], 2)
+    if not text.strip():
+        out = [r[2] + "\n" for r in preamble]
+        for section in sections:
+            if out and out[-1].strip():
+                out.append("\n")
+            out += [f"## {section.title}\n", "\n"] + [r[2] + "\n" for r in _trim(section.body)]
+        return "".join(out)
+    lines = _lines(text)
+    adds = [r[2] + "\n" for r in preamble if r[2].strip()]
+    if adds:
+        heads = _level2(lines)
+        at = _trim_end(lines, 0, heads[0][1] if heads else len(lines))
+        lines = lines[:at] + ["\n"] + adds + lines[at:]
+    for section in sections:
+        heading = f"## {section.title}"
+        body = [r[2] + "\n" for r in section.body if r[2].strip()]
+        found = next((s for s in _level2(lines) if s[0] == heading), None)
+        if found is None:
+            if lines and lines[-1].strip():
+                lines.append("\n")
+            lines += [heading + "\n", "\n"] + [r[2] + "\n" for r in _trim(section.body)]
+            continue
+        _h, start, end = found
+        rows = [line for line in body if line.lstrip().startswith("|")]
+        other = [line for line in body if not line.lstrip().startswith("|")]
+        last_row = max((i for i in range(start + 1, end) if lines[i].lstrip().startswith("|")), default=None)
+        if rows and last_row is not None:
+            lines[last_row + 1 : last_row + 1] = rows
+            end += len(rows)
+            rows = []
+        rest = rows + other
+        if rest:
+            stop = _trim_end(lines, start + 1, end)
+            lines[stop:stop] = ["\n"] + rest
+    return "".join(lines)
+
+
+# ---------------------------------------------------------------- config.yaml
+
+
+class _Unsafe(Exception):
+    pass
+
+
+def _indent(line: str) -> int:
+    return len(line) - len(line.lstrip(" "))
+
+
+def _content(line: str) -> bool:
+    text = line.strip()
+    return bool(text) and not text.startswith("#")
+
+
+def _value(line: str) -> str:
+    rest = line.split(":", 1)[1] if ":" in line else ""
+    return re.sub(r"(^|\s)#.*$", "", rest).strip()
+
+
+def _snippet_blocks(snippet: str) -> list[tuple[str, str]]:
+    """(top-level key, block text) in snippet order."""
+    blocks: list[tuple[str, str]] = []
+    for line in _lines(snippet):
+        match = TOP_KEY_RE.match(line.rstrip("\n")) if _indent(line) == 0 and _content(line) else None
+        if match:
+            blocks.append((match.group(1), line))
+        elif blocks:
+            blocks[-1] = (blocks[-1][0], blocks[-1][1] + line)
+    return blocks
+
+
+def _snippet_parts(snippet: str) -> list[tuple[tuple[str, ...], str, list[str]]]:
+    """(key path, 'scalar' | 'list', lines) for each leaf of the config snippet."""
+    parts: list[tuple[tuple[str, ...], str, list[str]]] = []
+    stack: list[tuple[int, str]] = []
+    scalar_at: int | None = None
+    for line in snippet.splitlines():
+        if not line.strip():
+            continue
+        ind = _indent(line)
+        text = line.strip()
+        if scalar_at is not None and ind > scalar_at:
+            parts[-1][2].append(text)
+            continue
+        scalar_at = None
+        while stack and stack[-1][0] >= ind:
+            stack.pop()
+        if text.startswith("- "):
+            path = tuple(key for _i, key in stack)
+            if parts and parts[-1][0] == path and parts[-1][1] == "list":
+                parts[-1][2].append(text)
+            else:
+                parts.append((path, "list", [text]))
+            continue
+        key, value = text.split(":", 1)
+        stack.append((ind, key.strip()))
+        if BLOCK_SCALAR_RE.match(value.strip()):
+            parts.append((tuple(k for _i, k in stack), "scalar", []))
+            scalar_at = ind
+    return parts
+
+
+def _find_key(lines: list[str], start: int, end: int, indent: int, key: str) -> list[int]:
+    pattern = re.compile(rf"^{re.escape(key)}[ \t]*:")
+    return [i for i in range(start, end)
+            if _content(lines[i]) and _indent(lines[i]) == indent and pattern.match(lines[i][indent:])]
+
+
+def _block_end(lines: list[str], at: int, indent: int) -> int:
+    j = at + 1
+    while j < len(lines):
+        line = lines[j]
+        if _content(line) and not (_indent(line) > indent or (
+                _indent(line) == indent and line[indent:].startswith("- ") and indent > 0)):
+            break
+        j += 1
+    while j > at + 1 and not lines[j - 1].strip():
+        j -= 1
+    return j
+
+
+def _merge_leaf(lines: list[str], path: tuple[str, ...], kind: str, items: list[str], text: str) -> None:
+    start, end, indent = 0, len(lines), 0
+    for depth, key in enumerate(path):
+        found = _find_key(lines, start, end, indent, key)
+        if len(found) > 1:
+            raise _Unsafe(f"duplicate key {key}")
+        missing = [item for item in items if item.removeprefix("- ") not in text]
+        if not found:
+            if not missing:
+                return
+            at = _trim_end(lines, start, end) if depth else len(lines)
+            new: list[str] = []
+            if not depth and lines and lines[-1].strip():
+                new.append("\n")
+            ind = indent
+            for number, name in enumerate(path[depth:]):
+                last = depth + number == len(path) - 1
+                new.append(" " * ind + f"{name}:{' |' if last and kind == 'scalar' else ''}\n")
+                ind += 2
+            new += [" " * ind + item + "\n" for item in missing]
+            lines[at:at] = new
+            return
+        at = found[0]
+        value = _value(lines[at])
+        last = depth == len(path) - 1
+        block = _block_end(lines, at, indent)
+        body = [i for i in range(at + 1, block) if _content(lines[i])]
+        if last and kind == "scalar":
+            if not BLOCK_SCALAR_RE.match(value):
+                raise _Unsafe(f"{key} is not a block scalar")
+            child = _indent(lines[body[0]]) if body else indent + 2
+        else:
+            if value:
+                raise _Unsafe(f"{key} is not in block style")
+            child = _indent(lines[body[0]]) if body else indent + 2
+            if last and body and not lines[body[0]][child:].startswith("- "):
+                raise _Unsafe(f"{key} is not a list")
+        if last:
+            if missing:
+                lines[block:block] = [" " * child + item + "\n" for item in missing]
+            return
+        start, end, indent = at + 1, block, child
+
+
+def merge_config(text: str, snippet: str = layout.CONFIG_RULES_SNIPPET) -> str:
+    """Merge the cloud rules into config.yaml text, line by line, into existing
+    block-style keys. Raises _Unsafe for forms that cannot be merged safely."""
+    if "\t" in text:
+        raise _Unsafe("tabs")
+    lines = _lines(text)
+    unquoted = [re.sub(r"\"(?:[^\"\\]|\\.)*\"|'[^']*'", "", line) for line in lines]
+    scalar_until = -1
+    for index, line in enumerate(unquoted):
+        if index <= scalar_until:
+            continue
+        stripped = line.strip()
+        if stripped in ("---", "...") and index:
+            raise _Unsafe("more than one YAML document")
+        if re.search(r"(^|[\s:\[{,-])[&*][A-Za-z0-9_-]", re.sub(r"(^|\s)#.*$", "", line)):
+            raise _Unsafe("anchors or aliases")
+        if _content(line) and ":" in line and BLOCK_SCALAR_RE.match(_value(line)):
+            ind = _indent(line)
+            scalar_until = _block_end(lines, index, ind) - 1
+    for key in CONFIG_KEYS:
+        found = _find_key(lines, 0, len(lines), 0, key)
+        if len(found) > 1:
+            raise _Unsafe(f"duplicate top-level key {key}")
+        if found:
+            at = found[0]
+            value = _value(lines[at])
+            if value[:1] in ("{", "["):
+                raise _Unsafe(f"{key} uses flow style")
+            for i in range(at + 1, _block_end(lines, at, 0)):
+                if _content(lines[i]) and ":" in lines[i] and _value(lines[i])[:1] in ("{", "["):
+                    raise _Unsafe(f"{key} holds flow style")
+    appended: list[str] = []
+    for key, block in _snippet_blocks(snippet):
+        if not _find_key(lines, 0, len(lines), 0, key):
+            appended.append(block)
+            continue
+        for path, kind, items in _snippet_parts(block):
+            _merge_leaf(lines, path, kind, items, "".join(lines))
+    if appended:
+        if lines and lines[-1].strip():
+            lines.append("\n")
+        lines += _lines("".join(appended))
+    return "".join(lines)
+
+
+def _config_change(path: Path) -> tuple[str | None, str]:
+    """(new text, '') or (None, reason) for the planned config edit."""
+    text = _cli().read_text(path)
+    if not path.is_file():
+        return layout.CONFIG_RULES_SNIPPET, ""
+    try:
+        return merge_config(text), ""
+    except _Unsafe as exc:
+        return None, str(exc)
+
+
+def _config_lines(root: Path, action: Action, *, approved: bool) -> list[str]:
+    cli = _cli()
+    shown = _rel(root, action.path)
+    new, reason = _config_change(action.path)
+    if new is None:
+        return [f"MANUAL_CONFIG {shown}: cannot merge safely ({reason}); add these lines by hand:"] + [
+            "  " + line for line in layout.CONFIG_RULES_SNIPPET.splitlines()]
+    old = cli.read_text(action.path)
+    diff = list(difflib.unified_diff(old.splitlines(), new.splitlines(), shown, shown, n=1, lineterm=""))
+    if not approved:
+        return [f"NEED_CONFIG_APPROVAL {shown} (rerun with --yes-config to add):"] + diff
+    cli.atomic_write(action.path, new)
+    return [f"CONFIG_MERGED {shown}"]
+
+
+# ---------------------------------------------------------------- actions
+
+
+def _allowed(path: Path, roots: list[Path]) -> None:
+    if not any(path.is_relative_to(base) for base in roots):
+        raise _error(f"refusing to write {path}: it is not inside a checkout")
+
+
+def _copy_report(action: Action, yes_rewrites: bool) -> None:
+    source = Path(action.detail.removeprefix("<- ").strip())
+    raw = source.read_bytes()
+    data = _rewrite(raw.decode("utf-8"), yes_rewrites).encode("utf-8") if yes_rewrites else raw
+    target = action.path
+    if target.exists():
+        if target.read_bytes() == data:
+            return
+        raise _error(f"{target} exists and differs from {source}")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(data)
+
+
+def _write_new(path: Path, content: str) -> None:
+    if path.exists():
+        if _cli().read_text(path) == content:
+            return
+        raise _error(f"{path} exists; it would be overwritten")
+    _cli().atomic_write(path, content)
+
+
+def _rename_link(meta: Path, mid: str) -> None:
+    text = ledger._read_raw(meta)
+    new, count = re.subn(rf"(?m)^{re.escape(LEGACY_LINK_KEY)}[ \t]*:.*$", f"x-delivery-legacy-id: {mid}", text, count=1)
+    if not count:
+        raise _error(f"{meta} has no {LEGACY_LINK_KEY} key")
+    _cli().atomic_write(meta, new)
+
+
+def apply_conversion(root: Path, plan: ConversionPlan, *, yes_config: bool, yes_rewrites: bool) -> list[str]:
+    """Apply every planned action except the ROADMAP and ledger removals, which wait
+    for verification (`finish_conversion`). Returns the lines to print."""
+    cli = _cli()
+    root = Path(root)
+    roots = [path for path, _b in checkouts(root)] + [root]
+    out: list[str] = []
+    for path, number, old, new in plan.known_rewrites:
+        token = "REWRITE" if yes_rewrites else "NEED_REWRITE_APPROVAL"
+        out.append(f"{token} {_rel(root, path)}:{number} {old} -> {_shown(new)}")
+    for path, number, text in plan.unknown_w2c_lines:
+        out.append(f"MANUAL_EDIT {_rel(root, path)}:{number} {text}")
+    for action in plan.actions:
+        kind, path = action.kind, action.path
+        if kind in DEFERRED_KINDS:
+            continue
+        _allowed(path, roots)
+        if kind == "write-key":
+            key = KEY_DETAIL_RE.match(action.detail)
+            if not key:
+                raise _error(f"cannot read the key in {action.detail!r}")
+            ledger.write_key(path, key.group(1), action.content)
+        elif kind == "rename-key":
+            _rename_link(path, action.content)
+        elif kind == "append-section":
+            match = APPEND_DETAIL_RE.match(action.detail)
+            if not match:
+                raise _error(f"cannot read the heading in {action.detail!r}")
+            order = layout.DESIGN_HEADINGS if path.name == "design.md" else ()
+            text = _append_to_section(cli.read_text(path), match.group(1), _rewrite(action.content, yes_rewrites), order)
+            cli.atomic_write(path, text)
+        elif kind == "write-group-fields":
+            number = int(GROUP_DETAIL_RE.match(action.detail).group(1))
+            cli.atomic_write(path, _insert_group_fields(cli.read_text(path), number,
+                                                        _rewrite(action.content, yes_rewrites)))
+        elif kind == "write-read-first":
+            cli.atomic_write(path, _insert_read_first(cli.read_text(path), action.content))
+        elif kind == "copy-report":
+            _copy_report(action, yes_rewrites)
+        elif kind == "copy-decisions":
+            cli.atomic_write(path, _insert_decisions(cli.read_text(path), _rewrite(action.content, yes_rewrites)))
+        elif kind == "sync-knowledge":
+            cli.atomic_write(path, _sync_knowledge(cli.read_text(path), _rewrite(action.content, yes_rewrites)))
+        elif kind == "edit-gitattributes":
+            existing = cli.read_text(path)
+            if commands.ATTRIBUTES_LINE not in existing.splitlines():
+                if existing and not existing.endswith("\n"):
+                    existing += "\n"
+                cli.atomic_write(path, existing + action.content)
+        elif kind == "edit-config":
+            out += _config_lines(root, action, approved=yes_config)
+        elif kind == "mark-converted":
+            cli.atomic_write(path, action.content.rstrip("\n") + "\n")
+        elif kind == "write-decisions-file":
+            _write_new(path, _rewrite(action.content, yes_rewrites))
+        else:
+            raise _error(f"unknown action kind {kind}")
+    return out
+
+
+def finish_conversion(root: Path, plan: ConversionPlan) -> None:
+    """After verification: drop the converted ROADMAP lines, then rebuild STATE.md and
+    QUEUE.md, or retire the ledger files when no 2.2 milestone remains."""
+    cli = _cli()
+    for action in plan.actions:
+        if action.kind != "roadmap-remove":
+            continue
+        lines = _lines(cli.read_text(action.path))
+        wanted = action.content.rstrip("\r\n")
+        index = next((i for i, line in enumerate(lines) if line.rstrip("\r\n") == wanted), None)
+        if index is not None:
+            del lines[index]
+            cli.atomic_write(action.path, "".join(lines))
+    deletes = [a for a in plan.actions if a.kind == "delete-ledger-file"]
+    for action in deletes:
+        if action.path.is_dir() and not action.path.is_symlink():
+            shutil.rmtree(action.path)
+        elif action.path.exists() or action.path.is_symlink():
+            action.path.unlink()
+    if not deletes and any(a.kind == "roadmap-remove" for a in plan.actions):
+        cli.rebuild_ledger(Path(root))
+
+
+# ---------------------------------------------------------------- backup, restore
+
+
+def _runs(root: Path) -> list[Path]:
+    base = w2c_local.backup_dir_for(root)
+    if not base.is_dir():
+        return []
+    return sorted(p for p in base.glob(RUN_PREFIX + "*") if (p / MANIFEST_NAME).is_file())
+
+
+def _read_manifest(run: Path) -> dict:
+    return json.loads((run / MANIFEST_NAME).read_text(encoding="utf-8"))
+
+
+def _write_manifest(run: Path, manifest: dict) -> None:
+    _cli().atomic_write(run / MANIFEST_NAME, json.dumps(manifest, indent=2) + "\n")
+
+
+def _run_label(run: Path) -> str:
+    return f"the run started {_read_manifest(run).get('created', run.name)}"
+
+
+def _owner(path: Path, roots: list[Path]) -> Path:
+    found = [base for base in roots if path.is_relative_to(base)]
+    return max(found, key=lambda base: len(base.parts)) if found else path.parent
+
+
+def _touched(root: Path, plan: ConversionPlan) -> list[Path]:
+    wdir = root / ".w2c"
+    seen: list[Path] = []
+    for action in plan.actions:
+        if action.path.is_relative_to(wdir) or action.path in seen:
+            continue
+        seen.append(action.path)
+    return seen
+
+
+def backup(root: Path, plan: ConversionPlan, milestones: list[str]) -> Path:
+    """Back up `.w2c/` and every file an action will touch; write the manifest."""
+    root = Path(root)
+    w2c_local.backup_w2c_assets(root)
+    base = w2c_local.backup_dir_for(root)
+    run = base / (RUN_PREFIX + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ"))
+    run.mkdir(parents=True)
+    roots = [path for path, _b in checkouts(root)]
+    wdir = root / ".w2c"
+    manifest: dict = {
+        "version": MANIFEST_VERSION,
+        "root": str(root),
+        "created": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "milestones": milestones,
+        "w2c": None,
+        "files": [],
+        "complete": False,
+        "restored": False,
+    }
+    if wdir.exists():
+        real = wdir.resolve()
+        shutil.copytree(real, run / "w2c", symlinks=True)
+        manifest["w2c"] = {"path": str(real), "backup": "w2c"}
+    for number, path in enumerate(_touched(root, plan), start=1):
+        record: dict = {"path": str(path), "checkout": str(_owner(path, roots))}
+        if path.is_file():
+            stored = Path("files") / f"{number:04d}"
+            (run / stored).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(path, run / stored)
+            record.update(state="present", backup=stored.as_posix())
+        elif path.exists():
+            raise _error(f"{path} is not a file")
+        else:
+            missing: list[str] = []
+            parent = path.parent
+            while not parent.exists():
+                missing.append(str(parent))
+                parent = parent.parent
+            record.update(state="absent", created_dirs=missing)
+        manifest["files"].append(record)
+    _write_manifest(run, manifest)
+    return run
+
+
+def _restore_run(run: Path) -> int:
+    manifest = _read_manifest(run)
+    for record in reversed(manifest["files"]):
+        path = Path(record["path"])
+        if record["state"] == "present":
+            path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(run / record["backup"], path)
+            continue
+        if path.is_dir() and not path.is_symlink():
+            shutil.rmtree(path)
+        elif path.exists() or path.is_symlink():
+            path.unlink()
+        for folder in record.get("created_dirs", []):
+            try:
+                Path(folder).rmdir()
+            except OSError:
+                break
+    saved = manifest.get("w2c")
+    if saved:
+        target = Path(saved["path"])
+        if target.exists():
+            shutil.rmtree(target)
+        shutil.copytree(run / saved["backup"], target, symlinks=True)
+    manifest["restored"] = True
+    manifest["restored_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    _write_manifest(run, manifest)
+    return len(manifest["files"])
+
+
+def restore(root: Path) -> None:
+    """Restore the latest run exactly, then mark it restored."""
+    runs = _runs(Path(root))
+    if not runs or _read_manifest(runs[-1]).get("restored"):
+        print("NOTHING_TO_RESTORE")
+        return
+    count = _restore_run(runs[-1])
+    print(f"RESTORED {count} files and .w2c/ from {_run_label(runs[-1])}")
+
+
+def _changed(record: dict, run: Path) -> bool:
+    path = Path(record["path"])
+    if record["state"] == "absent":
+        return path.exists()
+    return not path.is_file() or path.read_bytes() != (run / record["backup"]).read_bytes()
+
+
+# ---------------------------------------------------------------- verify
+
+
+def _original(manifest: dict, run: Path, path: Path) -> str:
+    for record in manifest["files"]:
+        if Path(record["path"]) == path:
+            if record["state"] == "absent":
+                return ""
+            return (run / record["backup"]).read_text(encoding="utf-8")
+    return ""
+
+
+def _pending_lines(plan: ConversionPlan, yes_rewrites: bool) -> set[str]:
+    lines = {text.strip() for _p, _n, text in plan.unknown_w2c_lines}
+    if not yes_rewrites:
+        lines |= {old.strip() for _p, _n, old, _new in plan.known_rewrites}
+    return lines
+
+
+def _converted(plan: ConversionPlan) -> dict[str, Path]:
+    """Legacy id -> change folder."""
+    out: dict[str, Path] = {}
+    for action in plan.actions:
+        if action.kind == "rename-key" or (action.kind == "write-key" and action.detail.startswith("x-delivery-legacy-id:")):
+            out[action.content] = action.path.parent
+    return out
+
+
+def _verify(root: Path, plan: ConversionPlan, run: Path, yes_rewrites: bool) -> tuple[list[str], list[str]]:
+    """(failures, pending edits). Every placed section, field, key, report and line
+    is checked against the plan, then cloud smoke and cloud next."""
+    cli = _cli()
+    manifest = _read_manifest(run)
+    pending = _pending_lines(plan, yes_rewrites)
+    failures: list[str] = []
+    notes: list[str] = []
+    header = {line.strip() for line in commands.DECISION_HEADER.splitlines()}
+
+    sections: dict[Path, list[Action]] = {}
+    for action in plan.actions:
+        if action.kind in ("append-section", "copy-decisions"):
+            sections.setdefault(action.path, []).append(action)
+    for path, actions in sections.items():
+        expected = section_bodies(_original(manifest, run, path))
+        rows: list[str] = []
+        touched: list[str] = []
+        for action in actions:
+            content = _rewrite(action.content, yes_rewrites)
+            if action.kind == "copy-decisions":
+                rows += [line for line in content.splitlines() if line.strip()]
+                continue
+            heading = APPEND_DETAIL_RE.match(action.detail).group(1)
+            expected.setdefault(heading, []).extend(content.splitlines())
+            if heading not in touched:
+                touched.append(heading)
+        exclude = pending | header | {row.strip() for row in rows}
+        now = cli.read_text(path)
+        actual = section_fingerprints(now, exclude)
+        for heading in touched:
+            if actual.get(heading) != _sha(_collapse(expected[heading], exclude)):
+                failures.append(f"section-fingerprint {_rel(root, path)} {heading}")
+        decisions = {line.strip() for line in section_bodies(now).get("## Decisions", [])}
+        for row in rows:
+            if row.strip() not in decisions:
+                failures.append(f"decision-rows {_rel(root, path)}: {row.strip()[:60]}")
+
+    for action in plan.actions:
+        kind, path = action.kind, action.path
+        shown = _rel(root, path)
+        if kind == "write-group-fields":
+            number = int(GROUP_DETAIL_RE.match(action.detail).group(1))
+            want = checks.slice_fields(f"## {number}. x\n" + _rewrite(action.content, yes_rewrites)).get(number, {})
+            have = checks.slice_fields(cli.read_text(path)).get(number, {})
+            for name, value in want.items():
+                if _collapse(value.splitlines(), pending) != _collapse(have.get(name, "").splitlines(), pending):
+                    failures.append(f"group-fields {shown} group {number}: {name}")
+        elif kind in ("write-key", "rename-key"):
+            keys = ledger.read_keys(path)
+            name = "x-delivery-legacy-id" if kind == "rename-key" else KEY_DETAIL_RE.match(action.detail).group(1)
+            if keys.get(name) != ledger._clean_value(action.content) or (
+                    kind == "rename-key" and LEGACY_LINK_KEY in keys):
+                failures.append(f"delivery-key {shown}: {name}")
+        elif kind == "copy-report":
+            source = Path(action.detail.removeprefix("<- ").strip())
+            want = _rewrite(source.read_text(encoding="utf-8"), yes_rewrites) if yes_rewrites else source.read_text(encoding="utf-8")
+            if not path.is_file() or path.read_text(encoding="utf-8") != want:
+                failures.append(f"copy-report {shown}")
+        elif kind in ("sync-knowledge", "write-decisions-file", "edit-gitattributes", "mark-converted"):
+            have = {line.strip() for line in cli.read_text(path).splitlines()}
+            content = _rewrite(action.content, yes_rewrites)
+            lost = [line.strip() for line in content.splitlines() if line.strip() and line.strip() not in have]
+            if lost:
+                failures.append(f"{kind} {shown}: missing {lost[0][:60]}")
+
+    changes: dict[Path, list[ledger.CloudChange]] = {}
+    roots = [path for path, _b in checkouts(root)]
+    folders = _converted(plan)
+    for mid, folder in folders.items():
+        change = ledger.load_change(folder)
+        if change is None:
+            failures.append(f"delivery-keys-valid {mid}: {_rel(root, folder)} has no x-delivery-status")
+            continue
+        changes.setdefault(_owner(folder, roots), []).append(change)
+    for checkout, items in changes.items():
+        for name, state, detail in checks.smoke_rows(checkout, items):
+            if state == "FAIL" and name not in ("neutral-artifacts", "commit-pr-conventions"):
+                failures.append(f"{name} {detail}")
+        for change in items:
+            if not change.archived:
+                for found in checks.neutral_problems(change):
+                    rel = found.split(": ", 1)[1]
+                    target = change.path / rel
+                    text = "" if not target.is_file() else checks._read(target)
+                    left = [line for line in text.splitlines() if line.strip() not in pending]
+                    if "w2c" in rel.lower() or "w2c" in "\n".join(left).lower():
+                        failures.append(f"neutral-artifacts {found}")
+                    else:
+                        notes.append(f"neutral-artifacts {found} (a line listed above needs an edit)")
+            if checks.converted_history(change):
+                continue
+            design = change.path / "design.md"
+            text = cli.read_text(design)
+            problems = checks.validate_conventions(text)
+            if not problems:
+                continue
+            approved = "".join((_rewrite_line(line, True) or "") + "\n" for line in text.splitlines()
+                               if _rewrite_line(line, True) is not None)
+            target = notes if not checks.validate_conventions(approved) and pending else failures
+            for problem in problems:
+                target.append(f"commit-pr-conventions {change.name}: {problem}")
+
+    for mid, before in plan.next_before.items():
+        folder = folders.get(mid)
+        change = ledger.load_change(folder) if folder else None
+        if change is None or change.status == "DONE":
+            continue
+        task = commands.next_task(_owner(folder, roots), mid, None, None)
+        after = (task.sid, task.tid) if task else None
+        wanted = tuple(before[1:]) if before else None
+        if after != wanted:
+            failures.append(f"next {mid}: 2.2 {' '.join(wanted) if wanted else 'none'}, "
+                            f"cloud {' '.join(after) if after else 'none'}")
+    return failures, notes
+
+
+# ---------------------------------------------------------------- command
+
+
+def _print_plan(root: Path, plan: ConversionPlan) -> None:
+    for action in plan.actions:
+        print(f"PLAN {action.kind} {_rel(root, action.path)} {action.detail}".rstrip())
+        if action.kind == "edit-config":
+            for line in _config_lines(root, action, approved=False):
+                print(line)
+    for blocker in plan.blockers:
+        print(f"BLOCKED {blocker}")
+    for path, number, old, new in plan.known_rewrites:
+        print(f"REWRITE {_rel(root, path)}:{number} {old} -> {_shown(new)}")
+    for path, number, text in plan.unknown_w2c_lines:
+        print(f"MANUAL_EDIT {_rel(root, path)}:{number} {text}")
+    for mid in plan.skipped:
+        print(f"SKIPPED {mid}: already converted (x-delivery-legacy-id is set)")
+    for mid, task in plan.next_before.items():
+        print(f"NEXT_BEFORE {mid} {' '.join(task[1:]) if task else 'none'}")
+    print("DRY_RUN nothing written")
+
+
+def cmd_migrate(root: Path, milestones: list[str] | None, all_: bool, dry_run: bool, restore_: bool,
+                yes_config: bool, yes_rewrites: bool) -> int:
+    root = Path(root)
+    if restore_:
+        if milestones or all_ or dry_run:
+            raise _error("--restore takes no --milestone, --all or --dry-run")
+        restore(root)
+        return 0
+    if bool(milestones) == bool(all_):
+        raise _error("pass exactly one of --milestone or --all")
+    runs = _runs(root)
+    if runs:
+        last = _read_manifest(runs[-1])
+        if not last.get("complete") and not last.get("restored"):
+            print(f"REFUSED {_run_label(runs[-1])} did not finish; {RESTORE_FIRST}")
+            return 1
+    plan = plan_conversion(root, None if all_ else list(milestones or []))
+    if dry_run:
+        _print_plan(root, plan)
+        return 1 if plan.blockers else 0
+    if not plan.blockers and _converted(plan) and not osl.cli_check()[1]:
+        plan.blockers.append("openspec is not installed or too old; cloud smoke needs it")
+    if plan.blockers:
+        for blocker in plan.blockers:
+            print(f"BLOCKED {blocker}")
+        return 1
+    for mid in plan.skipped:
+        print(f"SKIPPED {mid}: already converted (x-delivery-legacy-id is set)")
+    if not plan.actions:
+        print("NOTHING_TO_CONVERT")
+        return 0
+    converted = list(_converted(plan))
+    run = backup(root, plan, converted)
+    try:
+        for line in apply_conversion(root, plan, yes_config=yes_config, yes_rewrites=yes_rewrites):
+            print(line)
+        failures, notes = _verify(root, plan, run, yes_rewrites)
+        for note in notes:
+            print(f"PENDING_EDIT {note}")
+        if failures:
+            for failure in failures:
+                print(f"VERIFY_FAIL {failure}")
+            count = _restore_run(run)
+            print(f"RESTORED {count} files and .w2c/ from {_run_label(run)}")
+            return 1
+        finish_conversion(root, plan)
+    except Exception:
+        count = _restore_run(run)
+        print(f"RESTORED {count} files and .w2c/ from {_run_label(run)}")
+        raise
+    manifest = _read_manifest(run)
+    for mid, folder in _converted(plan).items():
+        print(f"CONVERTED {mid} -> {folder.name}")
+    for record in sorted(manifest["files"], key=lambda r: (r["checkout"], r["path"])):
+        if _changed(record, run):
+            checkout = Path(record["checkout"])
+            print(f"COMMIT {checkout} {_rel(checkout, Path(record['path']))}")
+    manifest["complete"] = True
+    manifest["completed"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    _write_manifest(run, manifest)
+    print("NOT_COMMITTED review and commit the paths above yourself; undo with w2c cloud migrate --restore")
+    return 0

@@ -11,8 +11,9 @@ import subprocess
 from pathlib import Path
 
 from w2c.cloud import layout
+from w2c.openspec import CONFIG_RULES_SNIPPET as LEGACY_RULES
 
-from tests.e2e.harness import REPO, Project, Stage
+from tests.e2e.harness import APP_CALC, APP_TEST, REPO, Project, Stage
 from tests.e2e.legacy_suite import tree
 
 CHANGE = "add-multiply"
@@ -495,6 +496,237 @@ def c09_fresh_clone_push(p: Project) -> None:
     p.expect_matches("C09-steps.txt", "\n".join(log) + "\n")
 
 
+# ---------------------------------------------------------------- conversion
+
+OPENSPEC_TEMPLATES = REPO / "templates" / "openspec"
+CADENCE = "slice-commit-milestone-push-pr"
+
+
+def _fill(text: str, field: str, value: str) -> str:
+    return re.sub(rf"(?m)^\| {re.escape(field)} \| [^|\n]*\|$", f"| {field} | {value} |", text)
+
+
+def legacy_roadmap(mid: str, slug: str, word: str, marks: tuple[str, str], archive: str = "") -> str:
+    """A 2.2 OpenSpec milestone roadmap from the 2.2 template, every field filled."""
+    text = (OPENSPEC_TEMPLATES / "M-ROADMAP.md").read_text(encoding="utf-8")
+    text = text.format(mid=mid, title=slug.replace("-", " "), slug=slug)
+    slices = f"- [{marks[0]}] **S01: {word.title()}**\n- [{marks[1]}] **S02: Documentation**\n"
+    text = text.replace("**Vision:**", f"**Vision:** People take the {word} power of a number.")
+    text = text.replace("## Success Criteria\n", f"## Success Criteria\n\n- {word}(3) returns the right value.\n")
+    text = text.replace("## Boundary Map\n", slices + "\n## Boundary Map\n\n- app/ and docs/ only.\n")
+    text = text.replace("## In scope\n", f"## In scope\n\n- A {word} function and its docs.\n")
+    text = text.replace("## Out of scope\n", "## Out of scope\n\n- Other powers.\n")
+    for field, value in (
+        ("Isolation mode", "branch"), ("Local branch", BRANCH), ("Remote branch", BRANCH),
+        ("Worktree skill", "n/a"), ("Base dirt policy", "clean-at-plan"),
+        ("Validation commands", VERIFY), ("OpenSpec archive", archive),
+    ):
+        text = _fill(text, field, value)
+    text = text.replace("**Commit title:**", "**Commit title:** short imperative subject.")
+    text = text.replace("**Commit body:**", "**Commit body:** optional, after a blank line.")
+    text = text.replace("**Pull request:**", "**Pull request:** one per change.")
+    return text
+
+
+def legacy_slice_plan(mid: str, sid: str, title: str, word: str) -> str:
+    text = (OPENSPEC_TEMPLATES / "M-S-PLAN.md").read_text(encoding="utf-8")
+    text = text.replace("MXXX", mid).replace("SXX", sid).replace("TITLE", title)
+    text = text.replace("**Goal:**", f"**Goal:** {title} for {word}.")
+    text = text.replace("**Demo:**", f"**Demo:** run the {word} check.")
+    for field, value in (
+        ("Must-Haves", f"- {word} works for integers."), ("Threat Surface", "- None; pure function."),
+        ("Proof Level", "- Unit test."), ("Integration Closure", "- Exported from app/."),
+        ("Files Likely Touched", f"- app/{word}.py"),
+    ):
+        text = text.replace(f"## {field}\n", f"## {field}\n\n{value}\n")
+    for field, value in (("Isolation mode", "branch"), ("Local branch", BRANCH), ("Remote branch", BRANCH),
+                         ("Base dirt policy", "clean-at-plan")):
+        text = _fill(text, field, value)
+    text = text.replace("**Commit title:**", "**Commit title:** short imperative subject.")
+    text = text.replace("**Commit body:**", "**Commit body:** optional, after a blank line.")
+    text = text.replace("**Pull request:**", "**Pull request:** one per change.")
+    return text
+
+
+def legacy_tasks(word: str, done: tuple[bool, ...] = (False, False, False)) -> str:
+    marks = ["x" if flag else " " for flag in done]
+    return (
+        f"# Tasks\n\n## 1. {word.title()}\n\n"
+        f"- [{marks[0]}] 1.1 Add {word} to the calculator\n  - Verify: {VERIFY}\n"
+        f"- [{marks[1]}] 1.2 Test {word}\n  - Verify: {VERIFY}\n\n"
+        f"## 2. Documentation\n\n- [{marks[2]}] 2.1 Document {word} in the README\n  - Verify: {VERIFY}\n"
+    )
+
+
+def side_project(p: Project, name: str) -> Project:
+    """A fresh 2.2 OpenSpec project next to the cloud one, with its own remote."""
+    q = Project(root=p.tmp / name, remote=p.tmp / f"{name}.git", home=p.home, env=p.env, tmp=p.tmp,
+                suite=p.suite)
+    q.root.mkdir(parents=True)
+    for rel, text in (("app/__init__.py", ""), ("tests/__init__.py", ""), ("app/calc.py", APP_CALC),
+                      ("tests/test_calc.py", APP_TEST), ("README.md", "# Dummy calculator\n")):
+        q.write(rel, text)
+    q.git("init", "-q", "-b", "main")
+    q.git("add", "-A")
+    q.git("commit", "-q", "-m", "initial calculator")
+    q.run(["git", "init", "-q", "--bare", "-b", "main", str(q.remote)], cwd=p.tmp)
+    q.git("remote", "add", "origin", str(q.remote))
+    q.git("push", "-q", "-u", "origin", "main")
+    q.w2c("init", "--git-delivery", CADENCE)
+    q.expect_tokens(q.read(".w2c/config.toml"), 'planning = "openspec"')
+    q.run(["openspec", "init", "--tools", "none", "--no-animation", "--no-copilot-cloud", "."])
+    cfg = q.root / "openspec" / "config.yaml"
+    cfg.write_text(cfg.read_text(encoding="utf-8").rstrip() + "\n\n" + LEGACY_RULES, encoding="utf-8")
+    q.git("switch", "-q", "-c", BRANCH)
+    return q
+
+
+def plan_legacy(q: Project, slug: str, word: str, *, status: str = "", marks: tuple[str, str] = (" ", " "),
+                done: tuple[bool, ...] = (False, False, False), archive: str = "") -> str:
+    """Plan one milestone the 2.2 way: milestone-new, then the filled plan files."""
+    made = q.w2c("milestone-new", "--slug", slug)
+    mid = re.search(r"\((M\d+)\)", made.stdout).group(1)
+    plan = q.root / ".w2c" / "plans" / f"{mid}-{slug}"
+    q.write(plan / f"{mid}-ROADMAP.md", legacy_roadmap(mid, slug, word, marks, archive))
+    q.write(plan / f"{mid}-S01-PLAN.md", legacy_slice_plan(mid, "S01", word.title(), word))
+    q.write(plan / f"{mid}-S02-PLAN.md", legacy_slice_plan(mid, "S02", "Documentation", word))
+    change = q.root / "openspec" / "changes" / slug
+    cap = f"calc-{word}"
+    q.write(change / "proposal.md", PROPOSAL.replace("calc-multiply", cap).replace("multiply", word))
+    q.write(change / "design.md",
+            f"# Design\n\n## Context\n\nSee proposal.md.\n\n## Decisions\n\n- One function for {word}.\n")
+    q.write(change / "specs" / cap / "spec.md",
+            SPEC.replace("Multiply two numbers", f"{word.title()} a number")
+            .replace("multiplies 3 by 4", f"asks for the {word} power of 3")
+            .replace("product of two numbers", f"{word} power of a number")
+            .replace("is 12", "is right").replace("Multiplying two integers", f"Taking the {word} power"))
+    q.write(change / "tasks.md", legacy_tasks(word, done))
+    if status:
+        q.w2c("milestone-status", mid, status)
+    return mid
+
+
+def ledger_bytes(q: Project) -> dict[str, bytes]:
+    """Every file under the checkout (not .git) and in the ledger, by path."""
+    found: dict[str, bytes] = {}
+    for base, label in ((q.root, ""), ((q.root / ".w2c").resolve(), ".w2c/")):
+        for dirpath, dirs, files in __import__("os").walk(base):
+            dirs[:] = [d for d in dirs if d != ".git"]
+            for name in files:
+                path = Path(dirpath) / name
+                found[label + path.relative_to(base).as_posix()] = path.read_bytes()
+    return found
+
+
+def c10_mixed_repo(p: Project) -> None:
+    q = side_project(p, "mixed")
+    m1 = plan_legacy(q, "add-fourth", "fourth")
+    m2 = plan_legacy(q, "add-fifth", "fifth", status="TODO")
+    if (m1, m2) != ("M001", "M002"):
+        raise AssertionError(f"unexpected ids {m1} {m2}")
+    for mid in (m1, m2):
+        smoke = q.w2c("smoke", "--milestone", mid)
+        if "FAIL" in smoke.stdout:
+            raise AssertionError(smoke.stdout)
+    q.git("add", "-A")
+    q.git("commit", "-q", "-m", "Plan two milestones.")
+    before = q.w2c("next").stdout
+    p.expect_tokens(before, "NEXT M001 S01 T01 — Add fourth to the calculator")
+    dry = q.w2c("cloud", "migrate", "--milestone", "M002", "--dry-run")
+    p.expect_tokens(dry, "NEXT_BEFORE M002 S01 T01", "NEED_CONFIG_APPROVAL openspec/config.yaml", "DRY_RUN")
+    if q.git("status", "--porcelain").stdout.strip():
+        raise AssertionError("dry run changed files")
+    p.expect_matches("C10-dry-run.txt", dry.stdout)
+    done = q.w2c("cloud", "migrate", "--milestone", "M002", "--yes-config", "--yes-rewrites")
+    p.expect_tokens(done, "CONVERTED M002 -> add-fifth", "COMMIT", "openspec/changes/add-fifth/design.md")
+    if "PENDING_EDIT" in done.stdout or "MANUAL_EDIT" in done.stdout:
+        raise AssertionError(done.stdout)
+    p.expect_matches("C10-migrate.txt", done.stdout)
+    if q.git("rev-parse", "HEAD").stdout == "" or q.git("diff", "--cached", "--name-only").stdout.strip():
+        raise AssertionError("migrate staged files")
+    after = q.w2c("next")
+    if after.stdout != before:
+        raise AssertionError(f"w2c next changed after conversion:\n{before}--\n{after.stdout}")
+    p.expect_matches("C10-next.txt", after.stdout)
+    moved = q.w2c("next", "--milestone", "M002")
+    p.expect_tokens(moved, "CLOUD_MOVED M002 add-fifth")
+    p.expect_matches("C10-cloud-moved.txt", moved.stdout)
+    plan = q.root / ".w2c" / "plans" / "M001-add-fourth"
+    q.write(plan / "S01-T01-SUMMARY.md", "# T01\n\n## What Happened\n\ndone\n")
+    ran = q.w2c("complete", "--milestone", "M001", "--slice", "S01", "--task", "T01")
+    p.expect_tokens(ran, "complete M001 S01 T01")
+    p.expect_tokens(q.w2c("next"), "NEXT M001 S01 T02")
+    p.expect_tokens(q.w2c("next-milestone-id"), "M003")
+    smoke = q.w2c("cloud", "smoke", "--change", "add-fifth")
+    if "FAIL" in smoke.stdout:
+        raise AssertionError(smoke.stdout)
+    q.git("add", "-A", "--", "openspec", ".gitattributes")
+    q.git("commit", "-q", "-m", "Move the fifth milestone to a cloud change.")
+    q.git("push", "-q", "-u", "origin", BRANCH)
+    clone = p.tmp / "mixed-clone"
+    q.run(["git", "clone", "-q", "-b", BRANCH, str(q.remote), str(clone)], cwd=p.tmp)
+    if (clone / ".w2c").exists():
+        raise AssertionError("a fresh clone must not hold .w2c/")
+    env = dict(p.env)
+    env["W2C_EPHEMERAL"] = "0"
+    log, last = drive(q, clone, env, "add-fifth", _code("fifth", 5), answers={"ask-pr": "no"})
+    if last["action"] != "done":
+        raise AssertionError("the converted change did not finish:\n" + "\n".join(log))
+    p.expect_matches("C10-steps.txt", "\n".join(log) + "\n")
+    if not list((clone / "openspec" / "changes" / "archive").glob("*-add-fifth")):
+        raise AssertionError("add-fifth was not archived in the clone")
+
+
+def c11_convert_all_and_restore(p: Project) -> None:
+    q = side_project(p, "all-statuses")
+    plan_legacy(q, "add-sixth", "sixth", marks=("x", "x"), done=(True, True, True))
+    d1 = q.root / ".w2c" / "plans" / "M001-add-sixth"
+    q.write(d1 / "M001-VALIDATION.md", "# Milestone Validation: M001\n\nverdict: pass\n")
+    q.write(d1 / "M001-SUMMARY.md", "# M001\n\n## What Happened\n\nok\n")
+    q.w2c("milestone-complete", "M001", "--archive-declined")
+    plan_legacy(q, "add-seventh", "seventh", status="INPROGRESS", done=(True, False, False))
+    q.write(q.root / ".w2c" / "plans" / "M002-add-seventh" / "S01-T01-SUMMARY.md", "# T01\n\ndone\n")
+    plan_legacy(q, "add-eighth", "eighth", status="PAUSED")
+    plan_legacy(q, "add-ninth", "ninth", status="TODO")
+    plan_legacy(q, "add-tenth", "tenth", status="STOP")
+    for scope, choice in (("M002", "Use pow"), ("project", "Keep the module small")):
+        q.w2c("decide", "--scope", scope, "--decision", f"Rule for {scope}", "--choice", choice,
+              "--rationale", "simple", "--when", "2026-11-02")
+    q.git("add", "-A")
+    q.git("commit", "-q", "-m", "Plan five milestones.")
+    before = ledger_bytes(q)
+    done = q.w2c("cloud", "migrate", "--all", "--yes-config", "--yes-rewrites")
+    for mid, name in (("M001", "add-sixth"), ("M002", "add-seventh"), ("M003", "add-eighth"),
+                      ("M004", "add-ninth"), ("M005", "add-tenth")):
+        p.expect_tokens(done, f"CONVERTED {mid} -> {name}")
+    p.expect_tokens(done, "openspec/decisions.md")
+    p.expect_matches("C11-migrate.txt", done.stdout)
+    for name in ("ROADMAP.md", "STATE.md", "QUEUE.md", "DECISIONS.md", "contexts"):
+        if (q.root / ".w2c" / name).exists():
+            raise AssertionError(f".w2c/{name} should be retired")
+    frozen = q.read("openspec/decisions.md")
+    p.expect_tokens(frozen, "Rule for project")
+    meta = q.read("openspec/changes/add-seventh/.openspec.yaml")
+    p.expect_tokens(meta, "x-delivery-legacy-id: M002", "x-delivery-status: INPROGRESS")
+    p.expect_tokens(q.read("openspec/changes/add-seventh/design.md"), "| D001 |", "Rule for M002")
+    p.expect_tokens(q.w2c("cloud", "next", "--change", "M002"), "NEXT add-seventh S01 T02")
+    smoke = q.w2c("cloud", "smoke")
+    if "FAIL" in smoke.stdout:
+        raise AssertionError(smoke.stdout)
+    again = q.w2c("cloud", "migrate", "--all", "--yes-config", "--yes-rewrites")
+    p.expect_tokens(again, "NOTHING_TO_CONVERT")
+    restored = q.w2c("cloud", "migrate", "--restore")
+    p.expect_tokens(restored, "RESTORED")
+    p.expect_matches("C11-restore.txt", restored.stdout)
+    after = ledger_bytes(q)
+    if after != before:
+        changed = sorted(k for k in set(before) | set(after) if before.get(k) != after.get(k))
+        raise AssertionError(f"restore is not byte for byte: {changed}")
+    if q.git("status", "--porcelain").stdout.strip():
+        raise AssertionError(q.git("status", "--porcelain").stdout)
+    p.expect_tokens(q.w2c("cloud", "migrate", "--restore"), "NOTHING_TO_RESTORE")
+
+
 STAGES = [
     Stage("C01", "cloud planning init and env", c01_env),
     Stage("C02", "cloud new change from templates and strict validate", c02_new),
@@ -505,4 +737,7 @@ STAGES = [
     Stage("C07", "cloud push blocked before archive, allowed after", c07_push_guard),
     Stage("C08", "cloud milestone driven only by step output", c08_step_driver),
     Stage("C09", "cloud fresh clone in a temporary container asks to push after a slice commit", c09_fresh_clone_push),
+    Stage("C10", "mixed repo: convert one 2.2 milestone, run the other locally, run the change in a fresh clone",
+          c10_mixed_repo),
+    Stage("C11", "convert every 2.2 milestone with --all, then restore byte for byte", c11_convert_all_and_restore),
 ]
