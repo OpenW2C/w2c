@@ -22,6 +22,7 @@ from w2c import ledger_store
 from w2c import openspec_push
 from w2c import trials as w2c_trials
 from w2c import worktree as w2c_worktree
+from w2c.cloud import cli as cloud_cli
 from w2c.skills_install import install_skills, write_copilot_instructions
 
 STATUS_EMOJI = {
@@ -934,7 +935,25 @@ def cmd_init(
     track: bool | None = None,
     git_delivery: str | None = None,
     planning: str | None = None,
+    replace_copilot: bool = False,
 ) -> int:
+    creating = not w2c_local.repo_config_path(root).is_file()
+    if planning is None:
+        chosen_planning = w2c_local.PLANNING_OPENSPEC if creating else None
+    else:
+        chosen_planning = w2c_local.normalize_planning(planning)
+    old_copilot = [root / rel for rel in w2c_local.COPILOT_INSTRUCTION_RELPATHS]
+    old_copilot = [p for p in old_copilot if p.is_file()]
+    already_cloud = (
+        not creating
+        and w2c_local.load_repo_config(root).get("planning") == w2c_local.PLANNING_CLOUD
+    )
+    switching = chosen_planning == w2c_local.PLANNING_CLOUD and not already_cloud
+    if switching and old_copilot:
+        if not replace_copilot:
+            # Refuse before anything is written, so the repo is left as it was.
+            print("NEED_COPILOT_REPLACE")
+            return 1
     wdir = w2c_dir(root)
     wdir.mkdir(parents=True, exist_ok=True)
     (wdir / "plans").mkdir(exist_ok=True)
@@ -962,11 +981,12 @@ def cmd_init(
         created.append("contexts/CONTEXTv1.0.md")
     rebuild_ledger(root)
     gd = resolve_git_delivery(root, git_delivery)
-    creating = not w2c_local.repo_config_path(root).is_file()
-    if planning is None:
-        chosen_planning = w2c_local.PLANNING_OPENSPEC if creating else None
-    else:
-        chosen_planning = w2c_local.normalize_planning(planning)
+    if switching and old_copilot:
+        for p in old_copilot:
+            p.unlink()
+        w2c_local.remove_gitignore_lines(
+            root, tuple(str(r) for r in w2c_local.COPILOT_INSTRUCTION_RELPATHS)
+        )
     if creating:
         w2c_local.write_repo_config(
             root,
@@ -982,8 +1002,13 @@ def cmd_init(
             kwargs["planning"] = chosen_planning
         w2c_local.write_repo_config(root, **kwargs)
     track_flag = True if track is True else w2c_local.is_track_enabled(root)
-    w2c_local.ensure_gitignore(root, track=track_flag)
-    created.extend(write_copilot_instructions(root, skills_dir()))
+    mode = (
+        w2c_local.PLANNING_CLOUD
+        if w2c_local.load_repo_config(root).get("planning") == w2c_local.PLANNING_CLOUD
+        else w2c_local.PLANNING_OPENSPEC
+    )
+    w2c_local.ensure_gitignore(root, track=track_flag, mode=mode)
+    created.extend(write_copilot_instructions(root, skills_dir(), mode))
     w2c_local.register_project(root)
     append_event(
         root,
@@ -1021,6 +1046,21 @@ def task_to_dict(t: Task) -> dict:
     }
 
 
+def cloud_moved(root: Path, mid: str) -> bool:
+    """Print CLOUD_MOVED when a converted milestone left the roadmap for a cloud change."""
+    if not re.fullmatch(r"M\d+", mid):
+        return False
+    if any(m.mid == mid for m in parse_milestones(read_text(w2c_dir(root) / "ROADMAP.md"))):
+        return False
+    plans = w2c_dir(root) / "plans"
+    for marker in sorted(plans.glob(f"{mid}-*/CONVERTED")) if plans.is_dir() else []:
+        lines = read_text(marker).splitlines()
+        if lines and lines[0].strip():
+            print(f"CLOUD_MOVED {mid} {lines[0].strip()}")
+            return True
+    return False
+
+
 def cmd_next(
     root: Path,
     milestone: str | None,
@@ -1031,6 +1071,8 @@ def cmd_next(
     if milestone and locked and milestone == locked:
         print(f"AMEND_LOCK {locked}")
         return 1
+    if milestone and cloud_moved(root, milestone):
+        return 0
     scoped: set[str] | None = None
     if not milestone and not slice_id and not task_id:
         scoped = branch_milestone_ids(root)
@@ -1338,6 +1380,8 @@ def cmd_milestone_new(root: Path, slug: str, planning: str | None = None) -> int
         )
     else:
         mode = w2c_local.normalize_planning(planning)
+    if mode == w2c_local.PLANNING_CLOUD:
+        raise W2CError("use w2c cloud new")
     mid = next_milestone_id(root)
     title = slug.replace("-", " ")
     if mode == w2c_local.PLANNING_OPENSPEC:
@@ -1677,9 +1721,9 @@ def parse_git_operation_fields(text: str) -> dict[str, str]:
 BASE_DIRT_POLICIES = frozenset({"clean-at-plan", "leave-untouched", "n/a-worktree"})
 
 
-def base_dirt_paths_body(text: str) -> str | None:
-    """Body of ### Base dirt paths inside ## Git Operation Plan, or None if absent."""
-    plan = section_under_heading(text, "Git Operation Plan")
+def base_dirt_paths_body(text: str, heading: str = "Git Operation Plan") -> str | None:
+    """Body of ### Base dirt paths inside the plan section, or None if absent."""
+    plan = section_under_heading(text, heading)
     if plan is None:
         return None
     match = re.search(r"^### Base dirt paths\s*$", plan, re.M)
@@ -1697,11 +1741,12 @@ def validate_git_operation_plan(
     *,
     require_worktree_skill: bool = True,
     plan_text: str | None = None,
+    plan_heading: str = "Git Operation Plan",
 ) -> list[str]:
     """Return human-readable problems; empty list means OK."""
     problems: list[str] = []
     if not fields:
-        return ["missing ## Git Operation Plan section or table"]
+        return [f"missing ## {plan_heading} section or table"]
     mode = fields.get("Isolation mode", "").strip().lower()
     local = fields.get("Local branch", "").strip()
     remote = fields.get("Remote branch", "").strip()
@@ -1729,7 +1774,7 @@ def validate_git_operation_plan(
         elif mode == "branch" and policy == "n/a-worktree":
             problems.append("branch mode Base dirt policy must not be n/a-worktree")
         elif policy == "leave-untouched":
-            body = None if plan_text is None else base_dirt_paths_body(plan_text)
+            body = None if plan_text is None else base_dirt_paths_body(plan_text, plan_heading)
             if body is None or not body.strip():
                 problems.append(
                     "leave-untouched requires a non-empty ### Base dirt paths subsection"
@@ -2179,7 +2224,7 @@ def main_smoke(argv: list[str] | None = None) -> int:
 
 
 def cmd_gitignore_ensure(root: Path, track: bool) -> int:
-    added = w2c_local.ensure_gitignore(root, track=track)
+    added = w2c_local.ensure_gitignore(root, track=track, mode=w2c_local.gitignore_mode(root))
     if track:
         w2c_local.write_repo_config(root, track=True)
     else:
@@ -2245,6 +2290,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--root", type=Path, default=None, help="repo root (default: discover)")
     sub = p.add_subparsers(dest="cmd", required=True)
+    cloud_cli.register(sub)
 
     init_p = sub.add_parser("init", help="create ledger stubs if missing")
     init_p.add_argument(
@@ -2252,7 +2298,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     init_p.add_argument(
         "--planning",
-        choices=["openspec", "classic", "legacy"],
+        choices=["openspec", "classic", "legacy", "cloud"],
         default=None,
         help="planning backbone for new milestones (default openspec on first init)",
     )
@@ -2262,6 +2308,12 @@ def build_parser() -> argparse.ArgumentParser:
         choices=sorted(w2c_local.GIT_DELIVERY_VALUES),
         default=None,
         help="mandatory git commit/push cadence (required unless already set or TTY prompt)",
+    )
+    init_p.add_argument(
+        "--replace-copilot",
+        dest="replace_copilot",
+        action="store_true",
+        help="with --planning cloud: delete the 2.2 Copilot files and write the cloud ones",
     )
     sub.add_parser("status", help="print STATE.md")
     smoke_p = sub.add_parser("smoke", help="ledger coherence checks")
@@ -2462,8 +2514,8 @@ def _add_amend_parsers(sub: argparse._SubParsersAction) -> None:
     hook_p = sub.add_parser("hook", help="add, remove, status, or run a named hook")
     hook_p.add_argument("action", choices=["add", "remove", "status", "run"])
     hook_p.add_argument("name", nargs="?")
-    help_p = sub.add_parser("help", help="print worktrees or bare-container help")
-    help_p.add_argument("topic", choices=["worktrees", "bare-container"])
+    help_p = sub.add_parser("help", help="print worktrees, bare-container, or cloud-sessions help")
+    help_p.add_argument("topic", choices=["worktrees", "bare-container", "cloud-sessions"])
     push_p = sub.add_parser(
         "openspec-push-check",
         help="fail when a finished OpenSpec milestone on this branch is not archived in the commit",
@@ -2502,6 +2554,8 @@ def _push_pairs(local_ref: str | None, local_sha: str | None) -> list[tuple[str,
 
 def dispatch(args: argparse.Namespace) -> int:
     cmd = args.cmd
+    if cmd == "cloud":
+        return cloud_cli.dispatch(args)
     if cmd == "install-skills":
         return install_skills(
             skills_dir(),
@@ -2518,6 +2572,7 @@ def dispatch(args: argparse.Namespace) -> int:
             track=True if getattr(args, "track", False) else None,
             git_delivery=getattr(args, "git_delivery", None),
             planning=getattr(args, "planning", None),
+            replace_copilot=bool(getattr(args, "replace_copilot", False)),
         )
     if cmd == "status":
         return cmd_status(root)
@@ -2734,7 +2789,10 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     session = None
-    if args.cmd not in {"install-skills"}:
+    skip_session = args.cmd == "install-skills" or (
+        args.cmd == "cloud" and args.cloud_cmd not in {"migrate", "status"}
+    )
+    if not skip_session:
         root = args.root.resolve() if args.root else find_repo_root()
         if ledger_store.needs_session(root, args.cmd):
             session = ledger_store.LedgerSession(root)

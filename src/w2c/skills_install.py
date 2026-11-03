@@ -1,22 +1,40 @@
-"""Install work-to-chores / do-chores skills into the personal hub."""
+"""Install the work-to-chores / do-chores skills and their cloud pair into the personal hub."""
 from __future__ import annotations
 
 import shutil
 from pathlib import Path
 
 
-def write_copilot_instructions(root: Path, skills: Path | None) -> list[str]:
+# Every skill install_skills copies: the 2.2 pair, then the cloud pair.
+SKILL_DIRS = ("work-to-chores", "do-chores", "work-to-chores-cloud", "do-chores-cloud")
+
+# Cloud mode: (skill folder, neutral instruction file stem).
+CLOUD_COPILOT_FILES = (
+    ("work-to-chores-cloud", "plan-work"),
+    ("do-chores-cloud", "do-work"),
+)
+
+
+def write_copilot_instructions(
+    root: Path, skills: Path | None, mode: str = "openspec"
+) -> list[str]:
     written: list[str] = []
     if skills is None:
         return written
     dest_dir = root / ".github" / "instructions"
     dest_dir.mkdir(parents=True, exist_ok=True)
-    for name in ("work-to-chores", "do-chores"):
+    if mode == "cloud":
+        pairs = CLOUD_COPILOT_FILES
+    else:
+        pairs = tuple((n, n) for n in ("work-to-chores", "do-chores"))
+    for name, stem in pairs:
         body = skills / name / "SKILL.md"
         wrapper = skills / name / "SKILL.copilot.md"
         if not body.is_file():
+            if mode == "cloud":
+                print(f"NOTE missing skill {name}; Copilot file not written")
             continue
-        dest = dest_dir / f"{name}.instructions.md"
+        dest = dest_dir / f"{stem}.instructions.md"
         if wrapper.is_file():
             dest.write_text(
                 wrapper.read_text(encoding="utf-8") + "\n" + body.read_text(encoding="utf-8"),
@@ -73,7 +91,7 @@ def install_skills(
     if skills is None:
         raise error_type("skills not found; reinstall w2c (curl install.sh or pipx)")
     hub = Path.home() / ".agents" / "skills"
-    for name in ("work-to-chores", "do-chores"):
+    for name in SKILL_DIRS:
         skill_src = skills / name
         skill_md = skill_src / "SKILL.md"
         if not skill_md.is_file():

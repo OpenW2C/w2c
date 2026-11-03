@@ -1,0 +1,15 @@
+## Amendments
+
+### A001 drop-task amend-demo/S01/T02
+
+- decision: D1
+- reason: tests ship with the code
+- follow-up: 
+- ticket: 
+
+### A002 task-add amend-demo/S01/T03
+
+- decision: D1
+- reason: found while planning
+- follow-up: 
+- ticket: 

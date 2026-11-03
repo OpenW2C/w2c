@@ -1,0 +1,12 @@
+NEXT M001 S01 T01 — Add multiply to the calculator and verify its unit test passes
+{
+  "task": {
+    "milestone_id": "M001",
+    "slice_id": "S01",
+    "task_id": "T01",
+    "title": "Add multiply to the calculator and verify its unit test passes",
+    "plan_path": "<ROOT>/proj/openspec/changes/add-multiply/tasks.md",
+    "verify": "python3 -m unittest discover -s tests -t .",
+    "openspec_id": "1.1"
+  }
+}

@@ -1,0 +1,18 @@
+# State
+
+**Active Milestone:** M001: add multiply
+**Active Slice:** S02
+**Phase:** executing
+**Requirements Status:** 0 active · 0 validated · 0 deferred · 0 out of scope
+
+## Milestone Registry
+- 🔄 **M001:** add multiply
+- 📋 **M002:** add subtract
+
+## Recent Decisions
+- D001 (<DATE> M001): How to multiply -> Use the star operator
+
+## Blockers
+- None
+## Next Action
+Execute M001 S02 T01: Document multiply in the README

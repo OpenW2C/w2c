@@ -8,6 +8,7 @@ description: >-
   Triggers: work to chores, work-to-chores, /work-to-chores, reorder milestones,
   amend milestone.
   Not for executing planned tasks (use do-chores).
+  Not for cloud mode (use work-to-chores-cloud / do-chores-cloud).
 ---
 
 # Work to Chores

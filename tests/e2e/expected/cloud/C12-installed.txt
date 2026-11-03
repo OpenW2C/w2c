@@ -1,0 +1,8 @@
+.claude/skills/work-to-chores linked
+.cursor/skills/work-to-chores linked
+.claude/skills/do-chores linked
+.cursor/skills/do-chores linked
+.claude/skills/work-to-chores-cloud linked
+.cursor/skills/work-to-chores-cloud linked
+.claude/skills/do-chores-cloud linked
+.cursor/skills/do-chores-cloud linked

@@ -88,6 +88,10 @@ If OpenSpec is missing, `w2c init` and `w2c openspec-check` print `NEED_OPENSPEC
 
 After you approve an OpenSpec plan, the agent commits only that change folder and does not push. In worktree mode that commit happens inside the new worktree, and the checkout you started in stays on its current branch. When the milestone is done, it asks before `w2c spec-archive`, which merges the behavior specs into `openspec/specs/`. Say no and the milestone can still finish; the specs stay unmerged until you archive later. A push of a finished OpenSpec milestone fails until that archive is in the commit. The first OpenSpec milestone installs a local pre-push hook for this check.
 
+## Cloud mode
+
+Cloud mode is an opt-in way to plan and do work in a cloud agent (such as Claude Code cloud or Codex cloud) where the plan lives in `openspec/` changes. Run `w2c init --planning cloud` once, then say "work to chores cloud" to plan and "do chores cloud" to do the next task. The cloud agent's environment must install `w2c`, `openspec`, and the skills first. `w2c help cloud-sessions` prints the setup for each platform.
+
 ## Skill trials
 
 You can check that work-to-chores and do-chores still name every required guardrail before anyone grades them with a model.
@@ -177,6 +181,25 @@ w2c <command>
 | `--version` / `-V` | Print installed CLI semver |
 | `base-dirt` | Classify untracked and modified files before a milestone branch is created (`w2c --root PATH base-dirt`) |
 | `smoke` | Ledger coherence checks (`schema_version`, `git_delivery`, Git Operation Plan, Commit and PR conventions, optional manual-test guide, optional base-dirt policy) |
+| `cloud env` | Report whether this is a temporary container |
+| `cloud rules` | Print the cloud rules snippet for `openspec/config.yaml` |
+| `cloud new` | Create an OpenSpec change with delivery keys |
+| `cloud next` | Next open task of the active change |
+| `cloud step` | The one next action of a cloud run |
+| `cloud brief` | Print only what the current task needs |
+| `cloud complete` | Tick a task (requires `S##-T##-SUMMARY.md`) |
+| `cloud slice-complete` | Record a slice done (requires UAT and SUMMARY) |
+| `cloud milestone-complete` | Mark a change DONE |
+| `cloud archive` | Archive a finished change and mark it DONE |
+| `cloud status` | Progress of each active change |
+| `cloud status-set` | Set a change status (not DONE) |
+| `cloud decide` | Log a decision in the change's design |
+| `cloud decisions-flush` | Move held decisions into a change's design |
+| `cloud order` | Set the run order of active changes |
+| `cloud swap` | Swap two changes in the run order |
+| `cloud move` | Move a change before or after another |
+| `cloud smoke` | Check cloud changes (no `.w2c/` needed) |
+| `cloud migrate [--all] [--dry-run] [--restore]` | Convert 2.2 OpenSpec milestones to cloud changes; never commits |
 
 Agents must not hand-edit STATE.md, QUEUE.md, ROADMAP status emojis, roadmap milestone order, the amendment lock, the amendments file, or `[ ]` / `[x]` / `[d]` on tasks and slices. Execution order is the `ROADMAP.md` line order that `w2c next` walks. Use `w2c milestone-order`, `w2c milestone-swap`, or `w2c milestone-move`. An in-progress or done milestone stays put until it is paused, stopped, or marked error (`ERROR` is rejected).
 

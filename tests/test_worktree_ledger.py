@@ -347,6 +347,58 @@ class WorktreeLedgerTest(unittest.TestCase):
         )
         self.assertEqual(code, 0, err)
 
+    def test_legacy_push_check_unchanged(self) -> None:
+        repo = self.make_repo()
+        self.init_ledger(repo)
+        self._write_openspec_milestone(repo, archive="declined", tasks_done=True)
+        sha = git(repo, "rev-parse", "HEAD").stdout.strip()
+        code, _out, err = self.run_w2c(
+            repo, "openspec-push-check", "--local-ref", "refs/heads/main", "--local-sha", sha
+        )
+        self.assertEqual(code, 1)
+        self.assertEqual(
+            err.splitlines(),
+            ["M001: OpenSpec archive is declined; run `w2c spec-archive M001` before push"],
+        )
+        other = self.make_repo("other")
+        sha = git(other, "rev-parse", "HEAD").stdout.strip()
+        code, out, err = self.run_w2c(
+            other, "openspec-push-check", "--local-ref", "refs/heads/main", "--local-sha", sha
+        )
+        self.assertEqual((code, out, err), (0, "", ""))
+
+    def test_cloud_change_in_linked_worktree_needs_no_ledger_sync(self) -> None:
+        repo = self.make_repo()
+        bindir = self.tmp / "bin"
+        bindir.mkdir()
+        dest = bindir / "openspec"
+        dest.write_text(
+            (Path(__file__).resolve().parent / "fixtures" / "fake_openspec.py").read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
+        dest.chmod(0o755)
+        old = os.environ.get("PATH", "")
+        os.environ["PATH"] = str(bindir) + os.pathsep + old
+        self.addCleanup(lambda: os.environ.__setitem__("PATH", old))
+        linked = self.tmp / "linked"
+        git(repo, "worktree", "add", "-q", "-b", "DEMO-1", str(linked))
+        change = linked / "openspec" / "changes" / "add-export"
+        change.mkdir(parents=True)
+        (change / ".openspec.yaml").write_text(
+            "schema: spec-driven\nx-delivery-status: TODO\nx-delivery-order: 1\n", encoding="utf-8"
+        )
+        (change / "tasks.md").write_text("## 1. Export\n\n- [ ] 1.1 Write it\n  - Verify: true\n", encoding="utf-8")
+        code, out, err = self.run_w2c(linked, "cloud", "status")
+        self.assertEqual(code, 0, err)
+        self.assertIn("add-export: 0/1 tasks", out)
+        code, out, _err = self.run_w2c(linked, "cloud", "smoke")
+        self.assertIn("openspec-cli", out)
+        self.assertFalse((linked / ".w2c").exists())
+        self.assertFalse((repo / ".w2c").exists())
+        self.assertEqual(
+            w2c.openspec_ledger.change_prefixes(linked), ["openspec/changes/add-export"]
+        )
+
     def test_milestone_new_installs_openspec_archive_hook(self) -> None:
         repo = self.make_repo()
         self.init_ledger(repo, planning="openspec")

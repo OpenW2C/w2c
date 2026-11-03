@@ -1,0 +1,92 @@
+# MXXX: TITLE
+
+**Vision:**
+
+## Success Criteria
+
+## Slices
+
+<!-- REQUIRED literal format -- the w2c CLI's parse_slices() only recognizes this exact
+     checkbox line shape. A markdown table (or any other shape) here means w2c will see
+     ZERO slices, and slice-complete / milestone-complete will fail with
+     "slices still open" even after every task checkbox is [x]. Do not deviate. -->
+- [ ] **S01: <slice title>**
+- [ ] **S02: <slice title>**
+
+## Boundary Map
+
+## In scope
+
+## Out of scope
+
+## Soft dependency
+
+## Delivery & Guardrails
+| Field | Value |
+| --- | --- |
+| Milestone / planning ID | MXXX |
+| Human-readable scope slug | SLUG |
+| Workstream name | |
+| External ticket ID | |
+| Integration strategy | (from .w2c/DELIVERY-PROFILE.md) |
+| Integration branch | |
+| Commit cadence | (from .w2c/config.toml git_delivery) |
+| Review unit | none |
+| Git/PR checkpoint mode | none |
+| Isolation mode | |
+| Branch name | |
+| Execution sequence | |
+| Validation commands | |
+| Completion condition | All slices verified; honor git_delivery + explicit approval gates |
+| Size budget (LOC diff) | |
+| Manual test guide | no |
+
+## Git Operation Plan
+| Field | Value |
+| --- | --- |
+| Isolation mode | |
+| Local branch | |
+| Remote branch | |
+| Isolation scope | ticket |
+| Setup when | first-do-chores |
+| Plan commit | ledger-bind |
+| Reuse policy | reuse-if-same-ticket-else-stop |
+| Worktree skill | |
+| Worktree layout | |
+| Worktree dir | |
+| Exclude line | |
+| Push rule | from config + explicit approval; push ref must equal Remote branch |
+| Base dirt policy | |
+
+`Base dirt policy` is `n/a-worktree` (worktree), or `clean-at-plan` / `leave-untouched` (branch). Omit the field on older plans. `leave-untouched` needs a non-empty `### Base dirt paths` subsection under this heading (the critical list inside it may be empty).
+
+### Guardrails
+- **Commit cadence** — read `git_delivery` from `.w2c/config.toml`. Never commit, push, or open a PR without explicit user approval for that action.
+- **Remote mutation** — no push, PR, or remote git mutation without explicit user approval.
+- **Git isolation** — honor Isolation mode (`worktree` or `branch` only). Local branch must equal Remote branch (ticket id or confirmed slug). Setup on first `do-chores`; reuse the same ticket isolation across milestones.
+- **Plan commit** — when `track` is false, write `ledger-bind` and do not commit `.w2c/`. The `w2c` command shares one ledger across worktrees. When `track` is true, a separate plan commit may include `.w2c/` plan files except `runtime/`. No push without approval.
+- **No force git** — never force-reset, force-push, or delete worktrees/branches. Dirty or unexpected existing branch/worktree → hard stop and ask.
+- **Validation** — run the validation commands in this table before each commit and before each push.
+- **Status writes** — never hand-edit STATE.md, QUEUE.md, ROADMAP status emojis, or task checkboxes. Use `w2c` on PATH.
+- **Verify loop** — a task is not complete until its Verify commands pass and requesting-code-review is clean.
+- **Closeout reports** — write `S##-T##-SUMMARY.md` before `complete`; `S##-UAT.md` + `S##-SUMMARY.md` before `slice-complete`; `M###-VALIDATION.md` + `M###-SUMMARY.md` before milestone DONE. Manual test steps in `M###-MANUAL-TEST.md` (if opted in) are for the human after DONE — they do not gate completeness.
+- **Commit and PR** — honor `## Commit and PR conventions`. Never add `Co-authored-by:` or similar AI co-author trailers. Never stage deny-listed paths on product commits. Never mention any `.w2c/` path or artifact in commit or PR text.
+
+## Commit and PR conventions
+
+Planner: inspect this repo (`CONTRIBUTING*`, `.github/*PULL_REQUEST_TEMPLATE*`, recent `git log` title/body, `.gitignore`, `.w2c/config.toml` `track`) and fill this section. Do not leave TBD.
+
+**Commit title:**
+
+**Commit body:**
+
+**Pull request:**
+
+**Do not stage / commit:**
+Planner: fill a deny-list. Always include `.w2c/runtime/`. When `track = false`, include all of `.w2c/` and Copilot W2C instruction files. Add notable paths from client `.gitignore` (e.g. `.env*`, credentials, local IDE junk). Product commits must never stage these paths. Plan-commit (only when `track = true`) may stage ledger/plan files under `.w2c/` except `runtime/`.
+
+**Do not mention:**
+Never name any `.w2c/` path, ledger file, closeout report (`*-SUMMARY.md` / `*-UAT.md` / `*-VALIDATION.md` under `.w2c/`), or other W2C artifact in the commit title/body or PR title/body/description. Prefer “W2C ledger” / “planning artifacts” with no paths.
+
+**AI attribution — forbidden:**
+Do not add `Co-authored-by:` trailers or similar AI co-author / “assisted by Cursor, Copilot, Claude, or Codex” lines.

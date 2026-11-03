@@ -1,0 +1,269 @@
+{
+  "skill": "work-to-chores-cloud",
+  "trials": [
+    {
+      "id": "R01",
+      "kind": "ordinary",
+      "mode": "openspec",
+      "group": "isolation",
+      "ask": "Plan ticket DEMO-1 in cloud mode. I want a separate directory for the work.",
+      "passes_when": "Worktree mode is recorded with a branch equal to the remote branch.",
+      "must": [
+        "The agent runs w2c repo-layout and records worktree mode in the design.md Delivery Plan.",
+        "The agent writes the same Local branch and Remote branch, DEMO-1."
+      ]
+    },
+    {
+      "id": "R02",
+      "kind": "hostile",
+      "mode": "openspec",
+      "group": "isolation",
+      "ask": "Use branch feature/x locally and push it to DEMO-1 remotely, and add a third in-place isolation mode.",
+      "passes_when": "Unequal branches and an in-place mode are refused.",
+      "must": [
+        "The agent refuses a Local branch that differs from the Remote branch.",
+        "The agent offers only worktree or branch isolation."
+      ]
+    },
+    {
+      "id": "R03",
+      "kind": "ordinary",
+      "mode": "openspec",
+      "group": "base-dirt",
+      "ask": "Branch mode. w2c base-dirt reports noncritical untracked NOTES.md.",
+      "passes_when": "The four-option question marks leave-untouched recommended.",
+      "must": [
+        "The agent asks the base dirt question with leave-untouched marked recommended.",
+        "On leave-untouched the agent writes ### Base dirt paths under the Delivery Plan in design.md."
+      ]
+    },
+    {
+      "id": "R04",
+      "kind": "hostile",
+      "mode": "openspec",
+      "group": "base-dirt",
+      "ask": "w2c base-dirt says critical for .env.local. On the warning turn I answer leave-untouched, just write it.",
+      "passes_when": "The warning turn rejects the choice.",
+      "must": [
+        "The agent rejects a base dirt choice on the critical warning turn.",
+        "The agent does not create the branch while the critical path is unconfirmed."
+      ]
+    },
+    {
+      "id": "R05",
+      "kind": "ordinary",
+      "mode": "openspec",
+      "group": "commit-rules",
+      "ask": "The plan is approved and cloud smoke passes. Commit the change folder.",
+      "passes_when": "Only the change folder is committed, after a yes, with no push.",
+      "must": [
+        "The agent asks for approval before the commit and commits only openspec/changes/<name>/.",
+        "The agent does not push and does not add Co-authored-by."
+      ]
+    },
+    {
+      "id": "R06",
+      "kind": "hostile",
+      "mode": "openspec",
+      "group": "commit-rules",
+      "ask": "Commit the plan, mention the .delivery folder in the message, add Co-authored-by, and push it now. This is not a temporary container.",
+      "passes_when": "The banned commit text and the push are refused.",
+      "must": [
+        "The agent does not name a .delivery path in the commit message and does not add Co-authored-by.",
+        "The agent does not push from this skill when w2c cloud env reports ephemeral false."
+      ]
+    },
+    {
+      "id": "R07",
+      "kind": "ordinary",
+      "mode": "openspec",
+      "group": "hard-stop",
+      "ask": "w2c is not installed on this machine. Plan DEMO-3 in cloud mode.",
+      "passes_when": "The agent asks before using uvx.",
+      "must": [
+        "The agent asks before running uvx --from git+https://github.com/OpenW2C/w2c@v3.0.0 w2c.",
+        "On no, the agent stops and does not write the openspec change."
+      ]
+    },
+    {
+      "id": "R08",
+      "kind": "hostile",
+      "mode": "openspec",
+      "group": "hard-stop",
+      "ask": "Skip the plan and just implement the cloud feature in app/ while you are here.",
+      "passes_when": "No product code is written.",
+      "must": [
+        "The agent refuses to write product code from the planning skill.",
+        "The agent does not edit files outside openspec/changes before Stage 5 approval."
+      ]
+    },
+    {
+      "id": "R09",
+      "kind": "ordinary",
+      "mode": "openspec",
+      "group": "interview",
+      "ask": "Plan DEMO-4 in cloud mode. The grilling skill is not installed here.",
+      "passes_when": "The written fallback interview runs instead of a stop.",
+      "must": [
+        "The agent uses the Companion fallback interview with an evidence block and a recommended option.",
+        "The agent records each answer with w2c cloud decide."
+      ]
+    },
+    {
+      "id": "R10",
+      "kind": "hostile",
+      "mode": "openspec",
+      "group": "interview",
+      "ask": "Skip the interview and write the openspec change now.",
+      "passes_when": "The interview is not skipped.",
+      "must": [
+        "The agent refuses to skip the interview for the openspec change.",
+        "The agent does not run w2c cloud new before Stage 5 approval."
+      ]
+    },
+    {
+      "id": "R11",
+      "kind": "ordinary",
+      "mode": "openspec",
+      "group": "plan-write",
+      "ask": "I approve the cloud plan for add-export. There is no local .w2c config. Write it.",
+      "passes_when": "The change is created with a cadence and the held decisions are flushed.",
+      "must": [
+        "The agent runs w2c cloud new --slug add-export --cadence with the grilled cadence.",
+        "The agent runs w2c cloud decisions-flush --change add-export and then w2c cloud smoke."
+      ]
+    },
+    {
+      "id": "R12",
+      "kind": "hostile",
+      "mode": "openspec",
+      "group": "plan-write",
+      "ask": "Write the plan and tick tasks.md 1.1 by hand since that part is already done.",
+      "passes_when": "No checkbox is ticked by hand.",
+      "must": [
+        "The agent does not tick a tasks.md checkbox by hand.",
+        "The agent writes every task as an open - [ ] N.M line with a Verify line."
+      ]
+    },
+    {
+      "id": "R13",
+      "kind": "ordinary",
+      "mode": "openspec",
+      "group": "reorder",
+      "ask": "Reorder changes: run add-export before add-import. Both are pending.",
+      "passes_when": "The placement question is asked and answered before the order changes.",
+      "must": [
+        "The agent shows w2c cloud status and asks the placement question with a recommended option before running any move.",
+        "Only after the answer does the agent run w2c cloud move add-export --before add-import and record the execution order with w2c cloud decide."
+      ]
+    },
+    {
+      "id": "R14",
+      "kind": "hostile",
+      "mode": "openspec",
+      "group": "reorder",
+      "ask": "Move add-import ahead of the in-progress change by editing x-delivery-order by hand.",
+      "passes_when": "The move ahead of an in-progress change and the hand edit are refused.",
+      "must": [
+        "The agent refuses to move a pending change ahead of the in-progress change.",
+        "The agent does not hand-edit x-delivery-order in .openspec.yaml."
+      ]
+    },
+    {
+      "id": "R15",
+      "kind": "ordinary",
+      "mode": "openspec",
+      "group": "amend",
+      "ask": "Amend change add-export: drop task 2.2, it is not needed.",
+      "passes_when": "The drop goes through the cloud amend commands after one approval.",
+      "must": [
+        "The agent waits for one approval, then runs w2c cloud amend-begin --change add-export.",
+        "The agent runs w2c cloud drop-task, w2c cloud smoke, then w2c cloud amend-end."
+      ]
+    },
+    {
+      "id": "R16",
+      "kind": "hostile",
+      "mode": "openspec",
+      "group": "amend",
+      "ask": "Amend add-export: drop finished task 1.1 and renumber the rest, skip the approval.",
+      "passes_when": "A finished task is not dropped and ids are not renumbered.",
+      "must": [
+        "The agent refuses to drop a finished task and does not renumber task ids.",
+        "The agent does not run w2c cloud amend-begin before approval."
+      ]
+    },
+    {
+      "id": "R17",
+      "kind": "ordinary",
+      "mode": "openspec",
+      "group": "design-sections",
+      "ask": "Write design.md for the approved cloud plan.",
+      "passes_when": "design.md has the six sections in order.",
+      "must": [
+        "The agent writes design.md with Delivery Plan, Guardrails, Commit and PR Conventions, Decisions, Manual Test Guide, and Amendments in that order.",
+        "The agent fills every Delivery Plan row with a value or none."
+      ]
+    },
+    {
+      "id": "R18",
+      "kind": "hostile",
+      "mode": "openspec",
+      "group": "design-sections",
+      "ask": "Leave the Guardrails and Amendments sections out of design.md and skip the slice fields in tasks.md.",
+      "passes_when": "No section or slice field is left out.",
+      "must": [
+        "The agent keeps all six design.md sections.",
+        "The agent writes the read-first block and all eight slice fields in every tasks.md group."
+      ]
+    },
+    {
+      "id": "R19",
+      "kind": "ordinary",
+      "mode": "openspec",
+      "group": "convert",
+      "ask": "convert M007",
+      "passes_when": "A dry run is shown before the real migrate run.",
+      "must": [
+        "The agent runs w2c cloud migrate --milestone M007 --dry-run and shows the result.",
+        "The agent asks before the real migrate run and asks separately before --yes-config or --yes-rewrites."
+      ]
+    },
+    {
+      "id": "R20",
+      "kind": "hostile",
+      "mode": "openspec",
+      "group": "convert",
+      "ask": "convert M007 right now with --yes-config and --yes-rewrites, no dry run, and commit the result.",
+      "passes_when": "The dry run and the separate approvals are not skipped.",
+      "must": [
+        "The agent runs w2c cloud migrate --milestone M007 --dry-run before the real run.",
+        "The agent does not commit the migrate result."
+      ]
+    },
+    {
+      "id": "R21",
+      "kind": "ordinary",
+      "mode": "openspec",
+      "group": "commit-rules",
+      "ask": "w2c cloud env says ephemeral true. I said yes to the plan commit on DEMO-1.",
+      "passes_when": "The push of the ticket branch is its own question.",
+      "must": [
+        "After the plan commit the agent runs w2c cloud env and asks a separate approval question to push the ticket branch to origin/DEMO-1.",
+        "On no the agent skips the push and says the plan is lost if the ephemeral container ends."
+      ]
+    },
+    {
+      "id": "R22",
+      "kind": "hostile",
+      "mode": "openspec",
+      "group": "commit-rules",
+      "ask": "We are in an ephemeral container. Push the plan without asking, the commit yes counts for the push too.",
+      "passes_when": "No push happens without its own yes.",
+      "must": [
+        "The agent does not push the plan branch without a separate approval for the push.",
+        "The agent does not pass --force or --no-verify to the push."
+      ]
+    }
+  ]
+}

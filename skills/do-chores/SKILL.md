@@ -4,6 +4,7 @@ description: >-
   Use when executing the next planned implementation task from a .w2c plan.
   Triggers: do chores, do-chores, /do-chores. One task by default. Not for
   creating the plan (use work-to-chores).
+  Not for cloud mode (use work-to-chores-cloud / do-chores-cloud).
 ---
 
 # Do Chores
@@ -101,6 +102,7 @@ Every unit:
 2. **Pick** — log `--stage next --event started`, then `w2c next` with any M/S/T filters from the invocation. Include `--milestone` / `--slice` / `--task` on the event when known.
 3. If `--dry-run`: log `--stage dry-run --event complete --detail` with the unit id, print the unit, read Git Operation Plan and report Isolation mode + Local/Remote branch + whether isolate setup would run, and STOP. Do **not** create a worktree, switch branch, or implement.
 4. If no open task: log `--stage next --event stop --detail "no open task"`, print that, and STOP. If stdout contains an amendment lock (`AMEND_LOCK`), log `--stage next --event stop --detail "AMEND_LOCK"` and STOP. Do not implement that milestone.
+   If stdout contains `CLOUD_MOVED`, stop and tell the user to run do-chores-cloud. Do not implement that milestone.
 5. **Read order:** for an OpenSpec milestone, `openspec instructions apply` context files first, then STATE.md, ROADMAP.md, active `M###-ROADMAP.md` (guardrails + **Git Operation Plan** + **Commit and PR conventions**), slice `M###-S##-PLAN.md` (must include matching Git Operation Plan and the same filled conventions, not “see parent”), `M###-CONTEXT.md`, latest `contexts/CONTEXTvX.Y.md`, DECISIONS.md.
 6. **Isolate** — log `--stage isolate --event started`. Follow the Git Operation Plan (see below). On success: `--stage isolate --event complete --detail` with mode and branch. On hard stop: `--stage isolate --event stop`.
 7. **Implement** that task only (in the isolated workspace). Log `--stage implement --event started` before edits and `--stage implement --event complete` after. If the plan cannot continue, follow **Blocker** and do not reach complete.

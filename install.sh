@@ -6,11 +6,15 @@ usage() {
   cat <<'EOF'
 Usage:
   install.sh [--dry-run] [--force] [--skip-skills] [--no-cursor] [--no-claude]
+             [--ref <tag-or-branch>]
 
 Copies this checkout (or a fresh clone of OpenW2C/w2c) to
 $XDG_DATA_HOME/w2c (default: ~/.local/share/w2c) and writes a PATH shim at
 ~/.local/bin/w2c. Then installs work-to-chores / do-chores into
 ~/.agents/skills unless --skip-skills.
+
+--ref picks the tag or branch to clone (default main). It applies only when
+installing from a fresh clone; a local checkout install ignores it.
 
 Piped install:
   curl -fsSL https://raw.githubusercontent.com/OpenW2C/w2c/main/install.sh | bash
@@ -25,6 +29,8 @@ FORCE=0
 SKIP_SKILLS=0
 NO_CURSOR=0
 NO_CLAUDE=0
+REF=""
+REF_GIVEN=0
 REPO_URL="${W2C_REPO_URL:-https://github.com/OpenW2C/w2c.git}"
 
 while [[ $# -gt 0 ]]; do
@@ -34,6 +40,9 @@ while [[ $# -gt 0 ]]; do
     --skip-skills) SKIP_SKILLS=1; shift ;;
     --no-cursor) NO_CURSOR=1; shift ;;
     --no-claude) NO_CLAUDE=1; shift ;;
+    --ref)
+      [[ $# -ge 2 && -n "$2" ]] || die "--ref needs a tag or branch"
+      REF="$2"; REF_GIVEN=1; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) die "Unknown argument: $1" ;;
   esac
@@ -55,11 +64,18 @@ resolve_source() {
 SOURCE=""
 CLEANUP=""
 if SOURCE="$(resolve_source)"; then
-  :
+  [[ "$REF_GIVEN" == 1 ]] && info "installing from this checkout; --ref is ignored"
 else
   command -v git >/dev/null 2>&1 || die "git is required to clone OpenW2C/w2c"
   CLEANUP="$(mktemp -d)"
-  git clone --depth 1 "$REPO_URL" "$CLEANUP/w2c"
+  REF="${REF:-main}"
+  if [[ "$DRY_RUN" == 1 ]]; then
+    info "would clone $REPO_URL at ref $REF (git clone --depth 1 --branch $REF)"
+    rmdir "$CLEANUP"
+    exit 0
+  fi
+  git clone --depth 1 --branch "$REF" "$REPO_URL" "$CLEANUP/w2c" \
+    || die "cannot clone ref $REF from $REPO_URL"
   SOURCE="$CLEANUP/w2c"
 fi
 [[ -d "$SOURCE/src/w2c" ]] || die "missing $SOURCE/src/w2c"

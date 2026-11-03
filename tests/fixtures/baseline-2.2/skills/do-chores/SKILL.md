@@ -1,0 +1,231 @@
+---
+name: do-chores
+description: >-
+  Use when executing the next planned implementation task from a .w2c plan.
+  Triggers: do chores, do-chores, /do-chores. One task by default. Not for
+  creating the plan (use work-to-chores).
+---
+
+# Do Chores
+
+Requires: w2c >= 2.2.0
+
+Execute planned work from `.w2c/`. Default: **one** next task.
+
+Read `USAGE.md` in this folder for the plain-English invocation.
+
+## Invocation
+
+```text
+do chores [M###] [S##] [T##] [--max-units N] [--dry-run]
+```
+
+| Args | Meaning |
+| --- | --- |
+| (none) | Next open task globally; stop after one |
+| `M011` | Next open task in that milestone; still one unless `--max-units` |
+| `M011 S02` | Next open task in that slice; still one unless `--max-units` |
+| `M011 S02 T03` | That task if still open |
+| `--max-units N` | Chain up to N units in the implied scope |
+| `--dry-run` | Smoke + name the next unit + report isolation mode/branch; do not implement or mutate git |
+| `--full-smoke` | Run workspace-wide `w2c smoke`. Default is `w2c smoke --milestone` for the milestone this run will execute |
+
+Scope only narrows the queue. It does not drain a milestone unless `--max-units` is set.
+
+With no milestone filter, `w2c next` stays on the current branch. It takes the next open task of an `INPROGRESS` milestone before any `PLANNING` or `TODO` milestone, using `.w2c/ROADMAP.md` line order inside each of those groups. It does not pick `PAUSED`, `STOP`, or `ERROR` unless you pass that milestone. Reordering pending milestones changes which to-do task is next only when no in-progress milestone still has an open task.
+
+## Prerequisites (hard stop)
+
+1. **requesting-code-review** must be invocable. If missing: STOP. Log `--stage prereq --event stop --detail "missing requesting-code-review"` and tell the user to add it.
+2. `w2c` must be on PATH. If missing: STOP. Log `--stage prereq --event stop --detail "missing w2c CLI"` and tell the user:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/OpenW2C/w2c/main/install.sh | bash
+# or:
+pipx install git+https://github.com/OpenW2C/w2c.git && w2c install-skills
+```
+
+3. A plan must exist (ROADMAP + at least one slice plan with tasks). If not: STOP. Log `--stage prereq --event stop --detail "no plan"` and tell the user to run work-to-chores.
+4. `.w2c/config.toml` must have a valid `git_delivery` (`slice-commit-milestone-push-pr` or `milestone-commit-milestone-push-pr`). If missing: STOP. Log `--stage prereq --event stop --detail "missing git_delivery"`. Tell the user to run `w2c init --git-delivery …` or `w2c migrate … --git-delivery …`.
+
+**Worktrees:** when Isolation mode is `worktree`, create or reuse the directory with `w2c worktree-add`. Do not call the editor's worktree tool and do not stop when using-git-worktrees is missing. Read `w2c help worktrees` for the ledger rules. Do not offer to convert the repository.
+
+## Status writes
+
+Never hand-edit STATE.md, QUEUE.md, ROADMAP emojis, or `[ ]` / `[x]` on tasks.
+
+```bash
+w2c smoke --milestone M###
+w2c smoke
+w2c next [--milestone M###] [--slice S##] [--task T##]
+w2c complete --milestone M### --slice S## --task T##
+w2c slice-complete --milestone M### --slice S##
+w2c milestone-complete M###
+w2c status
+```
+
+## Events (local only)
+
+Append-only JSONL at `.w2c/runtime/events.jsonl`. Gitignored. Never commit it. Never hand-edit it. The CLI is the only writer.
+
+```bash
+w2c event --skill do-chores --stage STAGE --event EVENT [--milestone M###] [--slice S##] [--task T##] [--detail "..."]
+w2c events --tail 20 [--skill do-chores]
+```
+
+`--event` is one of: `started`, `complete`, `pass`, `fail`, `stop`, `retry`.
+
+Log at every loop step enter/exit and every hard stop. `complete`, `slice-complete`, `milestone-complete`, and `smoke` also append automatically.
+
+## Report files
+
+Write these in the milestone plan folder. They are ledger, not runtime logs. Commit them only when `.w2c/config.toml` has `track = true`.
+
+**`S##-T##-SUMMARY.md`** — frontmatter (`id`, `parent`, `milestone`, `key_files`, `verification_result`, `completed_at`) plus What Happened, Verification, Verification Evidence table, Deviations, Known Issues, Files Created/Modified.
+
+**`S##-UAT.md`** — human checklist (leave boxes unchecked). Automated results go in the slice summary.
+
+**`S##-SUMMARY.md`** — frontmatter plus What Happened, Verification (re-ran every task Verify in the slice), Deviations, Follow-ups, Files Created/Modified.
+
+**`M###-VALIDATION.md`** — `verdict` (`pass` / `fail` / `needs-attention`), Success Criteria Checklist, Slice Delivery Audit, Cross-Slice Integration, Requirement Coverage, Verification Class Compliance, Verdict Rationale.
+
+**`M###-SUMMARY.md`** — frontmatter plus What Happened, Success Criteria Results, Deviations, Follow-ups.
+
+**`M###-MANUAL-TEST.md`** — optional human guide written at plan time. Not a closeout report. Do not require it for `milestone-complete`.
+
+## Loop
+
+Every unit:
+
+1. **Smoke** — log `--stage smoke --event started`. If the user asked for a full workspace smoke, or passed `--full-smoke`, run `w2c smoke` with no milestone. Otherwise run `w2c smoke --milestone <id>`. The id is the invocation milestone. With no milestone argument, use the milestone id printed by `w2c next` (read-only; it already limits itself to milestones whose remote branch is the current branch). Each `--max-units` loop resolves that id again. On FAIL: log `--stage smoke --event fail` and STOP with the report. Do not implement. A failure that names only some other milestone is not a failure of this run. On PASS: log `--stage smoke --event pass`. Smoke of the targeted milestone requires a valid `git_delivery` in `.w2c/config.toml`, a valid Git Operation Plan, a filled `## Commit and PR conventions` section (including the Co-authored-by ban) on that milestone and its slice plans, and a `Manual test guide` of `yes` or `no` (plus `M###-MANUAL-TEST.md` when `yes`). Ledger checks (schema, git delivery, queue and state agreement) still cover the whole workspace.
+2. **Pick** — log `--stage next --event started`, then `w2c next` with any M/S/T filters from the invocation. Include `--milestone` / `--slice` / `--task` on the event when known.
+3. If `--dry-run`: log `--stage dry-run --event complete --detail` with the unit id, print the unit, read Git Operation Plan and report Isolation mode + Local/Remote branch + whether isolate setup would run, and STOP. Do **not** create a worktree, switch branch, or implement.
+4. If no open task: log `--stage next --event stop --detail "no open task"`, print that, and STOP. If stdout contains an amendment lock (`AMEND_LOCK`), log `--stage next --event stop --detail "AMEND_LOCK"` and STOP. Do not implement that milestone.
+5. **Read order:** for an OpenSpec milestone, `openspec instructions apply` context files first, then STATE.md, ROADMAP.md, active `M###-ROADMAP.md` (guardrails + **Git Operation Plan** + **Commit and PR conventions**), slice `M###-S##-PLAN.md` (must include matching Git Operation Plan and the same filled conventions, not “see parent”), `M###-CONTEXT.md`, latest `contexts/CONTEXTvX.Y.md`, DECISIONS.md.
+6. **Isolate** — log `--stage isolate --event started`. Follow the Git Operation Plan (see below). On success: `--stage isolate --event complete --detail` with mode and branch. On hard stop: `--stage isolate --event stop`.
+7. **Implement** that task only (in the isolated workspace). Log `--stage implement --event started` before edits and `--stage implement --event complete` after. If the plan cannot continue, follow **Blocker** and do not reach complete.
+8. **Verify** — log `--stage verify --event started`, then run the task’s Verify commands. On failure: log `--stage verify --event retry`, find root cause, fix, re-verify. Loop until green, then `--stage verify --event pass`.
+9. **Review** — log `--stage review --event started`, then invoke requesting-code-review. On findings: log `--stage review --event retry`, find root cause, fix, re-verify, re-review. Loop until clean, then `--stage review --event pass`.
+10. **Task summary** — write `.w2c/plans/M###-<slug>/S##-T##-SUMMARY.md` using the task-summary shape below. Do not call `complete` until this file exists and is non-empty. Log `--stage report --event complete --detail task-summary`.
+11. **Complete** — `w2c complete --milestone … --slice … --task …`. The CLI refuses without the task summary. It does **not** mark the slice or milestone done.
+12. **Slice closeout** — if stdout contains `NEED_SLICE_REPORTS` or `NEED_SLICE_COMPLETE`: re-run every task Verify command in that slice plus the slice Verification section. On failure: fix, re-verify, log `--stage verify --event retry`. Then write `S##-UAT.md` (human checklist, leave boxes unchecked) and `S##-SUMMARY.md` (automated results). The slice summary must name each dropped task id. Then `w2c slice-complete --milestone … --slice …`. `NEED_SLICE_REPORTS` still means those reports. `NEED_DROP_SLICE` is not this skill's job. Read `git_delivery` from `.w2c/config.toml`. If it is `slice-commit-milestone-push-pr`: **ask** for explicit approval to make a **local commit** of the product changes (honor `## Commit and PR conventions`: stage only product paths — never deny-listed paths; never mention any `.w2c/` path or artifact in the message; never AI co-author trailers). If the user declines: skip the commit and continue. Do **not** push or open a PR at slice closeout.
+13. **Milestone closeout** — if stdout contains `NEED_MILESTONE_REPORTS` or `NEED_MILESTONE_COMPLETE`: run milestone Validation commands and check success criteria. Write `M###-VALIDATION.md` (audit/verdict) and `M###-SUMMARY.md` (what shipped). Then `w2c milestone-complete M###`. Do **not** require `M###-MANUAL-TEST.md` or that the human ran those steps. If Delivery & Guardrails `Manual test guide` is `yes`, print the path to `M###-MANUAL-TEST.md` and say it is for the user to run after closeout — unread/unchecked steps are not a failure. Then honor `git_delivery`:
+    - If `milestone-commit-milestone-push-pr`: **ask** for a local commit (same conventions: deny-list staging, no `.w2c/` mentions, co-author ban). Decline → skip commit and continue.
+    - **Always ask** (separate prompt) to **push** to `origin/<Remote branch>` where Remote branch equals the planned Local branch. Before that push, run `w2c openspec-push-check` for the commit you are pushing. If it fails, stop and archive. Do not pass `--no-verify`. Decline → skip push and PR; continue.
+    - If push was approved: **ask separately** to **open a PR**. Decline → skip PR; continue.
+    Never invent a different remote name. Follow `## Commit and PR conventions`; **never** stage deny-listed paths on product commits; **never** mention any `.w2c/` path or artifact in commit or PR text; **never** add `Co-authored-by` or similar AI co-author trailers.
+
+    **If `slice-complete` or `milestone-complete` errors with "slices still open" or "no slices found" despite every task checkbox already being `[x]`**, this is a `## Slices` section format bug, not an incomplete-work problem — `w2c smoke`'s `roadmap-slices-match-plans` check should have already caught it; run `w2c smoke` first to confirm. The CLI's `parse_slices()` only recognizes literal `- [ ] **S##: <title>**` checkbox lines; a markdown table or any other shape parses as zero slices. Recovery, in order:
+    1. Diff the `## Slices` section against `templates/M-ROADMAP.md` to confirm the mismatch.
+    2. Add the missing `- [ ] **S##: <title>**` line(s) for every slice plan file already on disk, in their **unchecked** `[ ]` state — never write `[x]` by hand.
+    3. Re-run `w2c slice-complete` / `w2c milestone-complete` so the CLI flips each checkbox itself once it can see the line.
+    4. Tell the user this happened (template/CLI mismatch, not a completion gap) before continuing, so they can decide whether to fix it upstream.
+14. **Report** — log `--stage report --event complete`. Then: task id/title, files changed, verify commands + outcomes, review result, which reports were written, isolation mode/branch used, git_delivery gates taken or skipped, blockers.
+15. If `--max-units` is set and units remain and the scope still has open tasks: go to step 1. Otherwise STOP.
+
+No-args always stops after one completed or failed unit.
+
+Honor Delivery & Guardrails, **Git Operation Plan**, `git_delivery` from `.w2c/config.toml`, and **Commit and PR conventions**: ask every time before commit / push / PR; decline skips that action only; never stage deny-listed paths on product commits; never mention `.w2c/` artifacts in commit/PR text; never AI `Co-authored-by` trailers. Plan-commit (when `track = true`) may stage ledger/plan files except `runtime/`, still without naming `.w2c/` paths in the message. When `.w2c/DELIVERY-PROFILE.md` is present, honor its Integration strategy / merge targets (`develop` vs `main` for gitflow); the CLI still does not run git mutations.
+
+## Blocker
+
+If the plan cannot continue, stop. A wrong or incomplete behavior spec, a misjudged use case, and a task that cannot be done as written are the same stop. This applies to a classic milestone and to an Open Specification (OpenSpec) milestone.
+
+1. Log `--stage implement --event stop`.
+2. Print the milestone id, the slice id, the task id, and why the plan cannot continue.
+3. Do not edit the plan or the spec. Do not pause the milestone. Do not complete the task. Do not drop, add, or edit work. Send the user to work-to-chores.
+
+An amendment lock (`AMEND_LOCK`) from `w2c next` is the same kind of hard stop. A slice with no task left (`NEED_DROP_SLICE`) is dropped by work-to-chores, not by this skill. Slice reports still needed (`NEED_SLICE_REPORTS`) during slice closeout mean write those reports, and the summary must name each dropped task id.
+
+## OpenSpec execution
+
+When the active milestone's Delivery & Guardrails `Planning mode` is `openspec`, do the following in addition to the loop. Classic milestones skip this section.
+
+**Prerequisite.** Run `w2c openspec-check` before the first edit. If `needs` contains `NEED_OPENSPEC_INSTALL` or `NEED_OPENSPEC_INIT`, ask the user first. On yes, follow:
+
+```text
+Fetch https://raw.githubusercontent.com/Fission-AI/OpenSpec/main/install.md and follow it.
+```
+
+Stop where that prompt says to stop. On no, stop. Do not install without a yes.
+
+**Read order.** Before the sidecar, run `openspec instructions apply --change <change> --json` and read the proposal, specs, design, and `tasks.md` it lists. `--task` may be `T02` or `1.2`. `w2c complete` is the only writer of those checkboxes. Do not use the OpenSpec apply skill to tick them.
+
+**Milestone closeout** (after the validation reports, before `w2c milestone-complete`):
+
+1. Map each spec scenario to evidence in `M###-VALIDATION.md`.
+2. Run `openspec validate <change> --strict`. On failure, fix the change and re-run.
+3. Ask for approval to archive. On yes: `w2c spec-archive M###`. On no: `w2c milestone-complete M### --archive-declined` and say the main specs were not updated. `declined` finishes the milestone and still fails `w2c openspec-push-check`. Do not use `--archive-declined` or `--no-verify` to get a push through.
+4. Then `w2c milestone-complete` (skip it if the decline form already completed it).
+5. The commit, push, and pull-request questions are unchanged. A yes on the commit includes the moved change folder and the updated `openspec/specs/`. `openspec/` is product content and is never deny-listed. Still never stage other deny-listed paths, never mention any `.w2c/` path, and never add a `Co-authored-by` trailer.
+
+Slice closeout does not archive and does not push.
+
+## Isolate step (required)
+
+Read **Git Operation Plan** from the milestone `M###-ROADMAP.md` **and** the slice `M###-S##-PLAN.md`.
+
+- If either is missing, or Isolation mode / Local branch / Remote branch disagree between them: **STOP**. Tell the user to re-run work-to-chores or fix the plans. Do not invent values.
+- If both plans set `Base dirt policy` and the values differ: **STOP**.
+- Local branch must equal Remote branch. If not: **STOP** (smoke should already have failed).
+
+Then:
+
+1. **Reuse policy** — if a worktree or local branch already exists with the exact planned name and clearly belongs to this ticket: reuse it. If dirty with unrelated files, or history looks unexpected: **STOP** and ask. Never force-reset, force-push, or delete worktrees/branches.
+2. **Mode `worktree`** — run `w2c repo-layout` and, if the plan's Worktree layout differs, update that field. Do not ask the layout question again. Run `w2c worktree-add --branch <Remote branch>`. Pass `--create-from HEAD` when the branch does not exist yet. Pass `--exclude no` only when the plan says `exclude-no`. Reuse the directory when the command prints the existing path. An OpenSpec spec-commit may already have created it. Continue all subsequent work for this ticket in that worktree. Do not nest a worktree inside an existing linked worktree.
+3. **Mode `branch`** — ensure the current checkout is on Local branch. If that branch already exists, check it out without force. If it is missing, create it from current HEAD by applying the stored base-dirt policy below. Never force.
+
+   Run `w2c base-dirt`. Non-zero exit: **STOP** and show the error. `.w2c/` and gitignored files are already excluded.
+
+   - `n/a-worktree` does not apply in this mode. If the field is `n/a-worktree` while Isolation mode is `branch`: **STOP**.
+   - `clean-at-plan` and `status` `clean`: create the branch. Do not ask.
+   - `clean-at-plan` and `status` `noncritical` or `critical`: there was no choice yet. Ask. For `noncritical`, options are below and **Leave untouched** is `[recommended]`. For `critical`, the first turn is a warning only: list every `critical` path, say they will ride into the milestone checkout as uncommitted changes and can be committed by mistake, include `note` when it is non-empty, and do not show options. If the user answers with an option on that turn, reject it and repeat the warning. Only after an explicit “show me the choices” confirmation, ask the options. On that question **Pause and clean** is `[recommended]`.
+   - `leave-untouched` and every current `critical` path is already a list item under `### Base dirt paths`: create the branch. Do not ask again. Do not add, commit, stash, delete, or gitignore those files. New paths in `other` stay under this choice.
+   - `leave-untouched` and a new `critical` path is present: same warning turn, reject the first attempt, then ask. If the new choice is `leave-untouched`, replace `### Base dirt paths` on the milestone and slice plans with the latest `critical` and `other` lists (use `(none)` for an empty list), `w2c decide --decision "base branch dirt" --choice leave-untouched`, then create the branch. Pause or abort: do not create the branch.
+   - Field missing: ask the same way (`critical` uses the warning turn first), write the execution policy onto the milestone and slice plans, then create the branch only for `clean-at-plan` or `leave-untouched`.
+
+   Options when a choice is allowed:
+
+   1. **Leave untouched** — “Unrelated untracked files are intentional; leave them untouched.” Choice `leave-untouched`.
+   2. **Pause and clean** — choice `pause-and-clean`. Do not create the branch.
+   3. **Pause for the base branch** — choice `pause-for-base`. Do not create the branch. This step does not commit.
+   4. **Abort branch setup** — choice `abort-branch-setup`. Stop.
+
+   Pause and abort are not `Base dirt policy` values. Record them with `w2c decide` only.
+
+   On later product commits, do not stage paths from the latest `w2c base-dirt` `critical` or `other` arrays, or from `### Base dirt paths`.
+
+4. **Ledger visible** — `w2c worktree-add` and every later `w2c` command bind the ledger. Do not symlink or copy `.w2c/` yourself. When `track` is false, do not commit `.w2c/`. If `.w2c/` is missing in the worktree after `w2c ledger-bind`, **STOP** and tell the user to run `w2c init` from the main checkout.
+
+Isolation is **ticket-scoped**: later milestones/slices with the same Remote branch reuse the same worktree/branch.
+
+When the last open milestone on that remote branch is done, ask once whether to remove the worktree. The default is no, so the directory stays for the pull request and for a later milestone on the same ticket. On yes, run `w2c worktree-remove --branch <name> --yes` from the main checkout. On no, leave the directory. Never delete the branch or the shared ledger.
+
+## Red flags — STOP
+
+- Marking a task complete by editing the markdown checkbox
+- Skipping smoke, isolate, verify, requesting-code-review, or closeout reports
+- Calling `complete` / `slice-complete` / `milestone-complete` without the required report files
+- Continuing after smoke FAIL on the milestone this run is executing
+- Stopping because a different milestone failed smoke, unless the user asked for a full workspace smoke
+- Implementing more than one task when `--max-units` is absent
+- Ignoring Git Operation Plan mode/branch or creating a differently named branch
+- Implementing from the wrong tree when mode is `worktree`
+- Force-reset, force-push, or deleting worktrees/branches
+- Accepting a base-dirt choice on the critical-file warning turn
+- Creating the ticket branch while a new critical path is still unconfirmed
+- Asking the base-dirt question again when `leave-untouched` already covers every current critical path
+- Staging base-dirt paths on a product commit
+- Pushing or opening a PR without explicit user approval
+- Pushing a finished OpenSpec milestone before `w2c openspec-push-check` passes, or using `--no-verify` to skip that check
+- Committing without explicit user approval
+- Auto-commit / auto-push / auto-PR when the user declined that gate
+- Adding `Co-authored-by:` or similar AI co-author trailers on commits or PRs
+- Staging deny-listed paths (including `.w2c/` when `track = false`, or `.w2c/runtime/` always) on product commits
+- Naming any `.w2c/` path or W2C artifact in commit messages or PR descriptions
+- Blocking milestone closeout because `M###-MANUAL-TEST.md` steps were not run
+- Committing `.w2c/runtime/` or hand-editing `events.jsonl`
+- Hand-marking a `## Slices` checkbox `[x]` to work around a "slices still open" error instead of adding it unchecked and letting the CLI flip it
+- On a blocker, editing the plan or the spec, pausing the milestone, or completing the task
+- Continuing after stdout contains `AMEND_LOCK`
+- Treating `NEED_DROP_SLICE` as permission to drop work from this skill

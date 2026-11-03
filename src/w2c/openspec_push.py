@@ -99,6 +99,57 @@ def problems_for(root: Path, ref: str, sha: str) -> list[str]:
             found.append(
                 f"{milestone.mid}: commit {sha[:12]} does not contain the archived change"
             )
+    found.extend(_cloud_problems(root, branch, sha))
+    return found
+
+
+def _folder_branch(folder: Path) -> str:
+    try:
+        text = (folder / "design.md").read_text(encoding="utf-8")
+        from w2c.cloud import ledger as cloud
+
+        fields = cloud.delivery_plan_fields(text)
+    except (OSError, UnicodeDecodeError):
+        return ""
+    return fields.get("Remote branch", "").strip()
+
+
+def _cloud_folders(root: Path) -> list[Path]:
+    base = root / "openspec" / "changes"
+    found: list[Path] = []
+    for parent in (base, base / "archive"):
+        if parent.is_dir():
+            found += [c for c in sorted(parent.iterdir()) if c.is_dir() and c.name != "archive"]
+    return found
+
+
+def _cloud_problems(root: Path, branch: str, sha: str) -> list[str]:
+    from w2c.cloud import commands, ledger as cloud
+
+    found: list[str] = []
+    for folder in _cloud_folders(root):
+        if _folder_branch(folder) != branch:
+            continue
+        try:
+            change = cloud.load_change(folder)
+        except (_cli().W2CError, UnicodeDecodeError, OSError) as exc:
+            archived = folder.parent.name == "archive"
+            name = cloud.ARCHIVE_PREFIX_RE.sub("", folder.name) if archived else folder.name
+            found.append(f"{name}: cannot read .openspec.yaml: {exc}")
+            continue
+        if change is None:
+            continue
+        name = change.name
+        if change.archived:
+            meta = f"openspec/changes/archive/{change.path.name}/.openspec.yaml"
+            if not _tree_has(root, sha, meta):
+                found.append(f"{name}: commit {sha[:12]} does not contain the archived change")
+        elif change.status == "DONE" and change.archive == "declined":
+            found.append(
+                f"{name}: archive is declined; run w2c cloud archive {name} before push"
+            )
+        elif commands.all_closed(change):
+            found.append(f"{name}: archive the change with w2c cloud archive {name} before push")
     return found
 
 

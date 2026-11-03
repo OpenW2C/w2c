@@ -1,0 +1,15 @@
+# Tasks
+
+## 1. Multiply
+
+- [x] 1.1 Add multiply to the calculator and verify its unit test passes
+  - Verify: python3 -m unittest discover -s tests -t .
+
+## 2. Documentation and helpers
+
+- [ ] 2.1 Document multiply in the README
+  - Verify: grep -q multiply README.md
+- [d] 2.2 Add a modulo helper to the calculator
+  - Verify: python3 -c 'from app.calc import mod; assert mod(7, 3) == 1'
+- [ ] 2.3 Add a subtract helper to the calculator
+  - Verify: python3 -c 'from app.calc import subtract; assert subtract(5, 2) == 3'

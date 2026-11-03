@@ -1,0 +1,17 @@
+# Amendments
+
+The w2c command is the only writer of this file.
+
+## A001 drop-task M001/S02/T02
+
+- decision: D002
+- reason: modulo is not needed
+- follow-up: 
+- ticket: 
+
+## A002 task-add M001/S02/T03
+
+- decision: D002
+- reason: people asked for subtract
+- follow-up: 
+- ticket: 

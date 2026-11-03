@@ -8,14 +8,23 @@ from pathlib import Path
 
 from w2c import local as w2c_local
 
-SKILL_NAMES = ("work-to-chores", "do-chores")
+SKILL_NAMES = ("work-to-chores", "do-chores", "work-to-chores-cloud", "do-chores-cloud")
 MODES = ("openspec", "classic")
+# Cloud mode is OpenSpec-based: its trials run in openspec mode only.
+CLOUD_SKILLS = ("work-to-chores-cloud", "do-chores-cloud")
+SKILL_MODES: dict[str, tuple[str, ...]] = {skill: ("openspec",) for skill in CLOUD_SKILLS}
+# The pairs whose shared groups must match.
+PAIRS = (("work-to-chores", "do-chores"), CLOUD_SKILLS)
 KINDS = ("ordinary", "hostile")
 
 SHARED_GROUPS = ("isolation", "base-dirt", "commit-rules", "hard-stop")
 GROUPS_BOTH: dict[str, tuple[str, ...]] = {
     "work-to-chores": SHARED_GROUPS + ("interview", "plan-write", "reorder", "amend"),
     "do-chores": SHARED_GROUPS + ("execute", "closeout", "blocker"),
+    "work-to-chores-cloud": SHARED_GROUPS
+    + ("interview", "plan-write", "reorder", "amend", "design-sections", "convert"),
+    "do-chores-cloud": SHARED_GROUPS
+    + ("step-loop", "closeout", "blocker", "ephemeral-push", "read-first", "no-answer", "off-plan"),
 }
 GROUPS_ONE: dict[str, dict[str, tuple[str, ...]]] = {
     "work-to-chores": {
@@ -72,6 +81,34 @@ CONCRETE_TOKENS = (
     "dropped",
     "lock",
 )
+# Extra concrete nouns that count only for the cloud skills; 2.2 trials use
+# exactly CONCRETE_TOKENS.
+CLOUD_CONCRETE_TOKENS = CONCRETE_TOKENS + (
+    "design.md",
+    ".delivery",
+    "ephemeral",
+    "step",
+)
+
+
+def concrete_tokens(skill: str) -> tuple[str, ...]:
+    return CLOUD_CONCRETE_TOKENS if skill in CLOUD_SKILLS else CONCRETE_TOKENS
+
+
+def skill_modes(skill: str) -> tuple[str, ...]:
+    return SKILL_MODES.get(skill, MODES)
+
+
+def shared_group_problems() -> list[str]:
+    """Every SHARED_GROUPS entry must exist for both skills of both pairs."""
+    problems: list[str] = []
+    for pair in PAIRS:
+        for skill in pair:
+            groups = GROUPS_BOTH.get(skill, ())
+            for group in SHARED_GROUPS:
+                if group not in groups:
+                    problems.append(f"{skill}: shared group {group} missing from its groups")
+    return problems
 
 
 def required_groups(skill: str, mode: str) -> tuple[str, ...]:
@@ -102,11 +139,11 @@ def locate_trials(skill: str) -> Path | None:
     return None
 
 
-def _vague_problem(line: str) -> str | None:
+def _vague_problem(line: str, skill: str = "") -> str | None:
     folded = line.casefold()
     if not any(word in folded for word in VAGUE_WORDS):
         return None
-    if any(token in folded for token in CONCRETE_TOKENS):
+    if any(token in folded for token in concrete_tokens(skill)):
         return None
     return "vague must line has no concrete noun"
 
@@ -121,9 +158,11 @@ def check_trials(data: object, skill: str) -> list[str]:
     if not isinstance(trials, list):
         return problems + [f"{skill}: trials must be a list"]
 
+    modes = skill_modes(skill)
     seen: set[str] = set()
-    hostile = {mode: False for mode in MODES}
-    present = {(mode, group) for mode in MODES for group in required_groups(skill, mode)}
+    hostile = {mode: False for mode in modes}
+    present = {(mode, group) for mode in modes for group in required_groups(skill, mode)}
+    kinds: dict[str, set[str]] = {}
     found: set[tuple[str, str]] = set()
     exclusive = exclusive_groups(skill)
 
@@ -143,17 +182,19 @@ def check_trials(data: object, skill: str) -> list[str]:
         kind = trial.get("kind")
         mode = trial.get("mode")
         group = trial.get("group")
-        known = required_groups(skill, "openspec") + required_groups(skill, "classic")
+        known = tuple(g for m in modes for g in required_groups(skill, m))
         if kind not in KINDS:
             problems.append(f"{label}: kind must be ordinary or hostile")
-        if mode not in MODES:
-            problems.append(f"{label}: mode must be openspec or classic")
+        if mode not in modes:
+            problems.append(f"{label}: mode must be {' or '.join(modes)}")
         if not isinstance(group, str) or group not in known:
             problems.append(f"{label}: unknown group {group!r}")
-        elif mode in MODES and exclusive.get(group) not in (None, mode):
+        elif mode in modes and exclusive.get(group) not in (None, mode):
             problems.append(f"{label}: group {group} is only for mode {exclusive[group]}")
-        elif mode in MODES:
+        elif mode in modes:
             found.add((mode, group))
+            if isinstance(kind, str):
+                kinds.setdefault(group, set()).add(kind)
         if kind == "hostile" and mode in hostile:
             hostile[mode] = True
         ask = trial.get("ask")
@@ -174,18 +215,22 @@ def check_trials(data: object, skill: str) -> list[str]:
                     problems.append(f"{label}: empty must line")
                     continue
                 filled += 1
-                vague = _vague_problem(line)
+                vague = _vague_problem(line, skill)
                 if vague:
                     problems.append(f"{label}: {vague}")
             if filled < 2:
                 problems.append(f"{label}: need at least 2 must lines")
 
-    for mode in MODES:
+    for mode in modes:
         if not hostile[mode]:
             problems.append(f"{skill}: no hostile trial for mode {mode}")
     missing = sorted(present - found)
     for mode, group in missing:
         problems.append(f"{skill}: missing {mode} group {group}")
+    if skill in CLOUD_SKILLS:
+        for group in GROUPS_BOTH.get(skill, ()):
+            if group in kinds and kinds[group] != set(KINDS):
+                problems.append(f"{skill}: group {group} needs an ordinary and a hostile row")
     return problems
 
 
@@ -197,6 +242,7 @@ def run_trials() -> tuple[list[tuple[str, str, str]], int]:
     """Return (skill, PASS|FAIL, detail) rows and an exit code."""
     rows: list[tuple[str, str, str]] = []
     failed = False
+    parity = shared_group_problems()
     for skill in SKILL_NAMES:
         path = locate_trials(skill)
         if path is None:
@@ -209,7 +255,8 @@ def run_trials() -> tuple[list[tuple[str, str, str]], int]:
             rows.append((skill, "FAIL", f"invalid JSON: {exc}"))
             failed = True
             continue
-        problems = check_trials(data, skill)
+        problems = [item for item in parity if item.startswith(f"{skill}:")]
+        problems += check_trials(data, skill)
         if problems:
             rows.append((skill, "FAIL", "; ".join(problems)))
             failed = True

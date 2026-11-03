@@ -1,0 +1,2 @@
+initialized .w2c/ (DECISIONS.md, ROADMAP.md, STATE.md, QUEUE.md, contexts/CONTEXTv1.0.md, .github/instructions/work-to-chores.instructions.md, .github/instructions/do-chores.instructions.md)
+NEED_OPENSPEC_INIT

@@ -1,0 +1,12 @@
+NEXT add-multiply S01 T01 — Add multiply to the calculator
+{
+  "task": {
+    "milestone_id": "add-multiply",
+    "slice_id": "S01",
+    "task_id": "T01",
+    "title": "Add multiply to the calculator",
+    "plan_path": "<ROOT>/proj/openspec/changes/add-multiply/tasks.md",
+    "verify": "python3 -m unittest discover -s tests -t .",
+    "openspec_id": "1.1"
+  }
+}

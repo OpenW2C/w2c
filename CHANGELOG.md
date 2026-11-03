@@ -5,6 +5,31 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.0] — 2026-11-03
+
+### Added
+
+- An opt-in cloud mode: `w2c init --planning cloud` and the `w2c cloud` command group (`new`, `next`, `status` with `--all`, `complete`, `slice-complete`, `archive`, `milestone-complete`, `status-set`, `decide`, `decisions-flush`, `order`, `swap`, `move`, the amendment commands, `smoke`, `env`, `step`, `brief`, `rules`, `migrate`).
+- The cloud skills `work-to-chores-cloud` and `do-chores-cloud`.
+- `w2c cloud template <name>` prints a cloud template. `w2c cloud new` writes `design.md` and `tasks.md` from the templates.
+- `w2c cloud archive` refuses while the closeout reports are uncommitted. `--keep-reports-backup` archives anyway and keeps a backup of them.
+- The step driver keeps its state per worktree.
+- `w2c cloud migrate` converts one milestone at a time to the cloud mode. It makes a backup, verifies the result, and can undo the change with `--restore`. Both refuse, before any change, a path that leads outside the checkout, including through a symbolic link.
+- The full-cycle test `scripts/w2c-e2e.py` and its CI job.
+- `install.sh --ref` installs a chosen Git ref.
+- `w2c help cloud-sessions` prints the guide for cloud sessions.
+- Committable Copilot instruction files for cloud repositories.
+- The design and plan documents for the cloud mode.
+
+### Changed
+
+- Each 2.2 skill has one added routing line, and do-chores also gains one line that stops on `CLOUD_MOVED` and sends the user to do-chores-cloud.
+- `w2c trials` now checks four skills: the two 2.2 skills and the two cloud skills.
+- `w2c next` can print the additive `CLOUD_MOVED` message.
+- The pre-push archive check and `base-dirt` also cover cloud changes.
+
+No breaking change: the 2.2 flow, its commands and its ledger format are unchanged; the major version marks the new cloud mode.
+
 ## [2.2.0] — 2026-10-31
 
 ### Added

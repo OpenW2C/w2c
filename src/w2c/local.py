@@ -29,6 +29,7 @@ DEFAULT_GITIGNORE_MARKERS = (
     ".github/instructions/do-chores.instructions.md",
 )
 TRACK_GITIGNORE_MARKERS = (".w2c/runtime/",)
+CLOUD_GITIGNORE_MARKERS = (".w2c/",)
 GITIGNORE_COMMENT = "# w2c (local planner unless track = true)"
 UNTRACK_INDEX_PATHS = [
     ".w2c",
@@ -131,7 +132,8 @@ MIN_SUPPORTED_SCHEMA_VERSION = 1
 
 PLANNING_OPENSPEC = "openspec"
 PLANNING_CLASSIC = "classic"
-PLANNING_VALUES = frozenset({PLANNING_OPENSPEC, PLANNING_CLASSIC})
+PLANNING_CLOUD = "cloud"
+PLANNING_VALUES = frozenset({PLANNING_OPENSPEC, PLANNING_CLASSIC, PLANNING_CLOUD})
 
 
 class GitDeliveryError(ValueError):
@@ -159,7 +161,7 @@ def normalize_planning(value: object | None, *, missing: str = PLANNING_CLASSIC)
         return PLANNING_CLASSIC
     if text in PLANNING_VALUES:
         return text
-    raise LocalError(f"invalid planning {value!r}; use openspec|classic")
+    raise LocalError(f"invalid planning {value!r}; use openspec|classic|cloud")
 
 
 def normalize_schema_version(value: object | None) -> int:
@@ -315,17 +317,38 @@ def is_track_enabled(root: Path) -> bool:
     return bool(load_repo_config(root).get("track"))
 
 
-def gitignore_markers(track: bool) -> list[str]:
-    return list(TRACK_GITIGNORE_MARKERS if track else DEFAULT_GITIGNORE_MARKERS)
+def gitignore_markers(track: bool, mode: str = PLANNING_OPENSPEC) -> list[str]:
+    if track:
+        return list(TRACK_GITIGNORE_MARKERS)
+    if mode == PLANNING_CLOUD:
+        return list(CLOUD_GITIGNORE_MARKERS)
+    return list(DEFAULT_GITIGNORE_MARKERS)
 
 
-def ensure_gitignore(root: Path, *, track: bool) -> list[str]:
+def gitignore_mode(root: Path) -> str:
+    """The ensure_gitignore mode for this repo's planning: cloud repos get the
+    cloud lines, every other repo the 2.2 lines."""
+    return PLANNING_CLOUD if load_repo_config(root).get("planning") == PLANNING_CLOUD else PLANNING_OPENSPEC
+
+
+def remove_gitignore_lines(root: Path, lines_to_drop: tuple[str, ...]) -> None:
+    gi = root / ".gitignore"
+    if not gi.is_file():
+        return
+    lines = gi.read_text(encoding="utf-8").splitlines()
+    kept = [ln for ln in lines if ln not in lines_to_drop]
+    if kept != lines:
+        body = chr(10).join(kept).rstrip()
+        gi.write_text(body + chr(10) if body else "", encoding="utf-8")
+
+
+def ensure_gitignore(root: Path, *, track: bool, mode: str = PLANNING_OPENSPEC) -> list[str]:
     gi = root / ".gitignore"
     raw = gi.read_text(encoding="utf-8") if gi.is_file() else ""
     lines = raw.splitlines()
     if not track:
         lines = [ln for ln in lines if ln not in LEGACY_GITIGNORE_MARKERS]
-    wanted = gitignore_markers(track)
+    wanted = gitignore_markers(track, mode)
     existing = set(lines)
     missing = [m for m in wanted if m not in existing]
     if not missing and gi.is_file() and raw.splitlines() == lines:
@@ -445,7 +468,7 @@ def git_restore_path(root: Path, rel: str) -> bool:
 def migrate_untrack(root: Path) -> Path:
     backup = backup_w2c_assets(root)
     write_repo_config(root, track=False)
-    ensure_gitignore(root, track=False)
+    ensure_gitignore(root, track=False, mode=gitignore_mode(root))
     tracked = git_ls_tracked_w2c(root)
     if tracked:
         git_rm_cached(root, UNTRACK_INDEX_PATHS)
@@ -475,7 +498,7 @@ def migrate_adopt(root: Path) -> list[str]:
         elif git_restore_path(root, str(rel)):
             restored.append(str(rel))
     write_repo_config(root, track=False)
-    ensure_gitignore(root, track=False)
+    ensure_gitignore(root, track=False, mode=gitignore_mode(root))
     register_project(root)
     return restored
 
