@@ -715,6 +715,16 @@ def c11_convert_all_and_restore(p: Project) -> None:
         raise AssertionError(smoke.stdout)
     again = q.w2c("cloud", "migrate", "--all", "--yes-config", "--yes-rewrites")
     p.expect_tokens(again, "NOTHING_TO_CONVERT")
+    proposal = q.root / "openspec" / "changes" / "add-ninth" / "proposal.md"
+    kept = proposal.read_bytes()
+    proposal.write_bytes(kept + b"\nA later edit.\n")
+    refused = q.w2c("cloud", "migrate", "--restore", check=False)
+    if refused.returncode != 1:
+        raise AssertionError(f"restore over a later edit must be refused:\n{refused.stdout}")
+    p.expect_tokens(refused, f"CHANGED_SINCE_RUN {proposal}", "RESTORE_REFUSED 1 file(s)")
+    if proposal.read_bytes() != kept + b"\nA later edit.\n":
+        raise AssertionError("a refused restore changed a file")
+    proposal.write_bytes(kept)
     restored = q.w2c("cloud", "migrate", "--restore")
     p.expect_tokens(restored, "RESTORED")
     p.expect_matches("C11-restore.txt", restored.stdout)

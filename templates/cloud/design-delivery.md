@@ -64,7 +64,7 @@ Planner: inspect this repo (`CONTRIBUTING*`, `.github/*PULL_REQUEST_TEMPLATE*`, 
 **Pull request:**
 
 **Do not stage / commit:**
-Planner: fill a deny-list. Always include `.delivery/` and any local planner files. Add notable paths from the client `.gitignore` (e.g. `.env*`, credentials, local IDE junk). Product commits must never stage these paths, including any `### Base dirt paths` listed in the Delivery Plan.
+Planner: fill a deny-list of any local planner files and notable paths from the client `.gitignore` (e.g. `.env*`, credentials, local IDE junk), plus any `### Base dirt paths` listed in the Delivery Plan. Product commits must never stage these paths. The change's `.delivery/` reports are not deny-listed: they are committed with the slice and milestone commits of the product work.
 
 `openspec/` is product content and is never deny-listed. Product commits stage only this change's folder plus the archive result.
 

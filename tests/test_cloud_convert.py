@@ -1272,11 +1272,23 @@ class ApplyTests(unittest.TestCase):
         self.assertEqual(code, 0, out)
         for token in ("PLAN write-key openspec/changes/add-export/.openspec.yaml x-delivery-status: INPROGRESS",
                       "PLAN append-section openspec/changes/add-export/design.md ## Guardrails",
-                      "REWRITE .w2c/plans/M001-add-export/M001-ROADMAP.md:", "NEXT_BEFORE M001 S01 T01",
-                      "NEED_CONFIG_APPROVAL openspec/config.yaml"):
+                      "NEED_REWRITE_APPROVAL .w2c/plans/M001-add-export/M001-ROADMAP.md:", "NEXT_BEFORE M001 S01 T01",
+                      "NEED_CONFIG_APPROVAL openspec/config.yaml", "+context: |"):
             self.assertIn(token, out)
+        self.assertNotIn("\nREWRITE ", out)
+        code, out = migrate(repo.root, ["M001"], dry_run=True, yes_config=True, yes_rewrites=True)
+        self.assertEqual(code, 0, out)
+        self.assertIn("\nREWRITE .w2c/plans/M001-add-export/M001-ROADMAP.md:", out)
+        self.assertIn("CONFIG_MERGED openspec/config.yaml (dry run; would add):", out)
+        self.assertNotIn("NEED_REWRITE_APPROVAL", out)
+        self.assertNotIn("NEED_CONFIG_APPROVAL", out)
         self.assertEqual(snapshot(repo.root, repo.w2c), before)
         self.assertFalse(list(w2c_local.backup_dir_for(repo.root).glob("cloud-migrate-*")))
+        with mock.patch.object(convert.osl, "cli_check", return_value=(("openspec-cli", "FAIL", "missing"), False)):
+            code, out = migrate(repo.root, ["M001"], dry_run=True)
+        self.assertEqual(code, 1, out)
+        self.assertIn("BLOCKED openspec is not installed", out)
+        self.assertEqual(snapshot(repo.root, repo.w2c), before)
 
     def test_flow_style_config_prints_manual_config(self) -> None:
         repo = self.ready(config_yaml="schema: spec-driven\nrules: {tasks: [\"Keep it short.\"]}\n")
@@ -1388,6 +1400,99 @@ class ApplyTests(unittest.TestCase):
         self.assertEqual(code, 0, out)
         self.assertIn("SKIPPED M001", out)
         self.assertIn("NOTHING_TO_CONVERT", out)
+
+
+    # ------------------------------------------------------------ fix round 1
+
+    def test_restore_of_a_complete_run_refuses_after_later_edits(self) -> None:
+        repo = self.ready()
+        before = snapshot(repo.root, repo.w2c)
+        code, out = migrate(repo.root, ["M001"], yes_config=True, yes_rewrites=True)
+        self.assertEqual(code, 0, out)
+        design = repo.change("add-export") / "design.md"
+        road = repo.w2c / "ROADMAP.md"
+        kept_design, kept_road = design.read_bytes(), road.read_bytes()
+        design.write_bytes(kept_design + b"\nA later note.\n")
+        road.write_bytes(kept_road + b"- later line\n")
+        edited = snapshot(repo.root, repo.w2c)
+        code, out = migrate(repo.root, restore=True)
+        self.assertEqual(code, 1, out)
+        self.assertIn(f"CHANGED_SINCE_RUN {design}", out)
+        self.assertIn(f"CHANGED_SINCE_RUN {road.resolve()}", out)
+        self.assertIn("RESTORE_REFUSED 2 file(s)", out)
+        self.assertEqual(snapshot(repo.root, repo.w2c), edited)
+        design.write_bytes(kept_design)
+        road.write_bytes(kept_road)
+        write(repo.w2c / "runtime" / "later.txt", "kept\n")
+        code, out = migrate(repo.root, restore=True)
+        self.assertEqual(code, 0, out)
+        after = snapshot(repo.root, repo.w2c)
+        self.assertEqual(after.pop("runtime/later.txt"), b"kept\n")
+        self.assertEqual(after.pop(".w2c/runtime/later.txt"), b"kept\n")
+        self.assertEqual(after, before)
+
+    def test_tracked_ledger_paths_are_listed_to_commit(self) -> None:
+        for track in (True, False):
+            with self.subTest(track=track):
+                base = self.tmp / f"track-{track}"
+                base.mkdir()
+                repo = Repo(base)
+                config = repo.w2c / "config.toml"
+                config.write_text(config.read_text(encoding="utf-8").replace(
+                    "track = true", f"track = {'true' if track else 'false'}"), encoding="utf-8")
+                if track:
+                    write(repo.root / ".gitignore", "")
+                repo.add("M001", "add-export", "TODO", slices=OPEN)
+                repo.commit()
+                code, out = migrate(repo.root, ["M001"], yes_config=True, yes_rewrites=True)
+                self.assertEqual(code, 0, out)
+                ledger_lines = [line for line in out.splitlines() if line.startswith(f"COMMIT {repo.root} .w2c/")]
+                if not track:
+                    self.assertEqual(ledger_lines, [])
+                    continue
+                for rel in ("ROADMAP.md", "STATE.md", "plans/M001-add-export/CONVERTED"):
+                    self.assertIn(f"COMMIT {repo.root} .w2c/{rel}", ledger_lines)
+                status = {line[3:].strip() for line in git(repo.root, "status", "--porcelain",
+                                                            "--untracked-files=all", "--", ".w2c").splitlines()}
+                self.assertEqual(status, {line.split(" ", 2)[2] for line in ledger_lines})
+
+    def test_verify_catches_changes_outside_the_placed_text(self) -> None:
+        real_append, real_fields, real_merge = (convert._append_to_section, convert._insert_group_fields,
+                                                convert.merge_config)
+        breakers = {
+            "untouched section": ("_append_to_section",
+                                  lambda *a, **k: real_append(*a, **k).replace("Need export.", "Need nothing.")),
+            "task line": ("_insert_group_fields",
+                          lambda *a, **k: real_fields(*a, **k).replace("Write the exporter", "Write it")),
+            "config item twice": ("merge_config", lambda text, *a: real_merge(text, *a) + "\n".join(
+                real_merge(text, *a).splitlines()[-2:]) + "\n"),
+        }
+        expected = {"untouched section": "VERIFY_FAIL section-fingerprint openspec/changes/add-export/proposal.md ## Why",
+                    "task line": "VERIFY_FAIL section-fingerprint openspec/changes/add-export/tasks.md ## 1. Export",
+                    "config item twice": "VERIFY_FAIL config openspec/config.yaml"}
+        for name, (attr, broken) in breakers.items():
+            with self.subTest(case=name):
+                base = self.tmp / name.replace(" ", "-")
+                base.mkdir()
+                repo = Repo(base)
+                repo.add("M001", "add-export", "INPROGRESS", slices=OPEN)
+                repo.commit()
+                before = snapshot(repo.root, repo.w2c)
+                with mock.patch.object(convert, attr, side_effect=broken):
+                    code, out = migrate(repo.root, ["M001"], yes_config=True, yes_rewrites=True)
+                self.assertEqual(code, 1, out)
+                self.assertIn(expected[name], out)
+                self.assertIn("RESTORED", out)
+                self.assertEqual(snapshot(repo.root, repo.w2c), before)
+
+    def test_merge_checks_presence_inside_the_key_block_only(self) -> None:
+        item = next(line.strip() for line in layout.CONFIG_RULES_SNIPPET.splitlines() if layout.READ_FIRST_MARKER in line)
+        text = f"schema: x\noperations:\n  archive:\n    guidance:\n      {item}\n"
+        merged = convert.merge_config(text)
+        self.assertEqual(convert.config_problems(merged), [])
+        self.assertEqual(merged.count(item), 2, merged)
+        self.assertIn(f"  apply:\n    guidance:\n      {item}\n", merged)
+        self.assertEqual(convert.merge_config(merged), merged)
 
 
 if __name__ == "__main__":
