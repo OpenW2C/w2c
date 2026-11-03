@@ -178,7 +178,18 @@ class SkillTrialTests(unittest.TestCase):
             shared + ("step-loop", "closeout", "blocker", "ephemeral-push", "read-first", "no-answer", "off-plan"),
         )
         for token in ("design.md", ".delivery", "ephemeral", "step"):
-            self.assertIn(token, w2c_trials.CONCRETE_TOKENS)
+            self.assertIn(token, w2c_trials.CLOUD_CONCRETE_TOKENS)
+            self.assertNotIn(token, w2c_trials.CONCRETE_TOKENS)
+
+    def test_cloud_only_tokens_do_not_rescue_a_vague_2_2_line(self) -> None:
+        line = "The agent follows the step conventions correctly."
+        self.assertIsNotNone(w2c_trials._vague_problem(line, "do-chores"))
+        self.assertIsNotNone(w2c_trials._vague_problem(line, "work-to-chores"))
+        self.assertIsNone(w2c_trials._vague_problem(line, "do-chores-cloud"))
+        self.assertEqual(w2c_trials.concrete_tokens("do-chores"), w2c_trials.CONCRETE_TOKENS)
+        for skill in ("do-chores", "work-to-chores"):
+            problems = _problems(skill, lambda data: data["trials"][0]["must"].__setitem__(0, line))
+            self.assertTrue(any("vague must line" in item for item in problems), problems)
 
     def test_cloud_trials_use_openspec_mode_only(self) -> None:
         problems = _problems(

@@ -168,6 +168,22 @@ class CloudLedgerTests(unittest.TestCase):
         self.assertIsNone(ledger.branch_names(self.root))
         self.assertEqual(ledger.delivery_dir(change), change.path / ".delivery")
 
+    def test_bad_design_gives_no_branch_and_does_not_break_the_others(self) -> None:
+        git(self.root, "init", "-b", "feat-branch")
+        good = make_change(self.root, "feat", cloud())
+        (good / "design.md").write_text(
+            "## Delivery Plan\n| Field | Value |\n| --- | --- |\n| Remote branch | feat-branch |\n",
+            encoding="utf-8",
+        )
+        latin = make_change(self.root, "latin", cloud())
+        (latin / "design.md").write_bytes(b"## Delivery Plan\n| Remote branch | caf\xe9 |\n")
+        folder = make_change(self.root, "folder", cloud())
+        (folder / "design.md").mkdir()
+        self.assertEqual(ledger.remote_branch(ledger.resolve(self.root, "latin")), "")
+        self.assertEqual(ledger.remote_branch(ledger.resolve(self.root, "folder")), "")
+        git(self.root, "commit", "--allow-empty", "-m", "init")
+        self.assertEqual(ledger.branch_names(self.root), {"feat"})
+
 
 if __name__ == "__main__":
     unittest.main()

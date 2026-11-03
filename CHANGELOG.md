@@ -20,7 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Each 2.2 skill has one added routing line.
+- Each 2.2 skill has one added routing line, and do-chores also gains one line that stops on `CLOUD_MOVED` and sends the user to do-chores-cloud.
+- `w2c trials` now checks four skills: the two 2.2 skills and the two cloud skills.
 - `w2c next` can print the additive `CLOUD_MOVED` message.
 - The pre-push archive check and `base-dirt` also cover cloud changes.
 

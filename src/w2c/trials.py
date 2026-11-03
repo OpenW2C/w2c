@@ -80,11 +80,19 @@ CONCRETE_TOKENS = (
     "amend",
     "dropped",
     "lock",
+)
+# Extra concrete nouns that count only for the cloud skills; 2.2 trials use
+# exactly CONCRETE_TOKENS.
+CLOUD_CONCRETE_TOKENS = CONCRETE_TOKENS + (
     "design.md",
     ".delivery",
     "ephemeral",
     "step",
 )
+
+
+def concrete_tokens(skill: str) -> tuple[str, ...]:
+    return CLOUD_CONCRETE_TOKENS if skill in CLOUD_SKILLS else CONCRETE_TOKENS
 
 
 def skill_modes(skill: str) -> tuple[str, ...]:
@@ -131,11 +139,11 @@ def locate_trials(skill: str) -> Path | None:
     return None
 
 
-def _vague_problem(line: str) -> str | None:
+def _vague_problem(line: str, skill: str = "") -> str | None:
     folded = line.casefold()
     if not any(word in folded for word in VAGUE_WORDS):
         return None
-    if any(token in folded for token in CONCRETE_TOKENS):
+    if any(token in folded for token in concrete_tokens(skill)):
         return None
     return "vague must line has no concrete noun"
 
@@ -207,7 +215,7 @@ def check_trials(data: object, skill: str) -> list[str]:
                     problems.append(f"{label}: empty must line")
                     continue
                 filled += 1
-                vague = _vague_problem(line)
+                vague = _vague_problem(line, skill)
                 if vague:
                     problems.append(f"{label}: {vague}")
             if filled < 2:

@@ -132,6 +132,32 @@ class W2CLocalTest(unittest.TestCase):
         self.assertTrue((self.tmp / ".w2c" / "STATE.md").is_file())
         self.assertIn(".w2c/", restored)
 
+    def test_gitignore_rewrites_keep_the_cloud_lines_in_a_cloud_repo(self) -> None:
+        copilot = (".github/instructions/work-to-chores.instructions.md",
+                   ".github/instructions/do-chores.instructions.md")
+        w2c.cmd_init(self.tmp, git_delivery="slice-commit-milestone-push-pr", planning="cloud")
+        gi = self.tmp / ".gitignore"
+        for run in (lambda: w2c.cmd_gitignore_ensure(self.tmp, False),
+                    lambda: w2c_local.migrate_untrack(self.tmp),
+                    lambda: w2c_local.migrate_adopt(self.tmp)):
+            run()
+            lines = gi.read_text(encoding="utf-8").splitlines()
+            self.assertIn(".w2c/", lines)
+            for line in copilot:
+                self.assertNotIn(line, lines)
+        self.assertEqual(w2c_local.load_repo_config(self.tmp)["planning"], "cloud")
+
+    def test_gitignore_rewrites_keep_the_2_2_lines_in_a_2_2_repo(self) -> None:
+        w2c.cmd_init(self.tmp, git_delivery="slice-commit-milestone-push-pr")
+        gi = self.tmp / ".gitignore"
+        for run in (lambda: w2c.cmd_gitignore_ensure(self.tmp, False),
+                    lambda: w2c_local.migrate_untrack(self.tmp),
+                    lambda: w2c_local.migrate_adopt(self.tmp)):
+            run()
+            lines = gi.read_text(encoding="utf-8").splitlines()
+            for line in w2c_local.DEFAULT_GITIGNORE_MARKERS:
+                self.assertIn(line, lines)
+
     def test_register_unregister_roundtrip(self) -> None:
         w2c.cmd_init(self.tmp, git_delivery="slice-commit-milestone-push-pr")
         self.assertEqual(w2c.cmd_unregister(self.tmp), 0)

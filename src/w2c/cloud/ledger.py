@@ -214,10 +214,14 @@ def delivery_plan_fields(design_text: str) -> dict[str, str]:
 
 
 def remote_branch(change: CloudChange) -> str:
+    """The Delivery Plan's Remote branch; "" when design.md is missing,
+    unreadable, or not UTF-8, so one bad change cannot break the others."""
     design = change.path / "design.md"
-    if not design.is_file():
+    try:
+        text = design.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
         return ""
-    fields = delivery_plan_fields(design.read_text(encoding="utf-8"))
+    fields = delivery_plan_fields(text)
     return fields.get("Remote branch", "").strip()
 
 

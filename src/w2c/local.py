@@ -325,6 +325,12 @@ def gitignore_markers(track: bool, mode: str = PLANNING_OPENSPEC) -> list[str]:
     return list(DEFAULT_GITIGNORE_MARKERS)
 
 
+def gitignore_mode(root: Path) -> str:
+    """The ensure_gitignore mode for this repo's planning: cloud repos get the
+    cloud lines, every other repo the 2.2 lines."""
+    return PLANNING_CLOUD if load_repo_config(root).get("planning") == PLANNING_CLOUD else PLANNING_OPENSPEC
+
+
 def remove_gitignore_lines(root: Path, lines_to_drop: tuple[str, ...]) -> None:
     gi = root / ".gitignore"
     if not gi.is_file():
@@ -461,7 +467,7 @@ def git_restore_path(root: Path, rel: str) -> bool:
 def migrate_untrack(root: Path) -> Path:
     backup = backup_w2c_assets(root)
     write_repo_config(root, track=False)
-    ensure_gitignore(root, track=False)
+    ensure_gitignore(root, track=False, mode=gitignore_mode(root))
     tracked = git_ls_tracked_w2c(root)
     if tracked:
         git_rm_cached(root, UNTRACK_INDEX_PATHS)
@@ -491,7 +497,7 @@ def migrate_adopt(root: Path) -> list[str]:
         elif git_restore_path(root, str(rel)):
             restored.append(str(rel))
     write_repo_config(root, track=False)
-    ensure_gitignore(root, track=False)
+    ensure_gitignore(root, track=False, mode=gitignore_mode(root))
     register_project(root)
     return restored
 

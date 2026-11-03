@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -88,6 +90,22 @@ class CloudSessionsDocTests(unittest.TestCase):
         self.assertIn(".github/workflows/copilot-setup-steps.yml", sections["GitHub Copilot"])
         self.assertIn(".cursor/environment.json", sections["Cursor"])
         self.assertIn('"install"', sections["Cursor"])
+
+    def test_bashrc_line_is_appended_once(self) -> None:
+        line = 'export PATH="$HOME/.local/bin:$PATH"'
+        guarded = f"grep -qxF '{line}' ~/.bashrc || echo '{line}' >> ~/.bashrc"
+        sections = self._sections()
+        self.assertIn(guarded, sections["Claude Code and Codex"])
+        self.assertIn(guarded.replace('"', '\\"'), sections["Cursor"])
+        text = DOC.read_text(encoding="utf-8")
+        self.assertEqual(text.count("appends `export PATH="), 2)
+        self.assertNotIn("to `~/.bashrc` if", text)
+        home = Path(tempfile.mkdtemp(prefix="w2c-bashrc-"))
+        self.addCleanup(shutil.rmtree, home, True)
+        for _ in range(2):
+            subprocess.run(["bash", "-c", guarded], env=dict(os.environ, HOME=str(home)), check=True,
+                           capture_output=True)
+        self.assertEqual((home / ".bashrc").read_text(encoding="utf-8"), line + "\n")
 
     def test_doc_covers_ephemeral_skills_push_and_uvx(self) -> None:
         text = DOC.read_text(encoding="utf-8")

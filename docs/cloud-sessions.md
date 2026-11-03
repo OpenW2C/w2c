@@ -15,7 +15,11 @@ export PATH="$HOME/.local/bin:$PATH"
 w2c install-skills
 ```
 
-Setup scripts run only at build time, so also add `export PATH="$HOME/.local/bin:$PATH"` to `~/.bashrc` if the agent's shell does not keep it.
+Setup scripts run only at build time. If the agent's shell does not keep the PATH, also add this line to the setup script. It appends `export PATH="$HOME/.local/bin:$PATH"` to `~/.bashrc`, and only when that line is not already there, so running the script again adds nothing:
+
+```bash
+grep -qxF 'export PATH="$HOME/.local/bin:$PATH"' ~/.bashrc || echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+```
 
 ### GitHub Copilot
 
@@ -51,7 +55,11 @@ Create `.cursor/environment.json`. Cursor runs `install` when it builds the back
 }
 ```
 
-Add `export PATH="$HOME/.local/bin:$PATH"` to `~/.bashrc` in the same command if the agent's shell does not keep the PATH from `install`.
+If the agent's shell does not keep the PATH from `install`, add this to the end of the same `install` command, after ` && `. It appends `export PATH="$HOME/.local/bin:$PATH"` to `~/.bashrc`, and only when that line is not already there (the quotes are escaped for JSON):
+
+```text
+grep -qxF 'export PATH=\"$HOME/.local/bin:$PATH\"' ~/.bashrc || echo 'export PATH=\"$HOME/.local/bin:$PATH\"' >> ~/.bashrc
+```
 
 ## Skills each platform needs
 

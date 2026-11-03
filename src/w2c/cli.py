@@ -2222,7 +2222,7 @@ def main_smoke(argv: list[str] | None = None) -> int:
 
 
 def cmd_gitignore_ensure(root: Path, track: bool) -> int:
-    added = w2c_local.ensure_gitignore(root, track=track)
+    added = w2c_local.ensure_gitignore(root, track=track, mode=w2c_local.gitignore_mode(root))
     if track:
         w2c_local.write_repo_config(root, track=True)
     else:
