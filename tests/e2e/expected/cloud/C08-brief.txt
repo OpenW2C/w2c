@@ -29,7 +29,7 @@ When `Base dirt policy` is `leave-untouched`, this plan carries a `### Base dirt
 
 ### Delivery profile
 
-When the project keeps a delivery profile, a copy of it sits under this heading.
+The delivery profile's rules for this change are recorded under this heading. A new change records the integration rows from the project's delivery profile. A converted change carries the converted profile text.
 
 Record active delivery settings here. Agents read this after the Delivery Plan rows above.
 

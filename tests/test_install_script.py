@@ -96,7 +96,8 @@ class CloudSessionsDocTests(unittest.TestCase):
         guarded = f"grep -qxF '{line}' ~/.bashrc || echo '{line}' >> ~/.bashrc"
         sections = self._sections()
         self.assertIn(guarded, sections["Claude Code and Codex"])
-        self.assertIn(guarded.replace('"', '\\"'), sections["Cursor"])
+        cursor_guarded = "{ " + guarded.replace('"', '\\"') + "; }"
+        self.assertIn(cursor_guarded, sections["Cursor"])
         text = DOC.read_text(encoding="utf-8")
         self.assertEqual(text.count("appends `export PATH="), 2)
         self.assertNotIn("to `~/.bashrc` if", text)

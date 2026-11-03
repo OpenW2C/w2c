@@ -145,7 +145,7 @@ The CLI, not the agent, decides each next step of a cloud run.
 
 - `w2c cloud step --json` returns exactly one action: `smoke`, `isolate`, `implement`, `verify`, `review`, `write-report`, `complete`, `slice-reports`, `slice-complete`, `milestone-reports`, `ask-commit`, `ask-push`, `ask-archive`, `ask-pr`, `done`, or `stop`. Each action names the change, slice, task, and files. `stop` carries its reason.
 - The agent records each finished action with `w2c cloud step --record <action> --result pass|fail|yes|no|no-answer`. A failed `verify` or `review` returns to `implement`.
-- Step state lives in `.w2c/runtime/`. A new session that lost it restarts the current task at `implement`, which repeats verify and review rather than skipping them.
+- Step state lives in each worktree's git directory (`<git-dir>/w2c/step.json`), falling back to `.w2c/runtime/` outside git. A new session that lost it restarts the current task at `implement`, which repeats verify and review rather than skipping them.
 - No answer counts as no. When no person can answer a question, the agent records `no-answer` and the driver returns `stop` with the gate name.
 - An off-plan request mid-run stops the run and points to an amendment through work-to-chores-cloud.
 - do-chores-cloud is a fixed loop: run `step`, do only that action, record it, run `step` again.

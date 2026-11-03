@@ -155,6 +155,9 @@ class CloudPlanRulesTests(unittest.TestCase):
         self.assertIn("writes two files, each only when it is absent: `design.md`", text)
         self.assertIn("`tasks.md` (starting with the read-first block). It writes nothing else.", text)
         self.assertNotIn("from the cloud templates with", text)
+        self.assertNotIn("keeps exactly these six sections", text)
+        self.assertIn("must contain these six required sections", text)
+        self.assertIn("after `## Amendments`. Never remove or rename the six", text)
         self.assertIn("append the output of `w2c cloud template slice-group`", text)
         self.assertNotIn("templates/cloud/", text)
         for name in ("task-summary", "slice-uat", "slice-summary", "validation", "summary"):

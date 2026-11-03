@@ -55,10 +55,10 @@ Create `.cursor/environment.json`. Cursor runs `install` when it builds the back
 }
 ```
 
-If the agent's shell does not keep the PATH from `install`, add this to the end of the same `install` command, after ` && `. It appends `export PATH="$HOME/.local/bin:$PATH"` to `~/.bashrc`, and only when that line is not already there (the quotes are escaped for JSON):
+If the agent's shell does not keep the PATH from `install`, add this to the end of the same `install` command, after ` && `. The braces keep a failed install from being hidden by the `||`. It appends `export PATH="$HOME/.local/bin:$PATH"` to `~/.bashrc`, and only when that line is not already there (the quotes are escaped for JSON):
 
 ```text
-grep -qxF 'export PATH=\"$HOME/.local/bin:$PATH\"' ~/.bashrc || echo 'export PATH=\"$HOME/.local/bin:$PATH\"' >> ~/.bashrc
+{ grep -qxF 'export PATH=\"$HOME/.local/bin:$PATH\"' ~/.bashrc || echo 'export PATH=\"$HOME/.local/bin:$PATH\"' >> ~/.bashrc; }
 ```
 
 ## Skills each platform needs
