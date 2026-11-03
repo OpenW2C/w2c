@@ -106,7 +106,9 @@ def problems_for(root: Path, ref: str, sha: str) -> list[str]:
 def _folder_branch(folder: Path) -> str:
     try:
         text = (folder / "design.md").read_text(encoding="utf-8")
-        fields = _cli().parse_table_under_heading(text, "Delivery Plan")
+        from w2c.cloud import ledger as cloud
+
+        fields = cloud.delivery_plan_fields(text)
     except (OSError, UnicodeDecodeError):
         return ""
     return fields.get("Remote branch", "").strip()

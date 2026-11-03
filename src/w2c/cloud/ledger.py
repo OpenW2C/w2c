@@ -178,13 +178,46 @@ def resolve(root: Path, ident: str) -> CloudChange:
     raise cli.W2CError(f"no cloud change named {ident!r}")
 
 
+PLAN_HEADING_RE = re.compile(r"^## Delivery Plan[ \t]*$", re.M)
+PLAN_END_RE = re.compile(r"^(## |### )", re.M)
+PLAN_ROW_RE = re.compile(r"^\|\s*([^|]+?)\s*\|\s*([^|]*?)\s*\|\s*$")
+
+
+def delivery_plan_fields(design_text: str) -> dict[str, str]:
+    """Rows of the first table under `## Delivery Plan`, before any `###` subsection.
+
+    Tables further down (such as a copied `### Delivery profile`) are not plan rows.
+    """
+    match = PLAN_HEADING_RE.search(design_text)
+    if not match:
+        return {}
+    rest = design_text[match.end():]
+    end = PLAN_END_RE.search(rest)
+    if end:
+        rest = rest[: end.start()]
+    fields: dict[str, str] = {}
+    started = False
+    for line in rest.splitlines():
+        if not line.lstrip().startswith("|"):
+            if started:
+                break
+            continue
+        started = True
+        row = PLAN_ROW_RE.match(line.strip())
+        if not row:
+            continue
+        key, value = row.group(1).strip(), row.group(2).strip()
+        if not key or key.lower() == "field" or set(key) <= {"-", ":"}:
+            continue
+        fields[key] = value
+    return fields
+
+
 def remote_branch(change: CloudChange) -> str:
     design = change.path / "design.md"
     if not design.is_file():
         return ""
-    fields = _cli().parse_table_under_heading(
-        design.read_text(encoding="utf-8"), "Delivery Plan"
-    )
+    fields = delivery_plan_fields(design.read_text(encoding="utf-8"))
     return fields.get("Remote branch", "").strip()
 
 

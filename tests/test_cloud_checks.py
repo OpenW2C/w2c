@@ -358,6 +358,38 @@ class MutationTests(CloudChecksBase):
         self.flips({"openspec-artifacts-complete"})
 
 
+PROFILE_TABLE = (
+    "| Field | Value |\n| --- | --- |\n"
+    "| Integration strategy | gitflow |\n| Review unit | pr-per-milestone |\n| Remote branch | OTHER-9 |\n"
+)
+
+
+def design_with_profile() -> str:
+    text = fill_design(Integration_strategy="trunk-direct")
+    return text.replace("### Delivery profile\n", "### Delivery profile\n\n" + PROFILE_TABLE, 1)
+
+
+class DeliveryPlanFieldsTests(CloudChecksBase):
+    def test_only_the_plan_table_is_read(self) -> None:
+        text = design_with_profile()
+        self.assertIn("| Review unit | pr-per-milestone |", text)
+        fields = checks.delivery_plan_fields(text)
+        self.assertEqual(fields["Review unit"], "none")
+        self.assertEqual(fields["Integration strategy"], "trunk-direct")
+        self.assertEqual(fields["Remote branch"], "DEMO-1")
+        self.assertEqual(list(fields), list(layout.DELIVERY_PLAN_FIELDS))
+
+    def test_smoke_reads_the_plan_remote_branch_not_the_profile(self) -> None:
+        folder = self.make(design=design_with_profile())
+        self.assertEqual(self.failing(), set(), self.rows())
+        change = ledger.load_change(folder)
+        assert change is not None
+        self.assertEqual(ledger.remote_branch(change), "DEMO-1")
+
+    def test_no_plan_heading_no_fields(self) -> None:
+        self.assertEqual(checks.delivery_plan_fields("# Design\n\n| Remote branch | X |\n"), {})
+
+
 class ArchivedChangeTests(CloudChecksBase):
     def test_archived_change_is_history(self) -> None:
         folder = self.make(

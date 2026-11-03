@@ -18,6 +18,7 @@ from w2c.cloud.ledger import (
     STATUSES,
     CloudChange,
     delivery_dir,
+    delivery_plan_fields,
     read_keys,
 )
 
@@ -156,7 +157,7 @@ def design_problems(design_text: str | None) -> dict[str, list[str]]:
     for heading in layout.DESIGN_HEADINGS:
         if heading not in present:
             out["design-sections"].append(f"missing {heading}")
-    fields = cli.parse_table_under_heading(design_text, PLAN_HEADING)
+    fields = delivery_plan_fields(design_text)
     out["git-operation-plan"] = cli.validate_git_operation_plan(
         fields, plan_text=design_text, plan_heading=PLAN_HEADING
     )
