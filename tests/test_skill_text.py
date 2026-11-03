@@ -57,6 +57,9 @@ class CloudSkillTextTests(unittest.TestCase):
         for token in ("decisions-flush", "migrate --milestone", "--dry-run", "w2c cloud new",
                       "w2c cloud decide", "w2c cloud smoke", "w2c cloud env", "--cadence"):
             self.assertIn(token, text)
+        self.assertIn("w2c cloud status --all", text)
+        self.assertIn("ephemeral: true", text)
+        self.assertIn("push the ticket branch to `origin/<Remote branch>`", text)
         for heading in layout.DESIGN_HEADINGS:
             self.assertIn(heading, text)
         for field in layout.SLICE_FIELDS:

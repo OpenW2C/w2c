@@ -20,7 +20,9 @@ def register(sub: argparse._SubParsersAction) -> None:
     nxt.add_argument("--task", dest="task_id", default=None)
     sm = csub.add_parser("smoke", help="check cloud changes (no .w2c/ needed)")
     sm.add_argument("--change", default=None)
-    csub.add_parser("status", help="progress of each active change")
+    stat = csub.add_parser("status", help="progress of each active change")
+    stat.add_argument("--all", dest="all_", action="store_true",
+                      help="also print the local .w2c/STATE.md when present")
     comp = csub.add_parser("complete", help="tick a task (requires S##-T##-SUMMARY.md)")
     comp.add_argument("--change", required=True)
     comp.add_argument("--slice", dest="slice_id", required=True)
@@ -112,7 +114,7 @@ def dispatch(args: argparse.Namespace) -> int:
     if cmd == "next":
         return commands.next_cmd(root, args.change, args.slice_id, args.task_id)
     if cmd == "status":
-        return commands.status(root)
+        return commands.status(root, args.all_)
     if cmd == "smoke":
         return commands.smoke(root, args.change)
     if cmd == "complete":

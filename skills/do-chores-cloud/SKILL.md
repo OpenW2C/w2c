@@ -109,7 +109,7 @@ Later product commits never stage base dirt paths.
 
 ## Stop and done
 
-- `done`: say the change has nothing left on this branch, and give the **Report**.
+- `done`: say the change has nothing left on this branch, and give the **Report**. In a repo that also has 2.2 milestones, show `w2c cloud status --all` so the user sees what is left in both.
 - `stop` with reason:
   - `AMEND_LOCK`: the change is being amended. Stop. Tell the user to finish the amendment with work-to-chores-cloud.
   - `smoke`: show `w2c cloud smoke --change <change>` output. Do not implement. A plan problem goes to work-to-chores-cloud.

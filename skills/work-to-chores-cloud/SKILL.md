@@ -70,7 +70,7 @@ w2c cloud env
 w2c cloud new --slug <name> [--cadence slice-commit-milestone-push-pr|milestone-commit-milestone-push-pr]
 w2c cloud decide [--change <name>] --scope ... --decision ... --choice ... --rationale ...
 w2c cloud decisions-flush --change <name>
-w2c cloud status
+w2c cloud status          # add --all to also print a local 2.2 .w2c/STATE.md
 w2c cloud status-set <name> PLANNING|TODO|PAUSED|STOP|ERROR
 w2c cloud order <name> <name> ...
 w2c cloud swap <left> <right>
@@ -130,7 +130,7 @@ Save with `w2c cloud decide`. Before the change exists, leave out `--change`: th
 
 If the user asks to reorder, swap, or change which pending change runs next, and they are not bringing new work, do **not** start Stage 1.
 
-1. Run `w2c cloud status` and show the run order (name, status). That is the Evidence block.
+1. Run `w2c cloud status` and show the run order (name, status). In a repo that also has 2.2 milestones, run `w2c cloud status --all` so the user sees both. That is the Evidence block.
 2. Grill one placement question with the interview contract. Recommended when they named no target: leave the order unchanged. Real choices: `w2c cloud move <name> --before|--after <other>`, `w2c cloud swap`, or `w2c cloud order` with the full list.
 3. Refuse a placement that moves ahead of or swaps with an `INPROGRESS` change. The way through is `w2c cloud status-set <name> PAUSED`, `STOP`, or `ERROR`, then reorder.
 4. Run the matching command. Do not hand-edit `x-delivery-order`.
@@ -163,7 +163,7 @@ When the user says `convert M###` (or names several), do not start Stage 1.
 2. Ask before the real run. On no, stop.
 3. If the dry run names an `openspec/config.yaml` edit, ask separately before passing `--yes-config`. If it names known line rewrites, ask separately before passing `--yes-rewrites`. Pass each flag only after its own yes.
 4. Run `w2c cloud migrate --milestone M###` with only the approved flags. It never commits.
-5. Run `w2c cloud smoke --change <name>` for each converted change and show the result.
+5. Run `w2c cloud smoke --change <name>` for each converted change and show the result. Show `w2c cloud status --all` so the user sees the cloud changes next to any 2.2 milestones left.
 6. `w2c cloud migrate --restore` undoes the last run exactly. Offer it if the user is unhappy with the result. Never use `--all` unless the user asked for every milestone.
 
 Do not commit the result from this step. Tell the user to review the diff and run do-chores-cloud.
@@ -270,7 +270,14 @@ After smoke passes, ask for approval to commit the change folder. This is not a 
 - **Branch mode:** apply the stored Base dirt policy (`w2c base-dirt`; the same warning-turn rules), create or check out the ticket branch without force, and commit only `openspec/changes/<name>/`.
 - **Worktree mode:** do not check the ticket branch out here. Run `w2c worktree-add --branch <name> --create-from HEAD` (`--exclude no` only for `exclude-no`), move `openspec/changes/<name>/` into that worktree, and commit it there.
 
-Never stage deny-listed paths. Never name a `.delivery/` path or local planner file in the message. Never add a `Co-authored-by` trailer. Do not push. On no, leave the files uncommitted and say that a fresh clone will not see the plan until it is committed.
+Never stage deny-listed paths. Never name a `.delivery/` path or local planner file in the message. Never add a `Co-authored-by` trailer. On no, leave the files uncommitted and say that a fresh clone will not see the plan until it is committed.
+
+### Plan-push gate (temporary container only)
+
+After the plan commit, run `w2c cloud env`.
+
+- `ephemeral: false`: do not push. Pushing is not this skill's job.
+- `ephemeral: true`: ask, as its own separate question, whether to push the ticket branch to `origin/<Remote branch>` so the plan survives the container. The commit's yes is not a yes to push. On yes, push that branch only (`git push -u origin <Remote branch>`, run from the worktree in worktree mode); never `--force`, never `--no-verify`. On no, skip the push and say the plan is lost if the container ends before do-chores-cloud pushes. Never push without that yes, and never push when the plan commit was declined.
 
 Then tell the user to run `do-chores-cloud`.
 
@@ -292,5 +299,6 @@ Then tell the user to run `do-chores-cloud`.
 - Unequal Local and Remote branch, or a third isolation mode
 - Amending before one approval of the whole batch, dropping a finished task, or renumbering ids
 - Moving ahead of or swapping with an `INPROGRESS` change
-- Committing without explicit approval, pushing, or opening a pull request from this skill
+- Committing without explicit approval, or opening a pull request from this skill
+- Pushing from this skill, except the plan push in a temporary container after its own yes
 - Naming a `.delivery/` path in commit text, or adding `Co-authored-by:` trailers

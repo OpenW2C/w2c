@@ -622,6 +622,18 @@ class StatusTests(CloudCommandBase):
         self.assertIn("Next: none", out)
         self.assertFalse((self.root / ".w2c").exists())
 
+    def test_status_all_prints_cloud_view_then_local_state(self) -> None:
+        self.make()
+        (self.root / ".w2c").mkdir()
+        (self.root / ".w2c" / "STATE.md").write_text("# State\n\nActive milestone: M002\n", encoding="utf-8")
+        plain = self.ok("cloud", "status")
+        self.assertNotIn("Active milestone: M002", plain)
+        out = self.ok("cloud", "status", "--all")
+        cloud_line = f"{NAME}: 0/3 tasks"
+        self.assertIn(cloud_line, out)
+        self.assertIn("Active milestone: M002", out)
+        self.assertLess(out.index(cloud_line), out.index("# State"))
+
 
 class LegacyIsolationTests(CloudCommandBase):
     def test_legacy_commands_ignore_cloud_changes(self) -> None:
