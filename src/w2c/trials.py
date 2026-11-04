@@ -22,9 +22,10 @@ GROUPS_BOTH: dict[str, tuple[str, ...]] = {
     "work-to-chores": SHARED_GROUPS + ("interview", "plan-write", "reorder", "amend"),
     "do-chores": SHARED_GROUPS + ("execute", "closeout", "blocker"),
     "work-to-chores-cloud": SHARED_GROUPS
-    + ("interview", "plan-write", "reorder", "amend", "design-sections", "convert"),
+    + ("interview", "plan-write", "reorder", "amend", "design-sections", "convert", "companion-ask"),
     "do-chores-cloud": SHARED_GROUPS
-    + ("step-loop", "closeout", "blocker", "ephemeral-push", "read-first", "no-answer", "off-plan"),
+    + ("step-loop", "closeout", "blocker", "ephemeral-push", "read-first", "no-answer", "off-plan",
+       "companion-ask"),
 }
 GROUPS_ONE: dict[str, dict[str, tuple[str, ...]]] = {
     "work-to-chores": {

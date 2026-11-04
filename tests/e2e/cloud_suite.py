@@ -102,14 +102,22 @@ def c01_env(p: Project) -> None:
     p.expect_tokens(p.read(".w2c/config.toml"), 'planning = "cloud"')
     env = dict(p.env)
     env["W2C_EPHEMERAL"] = "1"
+    env["W2C_AGENT"] = "claude-code"
     proc = subprocess.run(
         [str(p.home / ".local" / "bin" / "w2c"), "cloud", "env"],
         cwd=str(p.root), env=env, capture_output=True, text=True,
     )
     if proc.returncode != 0:
         raise AssertionError(f"w2c cloud env failed\n{proc.stdout}{proc.stderr}")
-    p.expect_tokens(proc, "ephemeral: true", "reason: W2C_EPHEMERAL")
+    p.expect_tokens(proc, "ephemeral: true", "reason: W2C_EPHEMERAL", "agent: claude-code")
     p.expect_matches("C01-env.txt", proc.stdout)
+    proc = subprocess.run(
+        [str(p.home / ".local" / "bin" / "w2c"), "help", "companions"],
+        cwd=str(p.root), env=env, capture_output=True, text=True,
+    )
+    if proc.returncode != 0:
+        raise AssertionError(f"w2c help companions failed\n{proc.stdout}{proc.stderr}")
+    p.expect_tokens(proc, "## claude-code", "/plugin install superpowers@claude-plugins-official")
 
 
 def c02_new(p: Project) -> None:
@@ -792,7 +800,7 @@ def c12_trials_and_skills(p: Project) -> None:
         path = p.root / rel
         if not path.is_file():
             raise AssertionError(f"cloud init did not write {rel}")
-        p.expect_tokens(path.read_text(encoding="utf-8"), f"name: {name}", "Requires: w2c >= 3.0.0")
+        p.expect_tokens(path.read_text(encoding="utf-8"), f"name: {name}", "Requires: w2c >= 3.1.0")
         copilot.append(rel)
     p.expect_matches("C12-copilot.txt", "\n".join(copilot) + "\n")
 

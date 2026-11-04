@@ -5,6 +5,18 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.0] — 2026-11-04
+
+### Added
+
+- `w2c cloud env` prints an `agent:` line (`claude-code`, `copilot`, `cursor`, `codex`, or `unknown`). Set `W2C_AGENT` to override it.
+- `w2c help companions` prints the steps to install the companion skills for each agent.
+
+### Changed
+
+- When a companion skill is missing, the cloud skills ask one question: stop so you can install it, or continue with the written fallback. When the run cannot wait for an answer, they continue with the fallback.
+- The cloud skills require w2c 3.1.0, and the setup snippets in `docs/cloud-sessions.md` pin `v3.1.0`.
+
 ## [3.0.0] — 2026-11-03
 
 ### Added

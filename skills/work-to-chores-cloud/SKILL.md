@@ -14,7 +14,7 @@ description: >-
 
 # Work to Chores (cloud)
 
-Requires: w2c >= 3.0.0
+Requires: w2c >= 3.1.0
 
 **Plan only.** Interview, review, plan, validate, then write one OpenSpec change. Never implement product code.
 
@@ -28,19 +28,35 @@ Committed change files (everything under `openspec/changes/<name>/`) and the `.d
 
 Before Stage 1:
 
-1. Confirm `w2c` is on PATH (`command -v w2c`) and `w2c --version` is 3.0.0 or later. Do this first: every later step, including each `w2c event` log line, needs it. If it is missing, follow the uvx paragraph below before any other step, and log nothing until `w2c` (or the uvx prefix) works.
-2. Check whether **grilling** and **brainstorming** are invocable. If either is missing (for example on Copilot or Cursor), do not stop: follow **Companion fallback** below for that skill. Log `--stage prereq --event retry --detail "fallback grilling|brainstorming"`.
+1. Confirm `w2c` is on PATH (`command -v w2c`) and `w2c --version` is 3.1.0 or later. Do this first: every later step, including each `w2c event` log line, needs it. If it is missing, follow the uvx paragraph below before any other step, and log nothing until `w2c` (or the uvx prefix) works.
+2. Check whether **grilling** and **brainstorming** are invocable. If either is missing (for example on Copilot or Cursor), follow **Missing companion skills (ask first)** below.
 3. Run `w2c openspec-check`. If `needs` contains `NEED_OPENSPEC_INSTALL` or `NEED_OPENSPEC_INIT`, follow **OpenSpec install (ask first)**.
 
-If `w2c` is missing or older than 3.0.0: ask the user whether to run it once through uvx. On yes, use this prefix for every `w2c` command in this run:
+If `w2c` is missing or older than 3.1.0: ask the user whether to run it once through uvx. On yes, use this prefix for every `w2c` command in this run:
 
 ```bash
-uvx --from git+https://github.com/OpenW2C/w2c@v3.0.0 w2c …
+uvx --from git+https://github.com/OpenW2C/w2c@v3.1.0 w2c …
 ```
 
 On no: **STOP**. Tell the user to install it (`pipx install git+https://github.com/OpenW2C/w2c.git && w2c install-skills`) and re-invoke this skill. Never run uvx without that yes.
 
 Run `w2c cloud env`. Keep its `ephemeral:` line for the cadence question in Stage 3.
+
+### Missing companion skills (ask first)
+
+Run `w2c cloud env` and read its `agent:` and `ephemeral:` lines. Ask one question for every missing companion together, not one per skill, and wait for the answer:
+
+```text
+These companion skills are not installed here: <names>. Without them I use the written fallback in this skill.
+(a) Stop now so you can install them, then run this skill again. [recommended when agent is claude-code and ephemeral is false]
+(b) Continue with the written fallback. [recommended otherwise]
+```
+
+`<names>` lists the missing skills (grilling, brainstorming, or both). Mark (a) `[recommended]` when `agent:` is `claude-code` and `ephemeral:` is `false`, and (b) otherwise: in a temporary container a plugin installed during the session is lost with it.
+
+- **(a):** run `w2c help companions` and show the user only the section named by `agent:`, or every section when it is `unknown`. Never write install steps that this command does not print. Log `w2c event --skill work-to-chores-cloud --stage prereq --event stop --detail "install <names>"` and **STOP**.
+- **(b):** follow **Companion fallback** for each missing skill. Log `w2c event --skill work-to-chores-cloud --stage prereq --event retry --detail "fallback <names>"`.
+- **No answer:** when the run cannot wait for an answer, take (b). Never claim that a missing skill ran.
 
 ### OpenSpec install (ask first)
 
@@ -61,7 +77,7 @@ Read `openspec/config.yaml`. The cloud rules are present when it contains `DELIV
 Use this section only for a companion skill that is missing. Do not use it when the skill is installed.
 
 - **grilling or brainstorming missing:** run that pass yourself with the **Interview question contract** below, word for word: one question at a time, Evidence block first, options with pros, cons, example and possible outcome, one `[recommended]`, one mermaid diagram, wait for the answer, save with `w2c cloud decide`. Grilling closes when scope, users, done criteria, risks, integrations, and out-of-scope are clear. Brainstorming looks for structural gaps: edge cases, empty states, error paths, testing seams.
-- Tell the user once which companion is missing and that the written fallback is in use.
+- Use this section only after the user chose (b), or the run could not wait for an answer.
 
 ## Status writes
 

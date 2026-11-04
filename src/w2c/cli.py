@@ -2514,8 +2514,10 @@ def _add_amend_parsers(sub: argparse._SubParsersAction) -> None:
     hook_p = sub.add_parser("hook", help="add, remove, status, or run a named hook")
     hook_p.add_argument("action", choices=["add", "remove", "status", "run"])
     hook_p.add_argument("name", nargs="?")
-    help_p = sub.add_parser("help", help="print worktrees, bare-container, or cloud-sessions help")
-    help_p.add_argument("topic", choices=["worktrees", "bare-container", "cloud-sessions"])
+    help_p = sub.add_parser(
+        "help", help="print worktrees, bare-container, cloud-sessions, or companions help"
+    )
+    help_p.add_argument("topic", choices=["worktrees", "bare-container", "cloud-sessions", "companions"])
     push_p = sub.add_parser(
         "openspec-push-check",
         help="fail when a finished OpenSpec milestone on this branch is not archived in the commit",
