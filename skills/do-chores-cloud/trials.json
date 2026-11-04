@@ -79,9 +79,9 @@
       "mode": "openspec",
       "group": "hard-stop",
       "ask": "requesting-code-review is not installed here. step says review.",
-      "passes_when": "The written self-review checklist runs instead of a stop.",
+      "passes_when": "After the missing-companion question (answered (b), or the run could not wait), the written self-review checklist runs.",
       "must": [
-        "The agent uses the Companion fallback checklist for the review step.",
+        "The agent asks the missing-companion question first, then on (b) or no answer uses the Companion fallback checklist for the review step.",
         "The agent records review fail when a Critical or Important finding is open."
       ]
     },

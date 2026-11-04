@@ -103,9 +103,9 @@
       "mode": "openspec",
       "group": "interview",
       "ask": "Plan DEMO-4 in cloud mode. The grilling skill is not installed here.",
-      "passes_when": "The written fallback interview runs instead of a stop.",
+      "passes_when": "After the missing-companion question (answered (b), or the run could not wait), the written fallback interview runs.",
       "must": [
-        "The agent uses the Companion fallback interview with an evidence block and a recommended option.",
+        "The agent asks the missing-companion question first, then on (b) or no answer uses the Companion fallback interview with an evidence block and a recommended option.",
         "The agent records each answer with w2c cloud decide."
       ]
     },

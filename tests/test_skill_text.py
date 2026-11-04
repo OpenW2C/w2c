@@ -110,6 +110,8 @@ class CloudSkillTextTests(unittest.TestCase):
                 self.assertIn(token, text, skill)
             self.assertNotIn("Tell the user once which companion is missing", text, skill)
             self.assertNotIn("and tell the user once", text, skill)
+            trials = _text(skill, "trials.json")
+            self.assertNotIn("instead of a stop", trials, skill)
 
     def test_cloud_copilot_wrappers_match_the_2_2_shape(self) -> None:
         for old, new in (("work-to-chores", "work-to-chores-cloud"), ("do-chores", "do-chores-cloud")):

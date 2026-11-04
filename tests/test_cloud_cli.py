@@ -102,8 +102,15 @@ class HelpCompanionsTests(unittest.TestCase):
                         "/plugin install mattpocock-skills@claude-plugins-official",
                         "/add-plugin superpowers",
                         "npx skills@latest add mattpocock/skills -a cursor",
-                        "copilot plugin install superpowers@superpowers-marketplace"):
+                        "copilot plugin install superpowers@superpowers-marketplace",
+                        "copilot plugin install mattpocock-skills@mattpocock",
+                        "codex plugin add mattpocock-skills@mattpocock",
+                        "claude plugin install superpowers@claude-plugins-official",
+                        "claude plugin install mattpocock-skills@claude-plugins-official"):
             self.assertIn(command, out)
+        self.assertNotIn("no confirmed install route", out)
+        claude = out.split("## claude-code", 1)[1].split("\n## ", 1)[0]
+        self.assertIn("setup script", claude)
 
 
 class CloudGroupTests(unittest.TestCase):
