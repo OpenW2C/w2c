@@ -44,18 +44,18 @@ Run `w2c cloud env`. Keep its `ephemeral:` line for the cadence question in Stag
 
 ### Missing companion skills (ask first)
 
-Run `w2c cloud env` and read its `agent:` line. Ask one question for every missing companion together, not one per skill, and wait for the answer:
+Run `w2c cloud env` and read its `agent:` and `ephemeral:` lines. Ask one question for every missing companion together, not one per skill, and wait for the answer:
 
 ```text
 These companion skills are not installed here: <names>. Without them I use the written fallback in this skill.
-(a) Stop now so you can install them, then run this skill again. [recommended when agent is claude-code]
+(a) Stop now so you can install them, then run this skill again. [recommended when agent is claude-code and ephemeral is false]
 (b) Continue with the written fallback. [recommended otherwise]
 ```
 
-`<names>` lists the missing skills (grilling, brainstorming, or both). Mark (a) `[recommended]` when `agent:` is `claude-code`, and (b) otherwise.
+`<names>` lists the missing skills (grilling, brainstorming, or both). Mark (a) `[recommended]` when `agent:` is `claude-code` and `ephemeral:` is `false`, and (b) otherwise: in a temporary container a plugin installed during the session is lost with it.
 
-- **(a):** run `w2c help companions` and show the user only the section named by `agent:`, or every section when it is `unknown`. Never write install steps that this command does not print. Log `--stage prereq --event stop --detail "install <names>"` and **STOP**.
-- **(b):** follow **Companion fallback** for each missing skill. Log `--stage prereq --event retry --detail "fallback <names>"`.
+- **(a):** run `w2c help companions` and show the user only the section named by `agent:`, or every section when it is `unknown`. Never write install steps that this command does not print. Log `w2c event --skill work-to-chores-cloud --stage prereq --event stop --detail "install <names>"` and **STOP**.
+- **(b):** follow **Companion fallback** for each missing skill. Log `w2c event --skill work-to-chores-cloud --stage prereq --event retry --detail "fallback <names>"`.
 - **No answer:** when the run cannot wait for an answer, take (b). Never claim that a missing skill ran.
 
 ### OpenSpec install (ask first)

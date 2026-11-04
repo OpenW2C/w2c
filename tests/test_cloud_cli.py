@@ -111,6 +111,8 @@ class HelpCompanionsTests(unittest.TestCase):
         self.assertNotIn("no confirmed install route", out)
         claude = out.split("## claude-code", 1)[1].split("\n## ", 1)[0]
         self.assertIn("setup script", claude)
+        self.assertLess(claude.index("setup script"), claude.index("/plugin install"),
+                        "the routes that last in cloud sessions come first")
 
 
 class CloudGroupTests(unittest.TestCase):

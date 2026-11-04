@@ -97,7 +97,7 @@ class CloudSkillTextTests(unittest.TestCase):
             "These companion skills are not installed here: <names>. "
             "Without them I use the written fallback in this skill.",
             "(a) Stop now so you can install them, then run this skill again. "
-            "[recommended when agent is claude-code]",
+            "[recommended when agent is claude-code and ephemeral is false]",
             "(b) Continue with the written fallback. [recommended otherwise]",
         )
         for skill in ("work-to-chores-cloud", "do-chores-cloud"):
@@ -110,6 +110,9 @@ class CloudSkillTextTests(unittest.TestCase):
                 self.assertIn(token, text, skill)
             self.assertNotIn("Tell the user once which companion is missing", text, skill)
             self.assertNotIn("and tell the user once", text, skill)
+            for event in ("stop", "retry"):
+                self.assertIn(f"w2c event --skill {skill} --stage prereq --event {event}", text, skill)
+            self.assertIn("`ephemeral:`", text.split("### Missing companion skills (ask first)", 1)[1].split("\n#", 1)[0], skill)
             trials = _text(skill, "trials.json")
             self.assertNotIn("instead of a stop", trials, skill)
 

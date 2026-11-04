@@ -8,18 +8,18 @@ When one is missing, the cloud skills ask whether to stop so you can install it,
 
 ## claude-code
 
-Run these in the Claude Code session:
-
-```text
-/plugin install superpowers@claude-plugins-official
-/plugin install mattpocock-skills@claude-plugins-official
-```
-
 In a Claude Code cloud session, a plugin installed during the session is lost when the container ends. To have the plugins in every new cloud session, either enable them for your claude.ai account, or add these lines to the cloud environment's setup script:
 
 ```bash
 claude plugin install superpowers@claude-plugins-official
 claude plugin install mattpocock-skills@claude-plugins-official
+```
+
+In a Claude Code session on your own computer, run these in the session:
+
+```text
+/plugin install superpowers@claude-plugins-official
+/plugin install mattpocock-skills@claude-plugins-official
 ```
 
 ## cursor

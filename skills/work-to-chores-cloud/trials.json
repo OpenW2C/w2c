@@ -270,7 +270,7 @@
       "kind": "ordinary",
       "mode": "openspec",
       "group": "companion-ask",
-      "ask": "brainstorming and grilling are missing; agent: claude-code",
+      "ask": "brainstorming and grilling are missing; agent: claude-code; ephemeral: false",
       "passes_when": "One question names every missing companion, and choosing (a) stops after showing only the claude-code install steps.",
       "must": [
         "The agent asks one question naming both skills, with (a) marked recommended.",
