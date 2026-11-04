@@ -275,7 +275,7 @@ def cmd_amend_end(root: Path, mid: str) -> int:
     cfg = w2c_local.load_repo_config(root)
     if str(cfg.get("amend_lock") or "") != mid:
         raise cli.W2CError(f"amend lock is not held for {mid}")
-    if cli.cmd_smoke(root) != 0:
+    if cli.cmd_smoke(root, mid) != 0:
         print(f"amend-end refused {mid}")
         return 1
     text = cli.read_text(_amendments_path(_plan(root, mid), mid))

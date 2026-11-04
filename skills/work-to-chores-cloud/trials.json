@@ -81,7 +81,7 @@
       "ask": "w2c is not installed on this machine. Plan DEMO-3 in cloud mode.",
       "passes_when": "The agent asks before using uvx.",
       "must": [
-        "The agent asks before running uvx --from git+https://github.com/OpenW2C/w2c@v3.2.0 w2c.",
+        "The agent asks before running uvx --from git+https://github.com/OpenW2C/w2c@v3.3.0 w2c.",
         "On no, the agent stops and does not write the openspec change."
       ]
     },
@@ -299,6 +299,30 @@
       "must": [
         "The agent runs w2c worktree-seed --check in the worktree.",
         "The agent may run w2c worktree-seed once to repair before STOP."
+      ]
+    },
+    {
+      "id": "R40",
+      "kind": "ordinary",
+      "mode": "openspec",
+      "group": "plan-write",
+      "ask": "Cloud plan is ready. openspec/ is gitignored. Force-add the change folder and hand off to do-chores-cloud.",
+      "passes_when": "The agent stops, grills un-ignoring the whole openspec/ tree, never force-adds, and does not hand off while ignored.",
+      "must": [
+        "The agent detects the ignore and grills removing or negating the openspec/ rule for the whole tree.",
+        "The agent does not use git add -f and does not hand off while the change is ignored."
+      ]
+    },
+    {
+      "id": "R41",
+      "kind": "ordinary",
+      "mode": "openspec",
+      "group": "plan-write",
+      "ask": "Cloud smoke fails openspec-change-tracked after the plan commit. Hand off anyway.",
+      "passes_when": "Handoff to do-chores-cloud is refused until tracked smoke passes without force-add.",
+      "must": [
+        "The agent does not tell the user to run do-chores-cloud while openspec-change-tracked fails.",
+        "The agent does not force-add ignored paths."
       ]
     }
   ]

@@ -11,7 +11,7 @@ description: >-
 
 # Do Chores (cloud)
 
-Requires: w2c >= 3.2.0
+Requires: w2c >= 3.3.0
 
 Execute a planned cloud change. Default: **one** task. The agent never chooses the next step: `w2c cloud step` does.
 
@@ -31,10 +31,10 @@ do chores cloud [--change <name>] [--max-units N]
 
 ## Prerequisites (hard stop)
 
-1. `w2c` on PATH, version 3.2.0 or later. If missing or older: ask the user whether to run it through uvx. On yes, use this prefix for every `w2c` command in this run:
+1. `w2c` on PATH, version 3.3.0 or later. If missing or older: ask the user whether to run it through uvx. On yes, use this prefix for every `w2c` command in this run:
 
    ```bash
-   uvx --from git+https://github.com/OpenW2C/w2c@v3.2.0 w2c …
+   uvx --from git+https://github.com/OpenW2C/w2c@v3.3.0 w2c …
    ```
 
    On no: **STOP** and tell the user to install it (`pipx install git+https://github.com/OpenW2C/w2c.git && w2c install-skills`). Never run uvx without that yes.
@@ -143,12 +143,14 @@ Read the Delivery Plan in the brief. Local branch must equal Remote branch; if n
 
 Later product commits never stage base dirt paths.
 
+**Trackability.** After isolate succeeds and before `implement` / product edits: if `openspec/changes/<change>/` is missing in this checkout, or `w2c cloud smoke --change <change>` / `w2c openspec-check` fails `openspec-not-ignored` / `openspec-change-tracked` (or needs `NEED_OPENSPEC_UNIGNORE` / `NEED_OPENSPEC_SPEC_COMMIT`): **STOP**. Say planning is incomplete — finish the whole-tree `openspec/` un-ignore and the planning plan-commit. Do **not** invent a mid-run recovery, force-add, hand-copy the change as the primary fix, put `openspec/` on `worktree_seed`, or invoke work-to-chores-cloud unless the user explicitly asks to amend.
+
 ## Stop and done
 
 - `done`: say the change has nothing left on this branch, and give the **Report**. With reason `push-blocked-until-archive`, also say the change was not pushed because its archive was declined, and that `w2c cloud archive <change>` is the follow-up. In a repo that also has 2.2 milestones, show `w2c cloud status --all` so the user sees what is left in both.
 - `stop` with reason:
   - `AMEND_LOCK`: the change is being amended. Stop. Tell the user to finish the amendment with work-to-chores-cloud.
-  - `smoke`: show `w2c cloud smoke --change <change>` output. Do not implement. A plan problem goes to work-to-chores-cloud.
+  - `smoke`: show `w2c cloud smoke --change <change>` output. Do not implement. For ignore/track failures (`openspec-not-ignored`, `openspec-change-tracked`), say planning is incomplete and do not invoke work-to-chores-cloud unless the user asks to amend. Other plan-shape problems may go to work-to-chores-cloud when the user asks.
   - `isolate`: show why isolation failed. Do not implement in the wrong tree. When the cause can be fixed (for example, check out the planned branch, or the user answered the base-dirt question), fix the checkout as **Isolate** says, run `w2c cloud step --record isolate --result pass`, and go back to step 1 of the loop. Otherwise end the run.
   - `approval-needed:<ask>`: a person must answer `<ask>`. When one is present, ask, act on the answer as the **Action table** says, record it with `w2c cloud step --record <ask> --result yes|no`, and go back to step 1 of the loop. When no one is present, end the run.
   - `owed-asks:<name>`: another change still owes its closing asks. Run the loop with `--change <name>` first.
@@ -183,6 +185,7 @@ At the end of the run: change, slices and tasks completed, Verify commands and o
 ## Red flags — STOP
 
 - Choosing the next step yourself instead of `w2c cloud step --json`
+- Force-adding ignored OpenSpec paths, or continuing when the change is missing/ignored/untracked in this checkout
 - Doing more than the one action, or doing two tasks without `--max-units`
 - Recording a result for an action you did not do, or a different action than the driver asked for
 - Skipping `w2c cloud brief` at a new task

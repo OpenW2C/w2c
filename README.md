@@ -86,6 +86,8 @@ A new `w2c init` writes `planning = "openspec"`. A config file that has no `plan
 
 If OpenSpec is missing, `w2c init` and `w2c openspec-check` print `NEED_OPENSPEC_INSTALL` or `NEED_OPENSPEC_INIT`. The agent asks you before it installs anything.
 
+Do not list `openspec/` in `.gitignore`. Planning treats the whole tree as product content: if it is ignored, the agent grills removing that rule (never `git add -f`), then commits the change into the ticket isolation. Local and cloud smoke fail when a live change is still ignored or, once status is TODO/INPROGRESS/PAUSED, still untracked.
+
 After you approve an OpenSpec plan, the agent commits only that change folder and does not push. In worktree mode that commit happens inside the new worktree, and the checkout you started in stays on its current branch. When the milestone is done, it asks before `w2c spec-archive`, which merges the behavior specs into `openspec/specs/`. Say no and the milestone can still finish; the specs stay unmerged until you archive later. A push of a finished OpenSpec milestone fails until that archive is in the commit. The first OpenSpec milestone installs a local pre-push hook for this check.
 
 ## Cloud mode
@@ -157,7 +159,7 @@ w2c <command>
 | `slice-complete --milestone M### --slice S##` | Mark slice done (requires `S##-UAT.md` + `S##-SUMMARY.md`) |
 | `milestone-complete M### [--archive-declined]` | Mark milestone DONE. OpenSpec mode also requires `w2c spec-archive` or `--archive-declined` |
 | `amend-begin M### --decision D###` | Hold the amendment lock. Pause the milestone when it is in progress |
-| `amend-end M###` | Run smoke, then clear the lock. A changed in-progress milestone stays paused |
+| `amend-end M###` | Run smoke for that milestone (same scope as `w2c smoke --milestone`), then clear the lock. A changed in-progress milestone stays paused |
 | `amendments M###` | Print the amendment record |
 | `drop-task --milestone M### --slice S## --task T## --reason … --decision D### [--follow-up …] [--ticket …]` | Mark one unfinished task dropped (`[d]`) |
 | `drop-slice --milestone M### --slice S## --reason … --decision D### [--follow-up …] [--ticket …]` | Mark a slice dropped when every task in it is unfinished |

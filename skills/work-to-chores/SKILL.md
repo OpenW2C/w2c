@@ -13,7 +13,7 @@ description: >-
 
 # Work to Chores
 
-Requires: w2c >= 3.2.0
+Requires: w2c >= 3.3.1
 
 **Plan only.** Interview, review, plan, validate, write `.w2c/` artifacts. Never implement product code.
 
@@ -87,7 +87,13 @@ Keep the interview contract. Also:
 
 ### Spec-commit gate (OpenSpec mode, always)
 
-After smoke passes, ask for approval to commit the change folder. This is not a push.
+After content smoke passes, **before** asking to commit the change folder:
+
+1. Run `w2c openspec-check` (or milestone smoke) and inspect `NEED_OPENSPEC_UNIGNORE` / `openspec-not-ignored`.
+2. If the change path is gitignored (often a whole-tree `openspec/` rule): **STOP**. Grill approval to remove or negate that rule for the **entire** `openspec/` tree so it is normal product content. Apply the `.gitignore` edit only after yes. Ask a **separate** yes before committing the `.gitignore` change. **Never** use `git add -f` / force-add.
+3. Re-run the ignore probe. Do not continue while the change is still ignored.
+
+Then ask for approval to commit the change folder. This is not a push.
 
 When Isolation mode is `branch`:
 
@@ -104,7 +110,13 @@ When Isolation mode is `worktree`:
 4. In the worktree, commit only `openspec/changes/<change>/`. Do not stage `.w2c/`. Never mention any `.w2c/` path. Never add a `Co-authored-by` trailer.
 5. Do not push. The checkout you started in stays on its current branch.
 
-Log `--stage plan-commit --event complete` with the branch name. Then tell the user to run `do-chores`. `do-chores` reuses this worktree. Classic mode still uses the plan-commit gate below, and only when `track = true`.
+After the change commit (or after declining it):
+
+1. Re-run `w2c smoke --milestone M###` (or `w2c openspec-check`).
+2. If `openspec-not-ignored` or `openspec-change-tracked` fails: **STOP**. Do not hand off. Fix ignore / finish a normal (non-force) spec commit first.
+3. Set OpenSpec Git Operation Plan `Setup when` to `spec-commit`. Do **not** use `first-do-chores` for OpenSpec isolation of the change folder.
+
+Log `--stage plan-commit --event complete` with the branch name only when smoke is clean for this milestone. Then tell the user to run `do-chores`. `do-chores` reuses this worktree. Classic mode still uses the plan-commit gate below, and only when `track = true`.
 
 ## Status writes
 
@@ -382,7 +394,7 @@ Required Git Operation Plan fields (milestone is canonical):
 | Local branch | ticket id or confirmed slug |
 | Remote branch | **must equal** Local branch |
 | Isolation scope | `ticket` |
-| Setup when | `first-do-chores` |
+| Setup when | `spec-commit` (OpenSpec) or `first-do-chores` (classic) |
 | Plan commit | `ledger-bind` when `track` is false; `required-before-isolation` when `track` is true |
 | Reuse policy | `reuse-if-same-ticket-else-stop` |
 | Worktree skill | `using-git-worktrees` if mode is `worktree`; `n/a` if `branch` |
@@ -511,6 +523,7 @@ Then tell the user: run `do-chores` next; isolation setup (worktree create or br
 - Committing `.w2c/runtime/` or hand-editing `events.jsonl`
 - Skipping branch confirmation or writing `N/A` / unequal Local vs Remote branch
 - Creating a worktree during planning except the OpenSpec spec-commit gate
+- Force-adding (`git add -f`) ignored OpenSpec paths, or handing off while `openspec/` is gitignored / the change is untracked
 - Accepting a base-dirt choice on the critical-file warning turn
 - Creating the ticket branch while a new critical path is still unconfirmed
 - Staging base-dirt paths on a product commit after the user chose leave untouched

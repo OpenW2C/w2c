@@ -9,7 +9,7 @@ description: >-
 
 # Do Chores
 
-Requires: w2c >= 3.2.0
+Requires: w2c >= 3.3.0
 
 Execute planned work from `.w2c/`. Default: **one** next task.
 
@@ -151,6 +151,8 @@ Fetch https://raw.githubusercontent.com/Fission-AI/OpenSpec/main/install.md and 
 
 Stop where that prompt says to stop. On no, stop. Do not install without a yes.
 
+**Trackability.** After isolation reuse/create and before the first product edit: if the OpenSpec change folder is missing in this checkout, or `w2c openspec-check` / `w2c smoke --milestone M###` reports `NEED_OPENSPEC_UNIGNORE`, `NEED_OPENSPEC_SPEC_COMMIT`, `openspec-not-ignored`, or `openspec-change-tracked` failures: **STOP**. Say planning is incomplete — finish the ignore fix (un-ignore the whole `openspec/` tree) and the planning spec-commit. Do **not** invent a mid-run recovery, force-add ignored paths, copy the change by hand as the primary fix, put `openspec/` on `worktree_seed`, or invoke work-to-chores unless the user explicitly asks to amend.
+
 **Read order.** Before the sidecar, run `openspec instructions apply --change <change> --json` and read the proposal, specs, design, and `tasks.md` it lists. `--task` may be `T02` or `1.2`. `w2c complete` is the only writer of those checkboxes. Do not use the OpenSpec apply skill to tick them.
 
 **Milestone closeout** (after the validation reports, before `w2c milestone-complete`):
@@ -222,6 +224,7 @@ When the last open milestone on that remote branch is done, ask once whether to 
 - Staging base-dirt paths on a product commit
 - Pushing or opening a PR without explicit user approval
 - Pushing a finished OpenSpec milestone before `w2c openspec-push-check` passes, or using `--no-verify` to skip that check
+- Force-adding ignored OpenSpec paths, or continuing when the change is missing/ignored/untracked in this checkout
 - Committing without explicit user approval
 - Auto-commit / auto-push / auto-PR when the user declined that gate
 - Adding `Co-authored-by:` or similar AI co-author trailers on commits or PRs

@@ -6,7 +6,7 @@
 | Local branch | DEMO-1 |
 | Remote branch | DEMO-1 |
 | Isolation scope | ticket |
-| Setup when | first-task |
+| Setup when | spec-commit |
 | Reuse policy | reuse-if-same-ticket-else-stop |
 | Worktree skill | n/a |
 | Worktree layout | none |

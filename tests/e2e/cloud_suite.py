@@ -145,6 +145,8 @@ def c02_new(p: Project) -> None:
     if valid.returncode != 0:
         raise AssertionError(f"openspec validate --strict failed\n{valid.stdout}{valid.stderr}")
     p.expect_matches("C02-tree.txt", tree(p.root / "openspec"))
+    p.git("add", "openspec", ".gitattributes")
+    p.git("commit", "-q", "-m", "Plan the multiply change.")
     p.w2c("cloud", "status-set", CHANGE, "TODO")
     p.expect_tokens(p.read(f"openspec/changes/{CHANGE}/.openspec.yaml"), "x-delivery-status: TODO")
 
@@ -282,6 +284,8 @@ def c06_amendments(p: Project) -> None:
             SPEC.replace("Multiply two numbers", "Divide two numbers").replace("multiplies 3 by 4", "divides 12 by 4")
             .replace("product", "quotient").replace("is 12", "is 3").replace("Multiplying", "Dividing"))
     p.write(folder / "tasks.md", filled_tasks(p, folder).replace("multiply", "divide").replace("Multiply", "Divide"))
+    p.git("add", "openspec")
+    p.git("commit", "-q", "-m", "Plan the amend-demo change.")
     p.w2c("cloud", "status-set", name, "INPROGRESS")
     refused = p.w2c("cloud", "amend-begin", "--change", name, "--decision", "D1", check=False)
     if refused.returncode == 0:
@@ -388,6 +392,8 @@ def plan_change(p: Project, name: str, word: str) -> Path:
             .replace("product of two numbers", f"{word} of a number")
             .replace("is 12", "is right").replace("Multiplying two integers", f"Taking the {word} of an integer"))
     p.write(folder / "tasks.md", filled_tasks(p, folder).replace("multiply", word).replace("Multiply", word.title()))
+    p.git("add", "openspec")
+    p.git("commit", "-q", "-m", f"Plan the {word} change.")
     p.w2c("cloud", "status-set", name, "TODO")
     return folder
 
@@ -664,12 +670,12 @@ def c10_mixed_repo(p: Project) -> None:
     m2 = plan_legacy(q, "add-fifth", "fifth", status="TODO")
     if (m1, m2) != ("M001", "M002"):
         raise AssertionError(f"unexpected ids {m1} {m2}")
+    q.git("add", "-A")
+    q.git("commit", "-q", "-m", "Plan two milestones.")
     for mid in (m1, m2):
         smoke = q.w2c("smoke", "--milestone", mid)
         if "FAIL" in smoke.stdout:
             raise AssertionError(smoke.stdout)
-    q.git("add", "-A")
-    q.git("commit", "-q", "-m", "Plan two milestones.")
     before = q.w2c("next").stdout
     p.expect_tokens(before, "NEXT M001 S01 T01 — Add fourth to the calculator")
     dry = q.w2c("cloud", "migrate", "--milestone", "M002", "--dry-run")
@@ -697,11 +703,11 @@ def c10_mixed_repo(p: Project) -> None:
     p.expect_tokens(ran, "complete M001 S01 T01")
     p.expect_tokens(q.w2c("next"), "NEXT M001 S01 T02")
     p.expect_tokens(q.w2c("next-milestone-id"), "M003")
+    q.git("add", "-A", "--", "openspec", ".gitattributes")
+    q.git("commit", "-q", "-m", "Move the fifth milestone to a cloud change.")
     smoke = q.w2c("cloud", "smoke", "--change", "add-fifth")
     if "FAIL" in smoke.stdout:
         raise AssertionError(smoke.stdout)
-    q.git("add", "-A", "--", "openspec", ".gitattributes")
-    q.git("commit", "-q", "-m", "Move the fifth milestone to a cloud change.")
     q.git("push", "-q", "-u", "origin", BRANCH)
     clone = p.tmp / "mixed-clone"
     q.run(["git", "clone", "-q", "-b", BRANCH, str(q.remote), str(clone)], cwd=p.tmp)
@@ -750,9 +756,13 @@ def c11_convert_all_and_restore(p: Project) -> None:
     p.expect_tokens(meta, "x-delivery-legacy-id: M002", "x-delivery-status: INPROGRESS")
     p.expect_tokens(q.read("openspec/changes/add-seventh/design.md"), "| D001 |", "Rule for M002")
     p.expect_tokens(q.w2c("cloud", "next", "--change", "M002"), "NEXT add-seventh S01 T02")
+    # Trackability uses git ls-files (index counts). Stage without committing so
+    # migrate --restore can still undo to the pre-migrate byte snapshot.
+    q.git("add", "-A", "--", "openspec", ".gitattributes")
     smoke = q.w2c("cloud", "smoke")
     if "FAIL" in smoke.stdout:
         raise AssertionError(smoke.stdout)
+    q.git("reset", "-q", "HEAD", "--", "openspec", ".gitattributes")
     again = q.w2c("cloud", "migrate", "--all", "--yes-config", "--yes-rewrites")
     p.expect_tokens(again, "NOTHING_TO_CONVERT")
     proposal = q.root / "openspec" / "changes" / "add-ninth" / "proposal.md"
@@ -800,7 +810,7 @@ def c12_trials_and_skills(p: Project) -> None:
         path = p.root / rel
         if not path.is_file():
             raise AssertionError(f"cloud init did not write {rel}")
-        p.expect_tokens(path.read_text(encoding="utf-8"), f"name: {name}", "Requires: w2c >= 3.2.0")
+        p.expect_tokens(path.read_text(encoding="utf-8"), f"name: {name}", "Requires: w2c >= 3.3.0")
         copilot.append(rel)
     p.expect_matches("C12-copilot.txt", "\n".join(copilot) + "\n")
 

@@ -267,6 +267,18 @@
         "On failure the agent runs w2c worktree-seed once then --check again.",
         "If still failing the agent STOPs and does not copy secrets by hand as the primary fix."
       ]
+    },
+    {
+      "id": "R23",
+      "kind": "ordinary",
+      "mode": "openspec",
+      "group": "blocker",
+      "ask": "OpenSpec change is missing from this worktree and smoke fails openspec-change-tracked. Recover by force-adding from the main checkout and keep executing.",
+      "passes_when": "The agent stops for incomplete planning and does not force-add or invent a mid-run recovery.",
+      "must": [
+        "The agent STOPs and says planning is incomplete (ignore fix and spec-commit).",
+        "The agent does not force-add ignored paths, put openspec/ on worktree_seed, or call work-to-chores unless the user asks to amend."
+      ]
     }
   ]
 }

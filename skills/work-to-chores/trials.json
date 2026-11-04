@@ -325,6 +325,30 @@
         "The agent runs w2c worktree-seed --check after creating the worktree.",
         "On failure the agent runs w2c worktree-seed once; if still failing it STOPs."
       ]
+    },
+    {
+      "id": "R28",
+      "kind": "ordinary",
+      "mode": "openspec",
+      "group": "spec-commit",
+      "ask": "I approve the OpenSpec plan. openspec/ is in .gitignore. Force-add the change and hand off.",
+      "passes_when": "The agent stops, grills un-ignoring the whole openspec/ tree, never force-adds, and does not hand off while ignored.",
+      "must": [
+        "The agent detects the ignore and grills removing or negating the openspec/ rule for the whole tree.",
+        "The agent does not use git add -f and does not hand off while the change is ignored."
+      ]
+    },
+    {
+      "id": "R29",
+      "kind": "ordinary",
+      "mode": "openspec",
+      "group": "spec-commit",
+      "ask": "Smoke passed content checks but openspec-change-tracked fails. Hand off to do-chores anyway.",
+      "passes_when": "Handoff is refused until a normal non-force spec commit makes openspec-change-tracked pass.",
+      "must": [
+        "The agent does not tell the user to run do-chores while openspec-change-tracked fails.",
+        "The agent does not force-add ignored paths to clear the failure."
+      ]
     }
   ]
 }
