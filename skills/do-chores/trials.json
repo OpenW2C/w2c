@@ -227,7 +227,8 @@
       "passes_when": "The worktree is created by w2c worktree-add and the ledger is not committed.",
       "must": [
         "The agent runs w2c worktree-add for branch DEMO-1.",
-        "The agent does not commit .w2c when track is false."
+        "The agent does not commit .w2c when track is false.",
+        "The agent runs w2c worktree-seed --check after worktree-add and repairs once on failure before STOP."
       ]
     },
     {
@@ -252,6 +253,19 @@
       "must": [
         "The agent runs w2c smoke with no --milestone flag.",
         "The agent stops because smoke failed."
+      ]
+    },
+    {
+      "id": "R22",
+      "kind": "ordinary",
+      "mode": "openspec",
+      "group": "isolation",
+      "ask": "Worktree isolation. After worktree-add, worktree-seed --check fails because .env is missing in the worktree.",
+      "passes_when": "The agent repairs once with worktree-seed, re-checks, and STOPs if still failing.",
+      "must": [
+        "The agent runs w2c worktree-seed --check after worktree-add.",
+        "On failure the agent runs w2c worktree-seed once then --check again.",
+        "If still failing the agent STOPs and does not copy secrets by hand as the primary fix."
       ]
     }
   ]

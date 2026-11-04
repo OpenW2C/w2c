@@ -32,6 +32,26 @@ On a main checkout, Git would otherwise show `.worktrees/` as untracked. W2C can
 
 `git worktree prune` does not delete the directory. `git clean -xdf` from the main checkout deletes ignored `.worktrees/` and the checkouts inside it. Do not run that against a checkout that holds worktrees.
 
+## Local files (env and secrets)
+
+Git worktrees do not copy gitignored files such as `.env`. List relative paths in `.w2c/config.toml` as `worktree_seed`. An empty list (or omitting the key) turns seeding off.
+
+```toml
+worktree_seed = [
+  ".env",
+  ".envrc.local",
+  "apps/app-v2/.env",
+]
+```
+
+`w2c worktree-add` and `w2c worktree-seed` create **symlinks** from the main checkout file into the worktree. They never overwrite an existing file or a wrong symlink. A missing source file prints `seed-skip missing-source` and is skipped.
+
+`w2c worktree-seed --check` exits non-zero when a configured path has a source on the main checkout but is missing or wrong in the current checkout. Agents run this after isolation and may run `w2c worktree-seed` once to repair.
+
+`w2c worktree-seed --suggest` prints common env file candidates under the seed source checkout. On a new `w2c init` with a terminal, W2C may ask whether to store those candidates as `worktree_seed`.
+
+## How the ledger stays in step
+
 ## How the ledger stays in step
 
 The `w2c` command does this. Git does not merge these files, and the agent should not copy them by hand.

@@ -286,7 +286,8 @@
       "passes_when": "The change folder is committed inside the new worktree and the starting checkout stays on its current branch.",
       "must": [
         "The agent runs w2c worktree-add --create-from HEAD and commits openspec/changes inside that worktree.",
-        "The agent does not check the ticket branch out in the starting checkout and does not push."
+        "The agent does not check the ticket branch out in the starting checkout and does not push.",
+        "The agent runs w2c worktree-seed --check in the worktree and may run w2c worktree-seed once to repair."
       ]
     },
     {
@@ -311,6 +312,18 @@
       "must": [
         "The agent runs w2c smoke with no --milestone flag.",
         "The agent stops because smoke failed on M002."
+      ]
+    },
+    {
+      "id": "R27",
+      "kind": "ordinary",
+      "mode": "openspec",
+      "group": "spec-commit",
+      "ask": "OpenSpec worktree isolation. The worktree is created but configured seed files are missing.",
+      "passes_when": "The agent checks and repairs seed files before committing the change folder.",
+      "must": [
+        "The agent runs w2c worktree-seed --check after creating the worktree.",
+        "On failure the agent runs w2c worktree-seed once; if still failing it STOPs."
       ]
     }
   ]

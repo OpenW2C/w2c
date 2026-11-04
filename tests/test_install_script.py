@@ -81,10 +81,10 @@ class CloudSessionsDocTests(unittest.TestCase):
         for name in ("Claude Code and Codex", "GitHub Copilot", "Cursor"):
             self.assertIn(name, sections)
             body = sections[name]
-            for needle in ("--ref v3.1.0", "@fission-ai/openspec@1.16.0",
+            for needle in ("--ref v3.2.0", "@fission-ai/openspec@1.16.0",
                            "w2c install-skills", ".local/bin"):
                 self.assertIn(needle, body, f"{name}: {needle}")
-            self.assertLess(body.index("--ref v3.1.0"), body.index("@fission-ai/openspec@1.16.0"))
+            self.assertLess(body.index("--ref v3.2.0"), body.index("@fission-ai/openspec@1.16.0"))
             self.assertLess(body.index("@fission-ai/openspec@1.16.0"), body.index("w2c install-skills"))
         self.assertIn("copilot-setup-steps:", sections["GitHub Copilot"])
         self.assertIn(".github/workflows/copilot-setup-steps.yml", sections["GitHub Copilot"])
@@ -112,7 +112,7 @@ class CloudSessionsDocTests(unittest.TestCase):
         text = DOC.read_text(encoding="utf-8")
         for needle in ("W2C_EPHEMERAL", "CLAUDE_CODE_REMOTE", "CODESPACES", "GITHUB_ACTIONS",
                        "work-to-chores-cloud", "do-chores-cloud", "grilling", "brainstorming",
-                       "requesting-code-review", "uvx --from git+https://github.com/OpenW2C/w2c@v3.1.0"):
+                       "requesting-code-review", "uvx --from git+https://github.com/OpenW2C/w2c@v3.2.0"):
             self.assertIn(needle, text)
 
 

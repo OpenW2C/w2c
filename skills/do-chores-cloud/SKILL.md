@@ -11,7 +11,7 @@ description: >-
 
 # Do Chores (cloud)
 
-Requires: w2c >= 3.1.0
+Requires: w2c >= 3.2.0
 
 Execute a planned cloud change. Default: **one** task. The agent never chooses the next step: `w2c cloud step` does.
 
@@ -31,10 +31,10 @@ do chores cloud [--change <name>] [--max-units N]
 
 ## Prerequisites (hard stop)
 
-1. `w2c` on PATH, version 3.1.0 or later. If missing or older: ask the user whether to run it through uvx. On yes, use this prefix for every `w2c` command in this run:
+1. `w2c` on PATH, version 3.2.0 or later. If missing or older: ask the user whether to run it through uvx. On yes, use this prefix for every `w2c` command in this run:
 
    ```bash
-   uvx --from git+https://github.com/OpenW2C/w2c@v3.1.0 w2c …
+   uvx --from git+https://github.com/OpenW2C/w2c@v3.2.0 w2c …
    ```
 
    On no: **STOP** and tell the user to install it (`pipx install git+https://github.com/OpenW2C/w2c.git && w2c install-skills`). Never run uvx without that yes.
@@ -135,7 +135,7 @@ When no person can answer, do not archive: end the run and report the refusal. O
 Read the Delivery Plan in the brief. Local branch must equal Remote branch; if not, record `fail`.
 
 - **Reuse:** an existing worktree or branch with the exact planned name that belongs to this ticket is reused. Dirty with unrelated files or unexpected history: record `fail` and ask. Never force-reset, force-push, or delete a worktree or branch.
-- **`worktree`:** `w2c worktree-add --branch <Remote branch>` (`--create-from HEAD` when the branch does not exist; `--exclude no` only for `exclude-no`). Run every later command, including `w2c cloud step`, from that worktree.
+- **`worktree`:** `w2c worktree-add --branch <Remote branch>` (`--create-from HEAD` when the branch does not exist; `--exclude no` only for `exclude-no`). Then run `w2c worktree-seed --check` in that worktree. If it fails, run `w2c worktree-seed` once and `--check` again. If it still fails: record `isolate` `fail` and **STOP** with the missing paths (fix `worktree_seed` or add sources on the main checkout). Run every later command, including `w2c cloud step`, from that worktree.
 - **`branch`:** check out the planned branch without force. If it does not exist, run `w2c base-dirt` and apply the stored `Base dirt policy`:
   - `clean-at-plan` and `status` `clean`: create the branch. Do not ask.
   - `clean-at-plan` with dirt, a missing field, or `leave-untouched` with a `critical` path not under `### Base dirt paths`: ask the base-dirt question. For `critical`, the first turn is a warning only: list every critical path, say it can be committed by mistake, show no options, and reject a choice given on that turn. Options: **Leave untouched** (`leave-untouched`), **Pause and clean**, **Pause for the base branch**, **Abort branch setup**. Record the choice with `w2c cloud decide --change <change>`. On `leave-untouched`, write (or replace) a `### Base dirt paths` subsection under `## Delivery Plan` in `design.md` with the latest `critical` and `other` lists from `w2c base-dirt` (`(none)` for an empty list), and set the `Base dirt policy` row to `leave-untouched`. That is the one plan edit this skill may make. Pause or abort: record `isolate` `fail`.

@@ -173,6 +173,45 @@ def normalize_schema_version(value: object | None) -> int:
         return 1
 
 
+_SEED_INVALID_PARTS = frozenset({"", ".", ".."})
+
+
+def normalize_worktree_seed(value: object | None) -> list[str]:
+    """Return relative seed paths. Reject absolute paths, ``..``, and empty segments."""
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise LocalError("worktree_seed must be a list of relative paths")
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in value:
+        text = str(item).strip().replace(chr(92), "/")
+        if not text:
+            raise LocalError("worktree_seed path must not be empty")
+        if text.startswith("/") or text.startswith("~") or Path(text).is_absolute():
+            raise LocalError(f"worktree_seed path must be relative: {text}")
+        parts = text.split("/")
+        if any(part in _SEED_INVALID_PARTS for part in parts):
+            raise LocalError(f"worktree_seed path is not safe: {text}")
+        if text in seen:
+            continue
+        seen.add(text)
+        out.append(text)
+    return out
+
+
+def dump_worktree_seed_lines(paths: list[str]) -> list[str]:
+    if not paths:
+        return []
+    q = chr(34)
+    lines = ["worktree_seed = ["]
+    for rel in paths:
+        escaped = rel.replace(chr(92), chr(92) * 2).replace(q, chr(92) + q)
+        lines.append("  " + q + escaped + q + ",")
+    lines.append("]")
+    return lines
+
+
 def load_repo_config(root: Path) -> dict:
     path = repo_config_path(root)
     if not path.is_file():
@@ -180,6 +219,7 @@ def load_repo_config(root: Path) -> dict:
             "track": False,
             "worktree_ledger": "materialize",
             "worktree_dir": ".worktrees",
+            "worktree_seed": [],
             "git_delivery": None,
             "planning": PLANNING_CLASSIC,
             "schema_version": 1,
@@ -206,10 +246,15 @@ def load_repo_config(root: Path) -> dict:
         )
     except LocalError:
         planning = PLANNING_CLASSIC
+    try:
+        worktree_seed = normalize_worktree_seed(data.get("worktree_seed"))
+    except LocalError:
+        worktree_seed = []
     return {
         "track": bool(data.get("track", False)),
         "worktree_ledger": ledger,
         "worktree_dir": worktree_dir,
+        "worktree_seed": worktree_seed,
         "git_delivery": normalize_git_delivery(data.get("git_delivery")),
         "planning": planning,
         "schema_version": normalize_schema_version(data.get("schema_version")),
@@ -230,6 +275,7 @@ def dump_repo_config(
     amend_lock: str = "",
     amend_prior_status: str = "",
     amend_decision: str = "",
+    worktree_seed: list[str] | None = None,
 ) -> str:
     if worktree_ledger not in {"symlink", "copy", "materialize"}:
         worktree_ledger = "materialize"
@@ -239,6 +285,7 @@ def dump_repo_config(
         from w2c import __version__ as pkg_version
 
         w2c_version = pkg_version
+    seed = normalize_worktree_seed(worktree_seed)
     flag = "true" if track else "false"
     q = chr(34)
     lines = [
@@ -252,6 +299,7 @@ def dump_repo_config(
     lines.append("planning = " + q + normalize_planning(planning) + q)
     lines.append("schema_version = " + str(int(schema_version)))
     lines.append("w2c_version = " + q + str(w2c_version) + q)
+    lines.extend(dump_worktree_seed_lines(seed))
     if amend_lock:
         lines.append("amend_lock = " + q + str(amend_lock) + q)
         lines.append("amend_prior_status = " + q + str(amend_prior_status) + q)
@@ -268,6 +316,7 @@ def write_repo_config(
     planning: str | None = None,
     schema_version: int | None = None,
     amend_update: dict | None = None,
+    worktree_seed: list[str] | None = None,
 ) -> None:
     current = load_repo_config(root)
     if track is None:
@@ -278,6 +327,10 @@ def write_repo_config(
         git_delivery = current.get("git_delivery")
     if planning is None:
         planning = str(current.get("planning") or PLANNING_CLASSIC)
+    if worktree_seed is None:
+        worktree_seed = list(current.get("worktree_seed") or [])
+    else:
+        worktree_seed = normalize_worktree_seed(worktree_seed)
     path = repo_config_path(root)
     if schema_version is None:
         schema_version = (
@@ -306,6 +359,7 @@ def write_repo_config(
             amend_lock=amend_lock,
             amend_prior_status=amend_prior_status,
             amend_decision=amend_decision,
+            worktree_seed=worktree_seed,
         ),
         encoding="utf-8",
     )

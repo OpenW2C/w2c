@@ -5,6 +5,19 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.0] — 2026-11-04
+
+### Added
+
+- `worktree_seed` in `.w2c/config.toml`: an explicit list of relative local files (such as `.env`) that `w2c worktree-add` and `w2c worktree-seed` symlink from the main checkout into a ticket worktree.
+- `w2c worktree-seed` with `--check` and `--suggest`. Seed status lines go to stderr from `worktree-add` so stdout stays the worktree path.
+- Optional `w2c init` prompt (TTY only) to store detected env file candidates as `worktree_seed`.
+- Skill guardrails: after worktree isolation, agents run `worktree-seed --check`, repair once, then STOP if still failing.
+
+### Changed
+
+- Local and cloud skills require w2c 3.2.0. Cloud setup snippets in `docs/cloud-sessions.md` pin `v3.2.0`.
+
 ## [3.1.0] — 2026-11-04
 
 ### Added

@@ -39,12 +39,27 @@ def _text(skill: str, name: str = "SKILL.md") -> str:
     return (SKILLS / skill / name).read_text(encoding="utf-8")
 
 
+class LocalSkillSeedGuardTests(unittest.TestCase):
+    def test_local_skills_require_w2c_32_and_seed_check(self) -> None:
+        for skill in ("work-to-chores", "do-chores"):
+            text = _text(skill)
+            self.assertIn("Requires: w2c >= 3.2.0", text, skill)
+            self.assertIn("w2c worktree-seed --check", text, skill)
+            self.assertIn("w2c worktree-seed", text, skill)
+            self.assertIn("STOP", text, skill)
+
+    def test_cloud_skills_name_worktree_seed_guard(self) -> None:
+        for skill in ("work-to-chores-cloud", "do-chores-cloud"):
+            text = _text(skill)
+            self.assertIn("w2c worktree-seed --check", text, skill)
+
+
 class CloudSkillTextTests(unittest.TestCase):
     def test_both_cloud_skills_require_w2c_3(self) -> None:
         for skill in ("work-to-chores-cloud", "do-chores-cloud"):
             text = _text(skill)
-            self.assertIn("Requires: w2c >= 3.1.0", text, skill)
-            self.assertIn("uvx --from git+https://github.com/OpenW2C/w2c@v3.1.0 w2c", text, skill)
+            self.assertIn("Requires: w2c >= 3.2.0", text, skill)
+            self.assertIn("uvx --from git+https://github.com/OpenW2C/w2c@v3.2.0 w2c", text, skill)
 
     def test_do_chores_cloud_names_the_step_loop(self) -> None:
         text = _text("do-chores-cloud")
@@ -120,14 +135,17 @@ class CloudSkillTextTests(unittest.TestCase):
         for old, new in (("work-to-chores", "work-to-chores-cloud"), ("do-chores", "do-chores-cloud")):
             self.assertEqual(_text(new, "SKILL.copilot.md"), _text(old, "SKILL.copilot.md"))
 
-    def test_2_2_skills_differ_from_baseline_only_by_routing_lines(self) -> None:
+    def test_2_2_skills_keep_routing_requires_and_seed_guard(self) -> None:
         for skill, allowed in ALLOWED.items():
             old = (BASELINE / "skills" / skill / "SKILL.md").read_text(encoding="utf-8")
             new = _text(skill)
             for line in allowed:
-                self.assertIn(line + "\n", new, f"{skill} lacks {line!r}")
-            kept = [line for line in new.splitlines(keepends=True) if line.rstrip("\n") not in allowed]
-            self.assertEqual("".join(kept), old, skill)
+                self.assertIn(line + chr(10), new, f"{skill} lacks {line!r}")
+            self.assertIn("Requires: w2c >= 3.2.0", new, skill)
+            self.assertIn("w2c worktree-seed --check", new, skill)
+            self.assertIn("using-git-worktrees", new, skill)
+            self.assertIn("w2c worktree-add", new, skill)
+            self.assertIn("Requires: w2c >= 2.2.0", old, skill)
 
     def test_trials_pass_for_all_four_skills(self) -> None:
         self.assertEqual(

@@ -13,7 +13,7 @@ description: >-
 
 # Work to Chores
 
-Requires: w2c >= 2.2.0
+Requires: w2c >= 3.2.0
 
 **Plan only.** Interview, review, plan, validate, write `.w2c/` artifacts. Never implement product code.
 
@@ -100,7 +100,7 @@ When Isolation mode is `worktree`:
 
 1. Do not check the ticket branch out in the current checkout. That would lock the branch, and the worktree could not be added.
 2. Run `w2c worktree-add --branch <name> --create-from HEAD`. Pass `--exclude no` only when the plan's Exclude line is `exclude-no`. Otherwise the default `--exclude yes` is correct.
-3. `git worktree add` does not bring untracked files. Move `openspec/changes/<change>/` into that worktree.
+3. `git worktree add` does not bring untracked files. Move `openspec/changes/<change>/` into that worktree. Then run `w2c worktree-seed --check` in the worktree. If it fails, run `w2c worktree-seed` once and `--check` again. If it still fails: **STOP**. Name the paths. Tell the user to add sources on the main checkout or fix `worktree_seed`. Do not rely on ad-hoc `cp` of secrets.
 4. In the worktree, commit only `openspec/changes/<change>/`. Do not stage `.w2c/`. Never mention any `.w2c/` path. Never add a `Co-authored-by` trailer.
 5. Do not push. The checkout you started in stays on its current branch.
 

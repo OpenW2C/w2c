@@ -6,13 +6,31 @@ layout and adds the worktree there.
 
 from __future__ import annotations
 
+import os
 import shutil
 import sys
 from pathlib import Path
 
 from w2c import ledger_store as store
+from w2c import local as w2c_local
 
 _INVALID_PARTS = frozenset({"", ".", ".."})
+_SEED_BASENAMES = frozenset({".env", ".env.local", ".envrc.local"})
+_SEED_SKIP_DIRS = frozenset(
+    {
+        ".git",
+        ".worktrees",
+        "node_modules",
+        ".venv",
+        "venv",
+        "dist",
+        "build",
+        "__pycache__",
+        ".tox",
+        ".yarn",
+        "coverage",
+    }
+)
 
 
 def list_worktrees(root: Path) -> list[tuple[Path, str]]:
@@ -138,6 +156,114 @@ def _assert_dest_outside_linked(root: Path, dest: Path) -> None:
         raise store.LedgerError("refusing to create a worktree inside a linked worktree")
 
 
+
+def seed_source_root(root: Path) -> Path:
+    """Return the checkout that holds local seed files (usually the main checkout)."""
+    kind, base = repo_layout(root)
+    if kind == "main-checkout":
+        return base.resolve()
+    if not store.is_linked_worktree(root):
+        return root.resolve()
+    for path, _branch in list_worktrees(root):
+        if not store.is_linked_worktree(path):
+            return path.resolve()
+    trees = list_worktrees(root)
+    if trees:
+        return trees[0][0].resolve()
+    return root.resolve()
+
+
+def suggest_worktree_seed(root: Path) -> list[str]:
+    """List common gitignored env files under ``root`` for init / --suggest."""
+    source = root.resolve()
+    found: list[str] = []
+    for dirpath, dirnames, filenames in os.walk(source):
+        dirnames[:] = sorted(
+            d for d in dirnames if d not in _SEED_SKIP_DIRS and not d.startswith(".")
+        )
+        for name in filenames:
+            if name not in _SEED_BASENAMES:
+                continue
+            rel = Path(dirpath, name).relative_to(source).as_posix()
+            found.append(rel)
+    return sorted(found)
+
+
+def _seed_paths_for(root: Path, dest: Path) -> list[str]:
+    source = seed_source_root(root)
+    paths = list(w2c_local.load_repo_config(source).get("worktree_seed") or [])
+    if not paths:
+        paths = list(w2c_local.load_repo_config(dest).get("worktree_seed") or [])
+    if not paths:
+        paths = list(w2c_local.load_repo_config(root).get("worktree_seed") or [])
+    return paths
+
+
+def _rel_symlink(link: Path, target: Path) -> None:
+    """Create a relative symlink. Prefer abspath over realpath (macOS /private)."""
+    link.parent.mkdir(parents=True, exist_ok=True)
+    abs_target = os.path.abspath(target)
+    abs_parent = os.path.abspath(link.parent)
+    link.symlink_to(os.path.relpath(abs_target, start=abs_parent))
+
+
+def _same_file(left: Path, right: Path) -> bool:
+    try:
+        return os.path.samefile(left, right)
+    except OSError:
+        return os.path.abspath(left) == os.path.abspath(right) or (
+            os.path.realpath(left) == os.path.realpath(right)
+        )
+
+
+def seed_local_files(source: Path, dest: Path, paths: list[str]) -> list[str]:
+    """Symlink configured local files from ``source`` into ``dest``. Never overwrite."""
+    lines: list[str] = []
+    for rel in paths:
+        src = source / rel
+        dst = dest / rel
+        if not src.exists():
+            lines.append(f"seed-skip missing-source {rel}")
+            continue
+        if dst.is_symlink():
+            if _same_file(dst, src):
+                lines.append(f"seed-ok {rel}")
+                continue
+            lines.append(f"seed-conflict {rel}")
+            continue
+        if dst.exists():
+            lines.append(f"seed-conflict {rel}")
+            continue
+        _rel_symlink(dst, src)
+        lines.append(f"seed-linked {rel}")
+    return lines
+
+
+def check_seeded(source: Path, dest: Path, paths: list[str]) -> list[str]:
+    """Return problem lines for configured paths whose source exists but dest is wrong."""
+    problems: list[str] = []
+    for rel in paths:
+        src = source / rel
+        if not src.exists():
+            continue
+        dst = dest / rel
+        if not dst.exists() and not dst.is_symlink():
+            problems.append(f"seed-missing {rel}")
+            continue
+        if not dst.is_symlink():
+            problems.append(f"seed-conflict {rel}")
+            continue
+        if not _same_file(dst, src):
+            problems.append(f"seed-conflict {rel}")
+    return problems
+
+
+def seed_worktree(root: Path, dest: Path) -> list[str]:
+    """Apply ``worktree_seed`` from config into ``dest``."""
+    source = seed_source_root(root)
+    return seed_local_files(source, dest, _seed_paths_for(root, dest))
+
+
 def add_worktree(root: Path, branch: str, create_from: str | None, exclude: str) -> Path:
     if not store.is_git(root):
         raise store.LedgerError("not a git repository")
@@ -147,6 +273,8 @@ def add_worktree(root: Path, branch: str, create_from: str | None, exclude: str)
     existing = _checkout(root, branch)
     if existing is not None and existing.resolve() == dest.resolve():
         store.project_into(existing)
+        for line in seed_worktree(root, existing):
+            print(line, file=sys.stderr)
         return existing
     _assert_dest_outside_linked(root, dest)
     if existing is not None:
@@ -170,6 +298,8 @@ def add_worktree(root: Path, branch: str, create_from: str | None, exclude: str)
     else:
         raise store.LedgerError(f"branch {branch} does not exist; pass --create-from")
     store.project_into(dest)
+    for line in seed_worktree(root, dest):
+        print(line, file=sys.stderr)
     return dest
 
 
