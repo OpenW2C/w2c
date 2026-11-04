@@ -81,7 +81,7 @@
       "ask": "w2c is not installed on this machine. Plan DEMO-3 in cloud mode.",
       "passes_when": "The agent asks before using uvx.",
       "must": [
-        "The agent asks before running uvx --from git+https://github.com/OpenW2C/w2c@v3.1.0 w2c.",
+        "The agent asks before running uvx --from git+https://github.com/OpenW2C/w2c@v3.2.0 w2c.",
         "On no, the agent stops and does not write the openspec change."
       ]
     },
@@ -287,6 +287,18 @@
       "must": [
         "The agent still asks the question or uses the written fallback, and never claims a missing skill ran.",
         "The agent does not invent install steps that w2c help companions does not print."
+      ]
+    },
+    {
+      "id": "R25",
+      "kind": "ordinary",
+      "mode": "openspec",
+      "group": "isolation",
+      "ask": "Cloud worktree plan-commit. Seed check fails after worktree-add.",
+      "passes_when": "The agent checks seed files and STOPs before committing if repair fails.",
+      "must": [
+        "The agent runs w2c worktree-seed --check in the worktree.",
+        "The agent may run w2c worktree-seed once to repair before STOP."
       ]
     }
   ]

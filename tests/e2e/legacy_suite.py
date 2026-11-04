@@ -317,11 +317,47 @@ def l05_branch_and_worktree(p: Project) -> None:
         raise AssertionError("not on DEMO-1")
     layout = p.w2c("repo-layout")
     p.expect_tokens(layout, "layout: main-checkout")
+    p.write(".env", "NPM_TOKEN=e2e-secret" + chr(10))
+    nested = Path("apps/app-v2/.env")
+    p.write(nested, "EXPO_PUBLIC_APP_VARIANT=development" + chr(10))
+    cfg = Path(p.root / ".w2c" / "config.toml")
+    if cfg.is_symlink():
+        cfg = cfg.resolve()
+    body = cfg.read_text(encoding="utf-8") if cfg.is_file() else ""
+    if "worktree_seed" not in body:
+        extra = chr(10).join([
+            "",
+            "worktree_seed = [",
+            '  ".env",',
+            '  "apps/app-v2/.env",',
+            '  "missing.env",',
+            "]",
+            "",
+        ])
+        cfg.write_text(body.rstrip() + extra, encoding="utf-8")
     wt = p.w2c("worktree-add", "--branch", "DEMO-2", "--create-from", "main")
-    path = Path(wt.stdout.strip())
+    path = Path(wt.stdout.strip().splitlines()[0])
     if path.resolve() != (p.root / ".worktrees" / "DEMO-2").resolve():
         raise AssertionError(f"unexpected worktree path {path}")
-    p.expect_matches("L05-worktree-add.txt", wt.stdout)
+    p.expect_matches("L05-worktree-add.txt", wt.stdout.strip().splitlines()[0] + "\n")
+    if "seed-linked .env" not in wt.stderr:
+        raise AssertionError(f"missing seed stderr: {wt.stderr!r}")
+    if "seed-skip missing-source missing.env" not in wt.stderr:
+        raise AssertionError(f"missing skip stderr: {wt.stderr!r}")
+    env_link = path / ".env"
+    if not env_link.is_symlink() or not env_link.samefile(p.root / ".env"):
+        raise AssertionError(f"worktree .env not seeded: {env_link}")
+    nested_link = path / "apps" / "app-v2" / ".env"
+    if not nested_link.is_symlink():
+        raise AssertionError("nested worktree .env not seeded")
+    check = p.w2c("worktree-seed", "--check", cwd=path)
+    if check.returncode != 0:
+        raise AssertionError(check.stdout + check.stderr)
+    reuse = p.w2c("worktree-add", "--branch", "DEMO-2")
+    if Path(reuse.stdout.strip().splitlines()[0]).resolve() != path.resolve():
+        raise AssertionError("reuse path mismatch")
+    if "seed-ok .env" not in reuse.stderr:
+        raise AssertionError(f"reuse did not re-seed: {reuse.stderr!r}")
     p.expect_files(".w2c/STATE.md", ".w2c/plans/M002-add-subtract/M002-ROADMAP.md", cwd=path)
     p.expect_tokens(p.read(".git/info/exclude"), ".worktrees/")
     p.state["worktree"] = str(path)

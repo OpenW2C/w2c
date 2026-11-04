@@ -930,6 +930,52 @@ def resolve_git_delivery(
         raise W2CError(str(e)) from e
 
 
+
+def cmd_worktree_seed(root: Path, *, check: bool = False, suggest: bool = False) -> int:
+    """Symlink configured local files into this checkout, or verify them."""
+    try:
+        source = w2c_worktree.seed_source_root(root)
+    except ledger_store.LedgerError as exc:
+        raise W2CError(str(exc)) from exc
+    if suggest:
+        for rel in w2c_worktree.suggest_worktree_seed(source):
+            print(rel)
+        return 0
+    paths = list(w2c_local.load_repo_config(source).get("worktree_seed") or [])
+    if not paths:
+        paths = list(w2c_local.load_repo_config(root).get("worktree_seed") or [])
+    if check:
+        problems = w2c_worktree.check_seeded(source, root, paths)
+        for line in problems:
+            print(line)
+        return 1 if problems else 0
+    for line in w2c_worktree.seed_local_files(source, root, paths):
+        print(line)
+    return 0
+
+
+def _maybe_prompt_worktree_seed(root: Path, creating: bool) -> None:
+    """On a new init with a TTY, offer to record detected env files as worktree_seed."""
+    if not creating or not sys.stdin.isatty():
+        return
+    current = list(w2c_local.load_repo_config(root).get("worktree_seed") or [])
+    if current:
+        return
+    try:
+        candidates = w2c_worktree.suggest_worktree_seed(root)
+    except Exception:
+        return
+    if not candidates:
+        return
+    print("Local files new worktrees may need:")
+    for rel in candidates:
+        print(f"  {rel}")
+    answer = input("Add these as worktree_seed (symlinks on worktree-add)? [Y/n] ").strip().lower()
+    if answer in {"", "y", "yes"}:
+        w2c_local.write_repo_config(root, worktree_seed=candidates)
+        print("wrote worktree_seed to .w2c/config.toml")
+
+
 def cmd_init(
     root: Path,
     track: bool | None = None,
@@ -1018,6 +1064,7 @@ def cmd_init(
         detail=", ".join(created) or "already present",
     )
     print("initialized .w2c/" + (f" ({', '.join(created)})" if created else " (already present)"))
+    _maybe_prompt_worktree_seed(root, creating)
     if w2c_local.load_repo_config(root).get("planning") == w2c_local.PLANNING_OPENSPEC:
         for token in w2c_openspec.check(root)["needs"]:
             print(token)
@@ -2508,6 +2555,20 @@ def _add_amend_parsers(sub: argparse._SubParsersAction) -> None:
     add_wt.add_argument("--branch", required=True)
     add_wt.add_argument("--create-from", default=None)
     add_wt.add_argument("--exclude", choices=["yes", "no"], default="yes")
+    seed_wt = sub.add_parser(
+        "worktree-seed",
+        help="symlink configured local files into this checkout (or --check / --suggest)",
+    )
+    seed_wt.add_argument(
+        "--check",
+        action="store_true",
+        help="exit non-zero when a configured seed path is missing or wrong",
+    )
+    seed_wt.add_argument(
+        "--suggest",
+        action="store_true",
+        help="print detected env file candidates under the seed source checkout",
+    )
     rm_wt = sub.add_parser("worktree-remove", help="remove a ticket worktree after an explicit yes")
     rm_wt.add_argument("--branch", required=True)
     rm_wt.add_argument("--yes", action="store_true")
@@ -2685,6 +2746,10 @@ def dispatch(args: argparse.Namespace) -> int:
             raise W2CError(str(exc)) from exc
         print(path)
         return 0
+    if cmd == "worktree-seed":
+        return cmd_worktree_seed(
+            root, check=bool(args.check), suggest=bool(args.suggest)
+        )
     if cmd == "worktree-remove":
         try:
             w2c_worktree.remove_worktree(root, args.branch, bool(args.yes))
