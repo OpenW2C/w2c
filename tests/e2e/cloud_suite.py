@@ -111,6 +111,13 @@ def c01_env(p: Project) -> None:
         raise AssertionError(f"w2c cloud env failed\n{proc.stdout}{proc.stderr}")
     p.expect_tokens(proc, "ephemeral: true", "reason: W2C_EPHEMERAL", "agent: claude-code")
     p.expect_matches("C01-env.txt", proc.stdout)
+    proc = subprocess.run(
+        [str(p.home / ".local" / "bin" / "w2c"), "help", "companions"],
+        cwd=str(p.root), env=env, capture_output=True, text=True,
+    )
+    if proc.returncode != 0:
+        raise AssertionError(f"w2c help companions failed\n{proc.stdout}{proc.stderr}")
+    p.expect_tokens(proc, "## claude-code", "/plugin install superpowers@claude-plugins-official")
 
 
 def c02_new(p: Project) -> None:

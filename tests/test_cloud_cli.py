@@ -92,6 +92,20 @@ class EphemeralTests(unittest.TestCase):
         self.assertEqual(run({"W2C_EPHEMERAL": "0"}), "ephemeral: false\nreason: none\nagent: unknown\n")
 
 
+class HelpCompanionsTests(unittest.TestCase):
+    def test_help_companions_lists_each_agent(self) -> None:
+        code, out, err = run_main(["help", "companions"])
+        self.assertEqual(code, 0, err)
+        for heading in ("## claude-code", "## cursor", "## copilot", "## codex", "## After installing"):
+            self.assertIn(heading, out)
+        for command in ("/plugin install superpowers@claude-plugins-official",
+                        "/plugin install mattpocock-skills@claude-plugins-official",
+                        "/add-plugin superpowers",
+                        "npx skills@latest add mattpocock/skills -a cursor",
+                        "copilot plugin install superpowers@superpowers-marketplace"):
+            self.assertIn(command, out)
+
+
 class CloudGroupTests(unittest.TestCase):
     def test_cloud_group_needs_a_subcommand(self) -> None:
         code, _, _ = run_main(["cloud"])

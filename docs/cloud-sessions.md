@@ -68,7 +68,7 @@ If the agent's shell does not keep the PATH from `install`, add this to the end 
 | Claude Code, Codex | `work-to-chores-cloud` and `do-chores-cloud` (from `w2c install-skills`), plus the companion skills `grilling`, `brainstorming`, and `requesting-code-review` |
 | GitHub Copilot, Cursor | `work-to-chores-cloud` and `do-chores-cloud`; companion skills are usually missing |
 
-When a companion skill is missing, the cloud skills follow their written fallback rules instead of stopping. This is the normal case on Copilot and Cursor.
+When a companion skill is missing, the cloud skills ask whether to stop so you can install it, or continue with their written fallback rules. The fallback is the normal case on Copilot and Cursor. `w2c help companions` prints the install steps for each agent.
 
 ## Temporary containers
 
