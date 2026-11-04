@@ -62,27 +62,34 @@ class EphemeralTests(unittest.TestCase):
             environment.ephemeral_reason({"W2C_EPHEMERAL": "false", "CODESPACES": "1"})
         )
 
-    def test_cmd_env_prints_two_lines(self) -> None:
-        env = {"W2C_EPHEMERAL": "1"}
-        old = dict(os.environ)
-        os.environ.clear()
-        os.environ.update(env)
-        try:
-            out = io.StringIO()
-            with contextlib.redirect_stdout(out):
-                self.assertEqual(environment.cmd_env(), 0)
-        finally:
+    def test_agent_name_override_and_detection(self) -> None:
+        name = environment.agent_name
+        self.assertEqual(name({"W2C_AGENT": "cursor"}), "cursor")
+        self.assertEqual(name({"W2C_AGENT": "cursr", "CLAUDECODE": "1"}), "claude-code")
+        self.assertEqual(name({"CLAUDECODE": "0"}), "unknown")
+        self.assertEqual(name({"CLAUDECODE": ""}), "unknown")
+        self.assertEqual(name({"CLAUDE_CODE_REMOTE": "true"}), "claude-code")
+        self.assertEqual(name({"CLAUDECODE": "1", "GITHUB_ACTIONS": "true"}), "claude-code")
+        self.assertEqual(name({"GITHUB_ACTIONS": "true"}), "copilot")
+        self.assertEqual(name({}), "unknown")
+
+    def test_cmd_env_prints_three_lines(self) -> None:
+        def run(env: dict[str, str]) -> str:
+            old = dict(os.environ)
             os.environ.clear()
-            os.environ.update(old)
-        self.assertEqual(out.getvalue(), "ephemeral: true\nreason: W2C_EPHEMERAL\n")
-        os.environ["W2C_EPHEMERAL"] = "0"
-        try:
-            out = io.StringIO()
-            with contextlib.redirect_stdout(out):
-                environment.cmd_env()
-        finally:
-            del os.environ["W2C_EPHEMERAL"]
-        self.assertEqual(out.getvalue(), "ephemeral: false\nreason: none\n")
+            os.environ.update(env)
+            try:
+                out = io.StringIO()
+                with contextlib.redirect_stdout(out):
+                    self.assertEqual(environment.cmd_env(), 0)
+            finally:
+                os.environ.clear()
+                os.environ.update(old)
+            return out.getvalue()
+
+        self.assertEqual(run({"W2C_EPHEMERAL": "1", "W2C_AGENT": "codex"}),
+                         "ephemeral: true\nreason: W2C_EPHEMERAL\nagent: codex\n")
+        self.assertEqual(run({"W2C_EPHEMERAL": "0"}), "ephemeral: false\nreason: none\nagent: unknown\n")
 
 
 class CloudGroupTests(unittest.TestCase):

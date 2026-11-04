@@ -1,2 +1,3 @@
 ephemeral: true
 reason: W2C_EPHEMERAL
+agent: claude-code

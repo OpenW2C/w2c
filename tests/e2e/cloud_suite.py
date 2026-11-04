@@ -102,13 +102,14 @@ def c01_env(p: Project) -> None:
     p.expect_tokens(p.read(".w2c/config.toml"), 'planning = "cloud"')
     env = dict(p.env)
     env["W2C_EPHEMERAL"] = "1"
+    env["W2C_AGENT"] = "claude-code"
     proc = subprocess.run(
         [str(p.home / ".local" / "bin" / "w2c"), "cloud", "env"],
         cwd=str(p.root), env=env, capture_output=True, text=True,
     )
     if proc.returncode != 0:
         raise AssertionError(f"w2c cloud env failed\n{proc.stdout}{proc.stderr}")
-    p.expect_tokens(proc, "ephemeral: true", "reason: W2C_EPHEMERAL")
+    p.expect_tokens(proc, "ephemeral: true", "reason: W2C_EPHEMERAL", "agent: claude-code")
     p.expect_matches("C01-env.txt", proc.stdout)
 
 
