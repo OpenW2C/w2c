@@ -47,7 +47,7 @@
 | Local branch | |
 | Remote branch | |
 | Isolation scope | ticket |
-| Setup when | first-do-chores |
+| Setup when | spec-commit |
 | Plan commit | ledger-bind |
 | Reuse policy | reuse-if-same-ticket-else-stop |
 | Worktree skill | |

@@ -65,6 +65,7 @@ def roadmap(mid: str, slug: str, *, slices: list[tuple[int, str, str]], branch: 
         ("Isolation mode", "branch"),
         ("Local branch", branch),
         ("Remote branch", branch),
+        ("Setup when", "first-do-chores"),
         ("Worktree skill", "n/a"),
         ("Base dirt policy", "clean-at-plan"),
         ("Validation commands", "python3 -m unittest"),
@@ -508,10 +509,10 @@ class ConvertTests(unittest.TestCase):
         git(repo.root, "worktree", "add", "-q", "-b", "DEMO-2", str(wt))
         plan = convert.plan_conversion(repo.root, ["M001"])
         self.assertEqual(plan.blockers, [])
-        meta = wt / "openspec" / "changes" / "add-export" / ".openspec.yaml"
-        self.assertIn(meta, {a.path for a in kinds(plan, "write-key")})
+        meta = (wt / "openspec" / "changes" / "add-export" / ".openspec.yaml").resolve()
+        self.assertIn(meta, {a.path.resolve() for a in kinds(plan, "write-key")})
         self.assertFalse(under(plan, repo.change("add-export")))
-        self.assertEqual([a.path for a in kinds(plan, "edit-gitattributes")], [wt / ".gitattributes"])
+        self.assertEqual([a.path.resolve() for a in kinds(plan, "edit-gitattributes")], [(wt / ".gitattributes").resolve()])
 
     def test_branch_checked_out_nowhere_is_a_blocker(self) -> None:
         repo = self.repo()
@@ -1354,8 +1355,8 @@ class ApplyTests(unittest.TestCase):
         meta = (wt / "openspec" / "changes" / "add-export" / ".openspec.yaml").read_text(encoding="utf-8")
         self.assertIn("x-delivery-legacy-id: M001", meta)
         self.assertIn("openspec/knowledge.md merge=union", (wt / ".gitattributes").read_text(encoding="utf-8"))
-        self.assertIn(f"COMMIT {wt} openspec/changes/add-export/design.md", out)
-        self.assertNotIn(f"COMMIT {repo.root} openspec/changes", out)
+        self.assertIn(f"COMMIT {wt.resolve()} openspec/changes/add-export/design.md", out)
+        self.assertNotIn(f"COMMIT {repo.root.resolve()} openspec/changes", out)
 
     def test_cli_wires_migrate(self) -> None:
         repo = self.ready()
