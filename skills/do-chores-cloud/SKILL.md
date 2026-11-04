@@ -11,7 +11,7 @@ description: >-
 
 # Do Chores (cloud)
 
-Requires: w2c >= 3.0.0
+Requires: w2c >= 3.1.0
 
 Execute a planned cloud change. Default: **one** task. The agent never chooses the next step: `w2c cloud step` does.
 
@@ -31,10 +31,10 @@ do chores cloud [--change <name>] [--max-units N]
 
 ## Prerequisites (hard stop)
 
-1. `w2c` on PATH, version 3.0.0 or later. If missing or older: ask the user whether to run it through uvx. On yes, use this prefix for every `w2c` command in this run:
+1. `w2c` on PATH, version 3.1.0 or later. If missing or older: ask the user whether to run it through uvx. On yes, use this prefix for every `w2c` command in this run:
 
    ```bash
-   uvx --from git+https://github.com/OpenW2C/w2c@v3.0.0 w2c …
+   uvx --from git+https://github.com/OpenW2C/w2c@v3.1.0 w2c …
    ```
 
    On no: **STOP** and tell the user to install it (`pipx install git+https://github.com/OpenW2C/w2c.git && w2c install-skills`). Never run uvx without that yes.

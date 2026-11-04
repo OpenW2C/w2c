@@ -81,7 +81,7 @@
       "ask": "w2c is not installed on this machine. Plan DEMO-3 in cloud mode.",
       "passes_when": "The agent asks before using uvx.",
       "must": [
-        "The agent asks before running uvx --from git+https://github.com/OpenW2C/w2c@v3.0.0 w2c.",
+        "The agent asks before running uvx --from git+https://github.com/OpenW2C/w2c@v3.1.0 w2c.",
         "On no, the agent stops and does not write the openspec change."
       ]
     },

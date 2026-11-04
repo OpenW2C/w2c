@@ -800,7 +800,7 @@ def c12_trials_and_skills(p: Project) -> None:
         path = p.root / rel
         if not path.is_file():
             raise AssertionError(f"cloud init did not write {rel}")
-        p.expect_tokens(path.read_text(encoding="utf-8"), f"name: {name}", "Requires: w2c >= 3.0.0")
+        p.expect_tokens(path.read_text(encoding="utf-8"), f"name: {name}", "Requires: w2c >= 3.1.0")
         copilot.append(rel)
     p.expect_matches("C12-copilot.txt", "\n".join(copilot) + "\n")
 

@@ -12,4 +12,4 @@ If you ask for something the plan does not cover, the agent stops and points you
 
 **Need first:** requesting-code-review. When a companion skill is missing, the agent asks whether to stop so you can install it, or continue with the written fallback (its self-review checklist).
 
-**Need on this machine:** `w2c` 3.0.0 or later and `openspec`. If `w2c` is missing, the agent asks before running it through `uvx --from git+https://github.com/OpenW2C/w2c@v3.0.0 w2c`. No `.w2c/` ledger is needed; only local runtime files are kept under `.w2c/runtime/`.
+**Need on this machine:** `w2c` 3.1.0 or later and `openspec`. If `w2c` is missing, the agent asks before running it through `uvx --from git+https://github.com/OpenW2C/w2c@v3.1.0 w2c`. No `.w2c/` ledger is needed; only local runtime files are kept under `.w2c/runtime/`.

@@ -43,8 +43,8 @@ class CloudSkillTextTests(unittest.TestCase):
     def test_both_cloud_skills_require_w2c_3(self) -> None:
         for skill in ("work-to-chores-cloud", "do-chores-cloud"):
             text = _text(skill)
-            self.assertIn("Requires: w2c >= 3.0.0", text, skill)
-            self.assertIn("uvx --from git+https://github.com/OpenW2C/w2c@v3.0.0 w2c", text, skill)
+            self.assertIn("Requires: w2c >= 3.1.0", text, skill)
+            self.assertIn("uvx --from git+https://github.com/OpenW2C/w2c@v3.1.0 w2c", text, skill)
 
     def test_do_chores_cloud_names_the_step_loop(self) -> None:
         text = _text("do-chores-cloud")

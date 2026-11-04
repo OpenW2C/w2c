@@ -14,7 +14,7 @@ description: >-
 
 # Work to Chores (cloud)
 
-Requires: w2c >= 3.0.0
+Requires: w2c >= 3.1.0
 
 **Plan only.** Interview, review, plan, validate, then write one OpenSpec change. Never implement product code.
 
@@ -28,14 +28,14 @@ Committed change files (everything under `openspec/changes/<name>/`) and the `.d
 
 Before Stage 1:
 
-1. Confirm `w2c` is on PATH (`command -v w2c`) and `w2c --version` is 3.0.0 or later. Do this first: every later step, including each `w2c event` log line, needs it. If it is missing, follow the uvx paragraph below before any other step, and log nothing until `w2c` (or the uvx prefix) works.
+1. Confirm `w2c` is on PATH (`command -v w2c`) and `w2c --version` is 3.1.0 or later. Do this first: every later step, including each `w2c event` log line, needs it. If it is missing, follow the uvx paragraph below before any other step, and log nothing until `w2c` (or the uvx prefix) works.
 2. Check whether **grilling** and **brainstorming** are invocable. If either is missing (for example on Copilot or Cursor), follow **Missing companion skills (ask first)** below.
 3. Run `w2c openspec-check`. If `needs` contains `NEED_OPENSPEC_INSTALL` or `NEED_OPENSPEC_INIT`, follow **OpenSpec install (ask first)**.
 
-If `w2c` is missing or older than 3.0.0: ask the user whether to run it once through uvx. On yes, use this prefix for every `w2c` command in this run:
+If `w2c` is missing or older than 3.1.0: ask the user whether to run it once through uvx. On yes, use this prefix for every `w2c` command in this run:
 
 ```bash
-uvx --from git+https://github.com/OpenW2C/w2c@v3.0.0 w2c …
+uvx --from git+https://github.com/OpenW2C/w2c@v3.1.0 w2c …
 ```
 
 On no: **STOP**. Tell the user to install it (`pipx install git+https://github.com/OpenW2C/w2c.git && w2c install-skills`) and re-invoke this skill. Never run uvx without that yes.
