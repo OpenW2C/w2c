@@ -5,6 +5,25 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.3.1] — 2026-11-05
+
+### Fixed
+
+- `w2c amend-end M###` runs milestone-scoped smoke (`w2c smoke --milestone M###`) instead of a full-workspace smoke, so unrelated milestone plan failures no longer block clearing the amendment lock. Workspace gates (schema, git delivery, queue and state) still apply.
+
+## [3.3.0] — 2026-11-04
+
+### Added
+
+- OpenSpec trackability smoke: `openspec-not-ignored` and `openspec-change-tracked` on local `w2c smoke` and `w2c cloud smoke`.
+- `w2c openspec-check` may report `NEED_OPENSPEC_UNIGNORE` and `NEED_OPENSPEC_SPEC_COMMIT` when live changes are ignored or untracked.
+- Planning skills grill un-ignoring the whole `openspec/` tree before spec/plan-commit; execution skills hard-stop when the change is missing, ignored, or untracked (no force-add, no mid-run planner recovery unless the user asks to amend).
+
+### Changed
+
+- OpenSpec / cloud templates set `Setup when` to `spec-commit` so isolation and the change commit happen at planning time.
+- Local and cloud skills require w2c 3.3.0.
+
 ## [3.2.0] — 2026-11-04
 
 ### Added

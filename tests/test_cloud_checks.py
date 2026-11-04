@@ -35,6 +35,8 @@ CHECK_NAMES = {
     "manual-test-guide",
     "slice-fields",
     "read-first-present",
+    "openspec-not-ignored",
+    "openspec-change-tracked",
     "openspec-validate-strict",
     "openspec-artifacts-complete",
     "openspec-tasks-have-verify",
@@ -468,6 +470,46 @@ class GroupTextTests(unittest.TestCase):
         text = "## 1. A\n\n**Goal:** one\n\n- [ ] 1.1 x\n\n## 2. B\n\n**Demo:** two\n"
         self.assertEqual(checks.slice_fields(text), {1: {"Goal": "one"}, 2: {"Demo": "two"}})
 
+
+
+
+class TrackabilityCloudTests(CloudChecksBase):
+    def _git(self) -> None:
+        import subprocess
+
+        subprocess.run(["git", "init", "-q"], cwd=self.root, check=True)
+        subprocess.run(["git", "config", "user.email", "t@example.com"], cwd=self.root, check=True)
+        subprocess.run(["git", "config", "user.name", "t"], cwd=self.root, check=True)
+
+    def test_ignored_fails_not_ignored(self) -> None:
+        self._git()
+        self.make(keys=["schema: spec-driven", "x-delivery-status: PLANNING", f"x-delivery-cadence: {CADENCE}", "x-delivery-order: 1"])
+        write(self.root / ".gitignore", "openspec/\n")
+        self.assertIn("openspec-not-ignored", self.failing())
+
+    def test_planning_untracked_passes_tracked(self) -> None:
+        self._git()
+        self.make(keys=["schema: spec-driven", "x-delivery-status: PLANNING", f"x-delivery-cadence: {CADENCE}", "x-delivery-order: 1"])
+        self.assertNotIn("openspec-change-tracked", self.failing())
+
+    def test_todo_untracked_fails_tracked(self) -> None:
+        self._git()
+        self.make()
+        self.assertIn("openspec-change-tracked", self.failing())
+
+    def test_todo_tracked_passes(self) -> None:
+        import subprocess
+
+        self._git()
+        self.make()
+        subprocess.run(
+            ["git", "add", "-A", "--", "openspec/changes/add-export"],
+            cwd=self.root,
+            check=True,
+        )
+        subprocess.run(["git", "commit", "-qm", "spec"], cwd=self.root, check=True)
+        self.assertNotIn("openspec-change-tracked", self.failing())
+        self.assertNotIn("openspec-not-ignored", self.failing())
 
 if __name__ == "__main__":
     unittest.main()

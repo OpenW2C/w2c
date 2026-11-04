@@ -18,7 +18,7 @@ _HOME = Path(tempfile.mkdtemp(prefix="w2c-cloud-amend-home-"))
 os.environ["W2C_CONFIG"] = str(_HOME / "config.toml")
 os.environ["W2C_DATA_HOME"] = str(_HOME / "data")
 
-from test_cloud_commands import NAME, CloudCommandBase  # noqa: E402
+from test_cloud_commands import NAME, CloudCommandBase, git  # noqa: E402
 from test_cloud_checks import fill_design  # noqa: E402
 from w2c import openspec_ledger as osl  # noqa: E402
 from w2c.cloud import checks, layout, ledger  # noqa: E402
@@ -53,6 +53,8 @@ class AmendBase(CloudCommandBase):
         spec = folder / "specs" / "export"
         spec.mkdir(parents=True, exist_ok=True)
         (spec / "spec.md").write_text("# Spec\n", encoding="utf-8")
+        git(self.root, "add", "-A", "--", f"openspec/changes/{folder.name}")
+        git(self.root, "commit", "-qm", "track openspec change")
         return folder
 
     def decision(self, name: str = NAME) -> str:

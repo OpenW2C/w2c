@@ -45,7 +45,7 @@ GIT_PLAN = """
 | Local branch | DEMO-1 |
 | Remote branch | DEMO-1 |
 | Isolation scope | ticket |
-| Setup when | first-do-chores |
+| Setup when | spec-commit |
 | Plan commit | required-before-isolation |
 | Reuse policy | reuse-if-same-ticket-else-stop |
 | Worktree skill | n/a |
@@ -120,8 +120,8 @@ def seed_artifacts(root: Path, slug: str) -> None:
 
 
 # Captured from the pre-extraction smoke_checks.
-LEGACY_SMOKE_ROWS: list = [('openspec-cli', 'PASS', '1.14.3'), ('openspec-change-link', 'PASS', ''), ('openspec-validate-strict', 'PASS', ''), ('openspec-artifacts-complete', 'PASS', ''), ('openspec-slices-match-groups', 'PASS', ''), ('openspec-tasks-have-verify', 'PASS', ''), ('openspec-progress-agrees', 'PASS', ''), ('openspec-no-slice-tasks', 'PASS', ''), ('openspec-archived-when-done', 'PASS', ''), ('openspec-conventions', 'PASS', '')]
-LEGACY_SMOKE_FAIL_ROWS: list = [('openspec-cli', 'PASS', '1.14.3'), ('openspec-change-link', 'PASS', ''), ('openspec-validate-strict', 'FAIL', 'M001: validation failed'), ('openspec-artifacts-complete', 'PASS', ''), ('openspec-slices-match-groups', 'PASS', ''), ('openspec-tasks-have-verify', 'FAIL', 'M001 1.1: missing Verify line'), ('openspec-progress-agrees', 'PASS', ''), ('openspec-no-slice-tasks', 'PASS', ''), ('openspec-archived-when-done', 'PASS', ''), ('openspec-conventions', 'PASS', '')]
+LEGACY_SMOKE_ROWS: list = [('openspec-cli', 'PASS', '1.14.3'), ('openspec-change-link', 'PASS', ''), ('openspec-not-ignored', 'PASS', ''), ('openspec-change-tracked', 'PASS', ''), ('openspec-validate-strict', 'PASS', ''), ('openspec-artifacts-complete', 'PASS', ''), ('openspec-slices-match-groups', 'PASS', ''), ('openspec-tasks-have-verify', 'PASS', ''), ('openspec-progress-agrees', 'PASS', ''), ('openspec-no-slice-tasks', 'PASS', ''), ('openspec-archived-when-done', 'PASS', ''), ('openspec-conventions', 'PASS', '')]
+LEGACY_SMOKE_FAIL_ROWS: list = [('openspec-cli', 'PASS', '1.14.3'), ('openspec-change-link', 'PASS', ''), ('openspec-not-ignored', 'PASS', ''), ('openspec-change-tracked', 'PASS', ''), ('openspec-validate-strict', 'FAIL', 'M001: validation failed'), ('openspec-artifacts-complete', 'PASS', ''), ('openspec-slices-match-groups', 'PASS', ''), ('openspec-tasks-have-verify', 'FAIL', 'M001 1.1: missing Verify line'), ('openspec-progress-agrees', 'PASS', ''), ('openspec-no-slice-tasks', 'PASS', ''), ('openspec-archived-when-done', 'PASS', ''), ('openspec-conventions', 'PASS', '')]
 
 
 class OpenSpecTests(unittest.TestCase):
@@ -552,6 +552,85 @@ class RealOpenSpecTests(unittest.TestCase):
         self.assertTrue(Path(archived["archive"]["path"]).is_dir())
 
 
+
+
+
+
+class TrackabilitySmokeTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp(prefix="w2c-track-"))
+        self.addCleanup(lambda: shutil.rmtree(self.tmp, ignore_errors=True))
+        bindir = self.tmp / "bin"
+        bindir.mkdir()
+        dest = bindir / "openspec"
+        dest.write_text(FIXTURE.read_text(encoding="utf-8"), encoding="utf-8")
+        dest.chmod(0o755)
+        os.environ["PATH"] = str(bindir) + os.pathsep + ORIGINAL_PATH
+        self.addCleanup(lambda: os.environ.__setitem__("PATH", ORIGINAL_PATH))
+        subprocess.run(["git", "init", "-q"], cwd=self.tmp, check=True)
+        subprocess.run(["git", "config", "user.email", "t@example.com"], cwd=self.tmp, check=True)
+        subprocess.run(["git", "config", "user.name", "t"], cwd=self.tmp, check=True)
+        self.assertEqual(
+            w2c.cmd_init(
+                self.tmp,
+                git_delivery="slice-commit-milestone-push-pr",
+                planning="openspec",
+            ),
+            0,
+        )
+
+    def _seed_milestone(self, status: str = "PLANNING") -> None:
+        self.assertEqual(w2c.cmd_milestone_new(self.tmp, "add-export", planning="openspec"), 0)
+        plan = self.tmp / ".w2c/plans/M001-add-export"
+        write(plan / "M001-ROADMAP.md", filled_roadmap("M001", "add-export"))
+        write(plan / "M001-S01-PLAN.md", filled_slice("M001"))
+        seed_artifacts(self.tmp, "add-export")
+        if status != "PLANNING":
+            self.assertEqual(w2c.cmd_milestone_status(self.tmp, "M001", status), 0)
+
+    def test_ignored_change_fails_not_ignored(self) -> None:
+        self._seed_milestone("PLANNING")
+        write(self.tmp / ".gitignore", "openspec/\n")
+        report = w2c.run_smoke(self.tmp)
+        names = {c.name: c for c in report.checks}
+        self.assertEqual(names["openspec-not-ignored"].status, "FAIL")
+        self.assertIn("gitignored", names["openspec-not-ignored"].detail)
+        self.assertNotIn("git add -f", names["openspec-not-ignored"].detail.lower().replace("never git add -f", ""))
+        self.assertIn("never git add -f", names["openspec-not-ignored"].detail)
+
+    def test_planning_untracked_passes_tracked_row(self) -> None:
+        self._seed_milestone("PLANNING")
+        report = w2c.run_smoke(self.tmp)
+        names = {c.name: c for c in report.checks}
+        self.assertEqual(names["openspec-not-ignored"].status, "PASS")
+        self.assertEqual(names["openspec-change-tracked"].status, "PASS")
+
+    def test_todo_untracked_fails_tracked_row(self) -> None:
+        self._seed_milestone("TODO")
+        report = w2c.run_smoke(self.tmp)
+        names = {c.name: c for c in report.checks}
+        self.assertEqual(names["openspec-change-tracked"].status, "FAIL")
+        self.assertIn("no tracked files", names["openspec-change-tracked"].detail)
+
+    def test_todo_tracked_passes(self) -> None:
+        self._seed_milestone("TODO")
+        subprocess.run(
+            ["git", "add", "-A", "--", "openspec/changes/add-export"],
+            cwd=self.tmp,
+            check=True,
+        )
+        subprocess.run(["git", "commit", "-qm", "spec"], cwd=self.tmp, check=True)
+        report = w2c.run_smoke(self.tmp)
+        names = {c.name: c for c in report.checks}
+        self.assertEqual(names["openspec-change-tracked"].status, "PASS")
+        self.assertEqual(names["openspec-not-ignored"].status, "PASS")
+
+    def test_openspec_check_needs_unignore_and_spec_commit(self) -> None:
+        self._seed_milestone("PLANNING")
+        write(self.tmp / ".gitignore", "openspec/\n")
+        payload = osp.check(self.tmp)
+        self.assertIn("NEED_OPENSPEC_UNIGNORE", payload["needs"])
+        self.assertIn("NEED_OPENSPEC_SPEC_COMMIT", payload["needs"])
 
 
 if __name__ == "__main__":

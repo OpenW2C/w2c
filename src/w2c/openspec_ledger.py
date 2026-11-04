@@ -8,10 +8,118 @@ at import time.
 from __future__ import annotations
 
 import re
+import subprocess
 from pathlib import Path
 
 from w2c import openspec as osp
 from w2c.local import PLANNING_CLASSIC, PLANNING_OPENSPEC, normalize_planning
+
+TRACK_REQUIRED_STATUSES = frozenset({"TODO", "INPROGRESS", "PAUSED"})
+NEED_UNIGNORE = "NEED_OPENSPEC_UNIGNORE"
+NEED_SPEC_COMMIT = "NEED_OPENSPEC_SPEC_COMMIT"
+UNIGNORE_HINT = (
+    "remove or negate the openspec/ gitignore rule for the whole openspec/ tree; "
+    "never git add -f"
+)
+
+
+def change_prefix(name: str) -> str:
+    return f"openspec/changes/{name}"
+
+
+def _git_ok(root: Path) -> bool:
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "--git-dir"],
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError:
+        return False
+    return proc.returncode == 0
+
+
+def path_is_ignored(root: Path, rel: str) -> bool | None:
+    """True if ignored, False if tracked-or-not-ignored, None if not a git repo."""
+    if not _git_ok(root):
+        return None
+    proc = subprocess.run(
+        ["git", "-C", str(root), "check-ignore", "-q", "--", rel],
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode == 0:
+        return True
+    if proc.returncode == 1:
+        return False
+    return None
+
+
+def change_tracked_paths(root: Path, name: str) -> list[str] | None:
+    """Paths tracked under the change folder, or None when git is unavailable."""
+    if not name or not _git_ok(root):
+        return None
+    prefix = change_prefix(name)
+    proc = subprocess.run(
+        ["git", "-C", str(root), "ls-files", "--", prefix],
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode != 0:
+        return None
+    return [line for line in proc.stdout.splitlines() if line.strip()]
+
+
+def ignore_problems(root: Path, name: str, label: str) -> list[str]:
+    if not name:
+        return []
+    probe = f"{change_prefix(name)}/.openspec.yaml"
+    ignored = path_is_ignored(root, probe)
+    if ignored is True:
+        return [f"{label}: {change_prefix(name)} is gitignored; {UNIGNORE_HINT}"]
+    # Also catch a bare openspec/ rule when the yaml probe path does not exist yet.
+    if ignored is None or ignored is False:
+        bare = path_is_ignored(root, change_prefix(name))
+        if bare is True:
+            return [f"{label}: {change_prefix(name)} is gitignored; {UNIGNORE_HINT}"]
+    return []
+
+
+def tracked_problems(root: Path, name: str, status: str, label: str) -> list[str]:
+    if not name or status not in TRACK_REQUIRED_STATUSES:
+        return []
+    paths = change_tracked_paths(root, name)
+    if paths is None:
+        return []
+    if not paths:
+        return [
+            f"{label}: {change_prefix(name)} has no tracked files; "
+            "finish the planning spec/plan-commit without force-add"
+        ]
+    return []
+
+
+def track_needs(root: Path) -> list[str]:
+    """NEED_* tokens for openspec-check from live change folders on disk."""
+    changes = root / "openspec" / "changes"
+    if not changes.is_dir() or not _git_ok(root):
+        return []
+    needs: list[str] = []
+    for path in sorted(changes.iterdir()):
+        if not path.is_dir() or path.name == "archive":
+            continue
+        if not (path / ".openspec.yaml").is_file():
+            continue
+        name = path.name
+        if ignore_problems(root, name, name):
+            if NEED_UNIGNORE not in needs:
+                needs.append(NEED_UNIGNORE)
+        tracked = change_tracked_paths(root, name)
+        if tracked is not None and not tracked:
+            if NEED_SPEC_COMMIT not in needs:
+                needs.append(NEED_SPEC_COMMIT)
+    return needs
+
 
 GROUP_RE = re.compile(r"^##\s+(\d+)\.\s+(.*?)\s*$")
 TASK_RE = re.compile(
@@ -408,6 +516,8 @@ def smoke_checks(root: Path, milestones: list) -> list[tuple[str, str, str]]:
     slice_task_problems: list[str] = []
     archive_problems: list[str] = []
     convention_problems: list[str] = []
+    ignored_problems: list[str] = []
+    tracked_file_problems: list[str] = []
 
     for milestone, plan_dir, text in selected:
         name = change_name(text)
@@ -463,6 +573,10 @@ def smoke_checks(root: Path, milestones: list) -> list[tuple[str, str, str]]:
         skip_live = milestone.status == "DONE" or is_archived(text)
         if skip_live:
             continue
+        ignored_problems.extend(ignore_problems(root, name, milestone.mid))
+        tracked_file_problems.extend(
+            tracked_problems(root, name, milestone.status, milestone.mid)
+        )
         if not cli_ok:
             validate_problems.append(f"{milestone.mid}: openspec cli unavailable")
             artifact_problems.append(f"{milestone.mid}: openspec cli unavailable")
@@ -482,6 +596,8 @@ def smoke_checks(root: Path, milestones: list) -> list[tuple[str, str, str]]:
         rows.append((name, "FAIL" if problems else "PASS", "; ".join(problems[:8])))
 
     add("openspec-change-link", link_problems)
+    add("openspec-not-ignored", ignored_problems)
+    add("openspec-change-tracked", tracked_file_problems)
     add("openspec-validate-strict", validate_problems)
     add("openspec-artifacts-complete", artifact_problems)
     add("openspec-slices-match-groups", slice_problems)

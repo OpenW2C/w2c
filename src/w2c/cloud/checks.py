@@ -256,6 +256,8 @@ def smoke_rows(root: Path, changes: list[CloudChange]) -> list[tuple[str, str, s
             "manual-test-guide",
             "slice-fields",
             "read-first-present",
+            "openspec-not-ignored",
+            "openspec-change-tracked",
             "openspec-validate-strict",
             "openspec-artifacts-complete",
             "openspec-tasks-have-verify",
@@ -307,6 +309,10 @@ def smoke_rows(root: Path, changes: list[CloudChange]) -> list[tuple[str, str, s
             )
         if change.archived:
             continue
+        problems["openspec-not-ignored"] += osl.ignore_problems(root, change.name, change.name)
+        problems["openspec-change-tracked"] += osl.tracked_problems(
+            root, change.name, change.status, change.name
+        )
         problems["closeout-reports"] += closeout_problems(change)
         problems["ticked-without-report"] += ticked_problems(change, tasks)
         problems["neutral-artifacts"] += neutral_problems(change)
@@ -341,6 +347,7 @@ def smoke_rows(root: Path, changes: list[CloudChange]) -> list[tuple[str, str, s
     order = [
         "openspec-cli", "delivery-keys-valid", "design-sections", "git-operation-plan",
         "commit-pr-conventions", "manual-test-guide", "slice-fields", "read-first-present",
+        "openspec-not-ignored", "openspec-change-tracked",
         "openspec-validate-strict", "openspec-artifacts-complete", "openspec-tasks-have-verify",
         "openspec-progress-agrees", "ticked-without-report", "closeout-reports",
         "neutral-artifacts", "unique-change-ids", "openspec-archived-when-done",

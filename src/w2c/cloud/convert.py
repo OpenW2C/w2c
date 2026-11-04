@@ -221,7 +221,7 @@ KNOWN_REWRITES: dict[str, str | Drop] = {
         "| Integration strategy | (from the project's delivery profile) |",
     "| Commit cadence | (from .w2c/config.toml git_delivery) |":
         Drop(layout.LEGACY_DROPPED_FIELDS["Commit cadence"]),
-    "| Setup when | first-do-chores |": "| Setup when | first-task |",
+    "| Setup when | first-do-chores |": "| Setup when | spec-commit |",
     "| Completion condition | All slices verified; honor git_delivery + explicit approval gates |":
         "| Completion condition | All slices verified; honor x-delivery-cadence and explicit approval gates |",
     "- **Commit cadence** — read `git_delivery` from `.w2c/config.toml`. Never commit, push, or open a "

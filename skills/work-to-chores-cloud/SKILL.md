@@ -14,7 +14,7 @@ description: >-
 
 # Work to Chores (cloud)
 
-Requires: w2c >= 3.2.0
+Requires: w2c >= 3.3.0
 
 **Plan only.** Interview, review, plan, validate, then write one OpenSpec change. Never implement product code.
 
@@ -28,14 +28,14 @@ Committed change files (everything under `openspec/changes/<name>/`) and the `.d
 
 Before Stage 1:
 
-1. Confirm `w2c` is on PATH (`command -v w2c`) and `w2c --version` is 3.2.0 or later. Do this first: every later step, including each `w2c event` log line, needs it. If it is missing, follow the uvx paragraph below before any other step, and log nothing until `w2c` (or the uvx prefix) works.
+1. Confirm `w2c` is on PATH (`command -v w2c`) and `w2c --version` is 3.3.0 or later. Do this first: every later step, including each `w2c event` log line, needs it. If it is missing, follow the uvx paragraph below before any other step, and log nothing until `w2c` (or the uvx prefix) works.
 2. Check whether **grilling** and **brainstorming** are invocable. If either is missing (for example on Copilot or Cursor), follow **Missing companion skills (ask first)** below.
 3. Run `w2c openspec-check`. If `needs` contains `NEED_OPENSPEC_INSTALL` or `NEED_OPENSPEC_INIT`, follow **OpenSpec install (ask first)**.
 
-If `w2c` is missing or older than 3.2.0: ask the user whether to run it once through uvx. On yes, use this prefix for every `w2c` command in this run:
+If `w2c` is missing or older than 3.3.0: ask the user whether to run it once through uvx. On yes, use this prefix for every `w2c` command in this run:
 
 ```bash
-uvx --from git+https://github.com/OpenW2C/w2c@v3.2.0 w2c …
+uvx --from git+https://github.com/OpenW2C/w2c@v3.3.0 w2c …
 ```
 
 On no: **STOP**. Tell the user to install it (`pipx install git+https://github.com/OpenW2C/w2c.git && w2c install-skills`) and re-invoke this skill. Never run uvx without that yes.
@@ -263,7 +263,7 @@ Every row of `## Delivery Plan` gets one of these values:
 | Local branch | ticket id or confirmed slug |
 | Remote branch | **must equal** Local branch |
 | Isolation scope | `ticket` |
-| Setup when | `first-task` |
+| Setup when | `spec-commit` |
 | Reuse policy | `reuse-if-same-ticket-else-stop` |
 | Worktree skill | `using-git-worktrees` if mode is `worktree`; `n/a` if `branch` |
 | Worktree layout | `main-checkout` or `bare-container` from `w2c repo-layout` when mode is `worktree`; `n/a` if `branch` |
@@ -308,7 +308,7 @@ Ask the user to review the plan (isolation, branch, cadence, slices, decisions).
 2. `w2c cloud decisions-flush --change <name>`.
 3. For each artifact, run `openspec instructions <artifact> --change <name> --json` and write the file it names. Order: proposal, specs, design, tasks. For `design.md` and `tasks.md`, fill the files `w2c cloud new` wrote: never replace them. `w2c cloud template design` and `w2c cloud template read-first` print the same text again if one was lost.
 4. **`design.md`** must contain these six required sections, in this order, as `w2c cloud new` wrote them. After `openspec instructions design`, put OpenSpec's own design sections (Context, Goals / Non-Goals, Risks / Trade-offs, Migration Plan, Open Questions) after `## Amendments`. Never remove or rename the six:
-   - `## Delivery Plan` — every row filled (value or `none`): Isolation mode, Local branch, Remote branch, Isolation scope `ticket`, Setup when `first-task`, Reuse policy, Worktree skill, Worktree layout, Worktree dir, Exclude line, Push rule, Base dirt policy, External ticket ID, Integration strategy, Integration branch, Production branch, Review unit, Execution sequence, Validation commands, Completion condition, Size budget (LOC diff), Manual test guide. Plus `### Base dirt paths` for `leave-untouched`.
+   - `## Delivery Plan` — every row filled (value or `none`): Isolation mode, Local branch, Remote branch, Isolation scope `ticket`, Setup when `spec-commit`, Reuse policy, Worktree skill, Worktree layout, Worktree dir, Exclude line, Push rule, Base dirt policy, External ticket ID, Integration strategy, Integration branch, Production branch, Review unit, Execution sequence, Validation commands, Completion condition, Size budget (LOC diff), Manual test guide. Plus `### Base dirt paths` for `leave-untouched`.
    - `## Guardrails` — the template's guardrails, verbatim. Do not edit them.
    - `## Commit and PR Conventions` — the template text verbatim, with only the placeholders filled as **Commit and PR conventions** says.
    - `## Decisions` — the flushed table, plus the Decision Rationale prose for each grilled choice.
@@ -335,17 +335,30 @@ Ask the user to review the plan (isolation, branch, cadence, slices, decisions).
    Fill all eight fields in every group. Task checkboxes live only in their group.
 
    do-chores-cloud writes the closeout reports under `.delivery/` from `w2c cloud template task-summary`, `slice-uat`, `slice-summary`, `validation`, and `summary`. Do not write them here.
-6. `w2c cloud status-set <name> TODO` when the plan is ready to run.
-7. `openspec validate <name> --strict` and `w2c cloud smoke --change <name>`. A format-only failure is fixed in place. A content change goes back to Stage 1.
+6. Keep `x-delivery-status` at `PLANNING` until the plan-commit gate succeeds (so `openspec-change-tracked` does not fail early).
+7. `openspec validate <name> --strict` and `w2c cloud smoke --change <name>` (content rows). A format-only failure is fixed in place. A content change goes back to Stage 1.
 
 ### Plan-commit gate (always ask)
 
-After smoke passes, ask for approval to commit the change folder. This is not a push.
+After content smoke passes, **before** asking to commit the change folder:
+
+1. Run `w2c cloud smoke --change <name>` (or `w2c openspec-check`) and inspect `openspec-not-ignored` / `NEED_OPENSPEC_UNIGNORE`.
+2. If the change path is gitignored (often a whole-tree `openspec/` rule): **STOP**. Grill approval to remove or negate that rule for the **entire** `openspec/` tree. Apply the `.gitignore` edit only after yes. Ask a **separate** yes before committing the `.gitignore` change. **Never** use `git add -f` / force-add.
+3. Re-run the ignore probe. Do not continue while the change is still ignored.
+
+Then ask for approval to commit the change folder. This is not a push.
 
 - **Branch mode:** apply the stored Base dirt policy (`w2c base-dirt`; the same warning-turn rules), create or check out the ticket branch (`<Remote branch>`, never the change slug) without force, and commit only `openspec/changes/<name>/`.
 - **Worktree mode:** do not check the ticket branch out here. Run `w2c worktree-add --branch <Remote branch> --create-from HEAD` (`--exclude no` only for `exclude-no`), move `openspec/changes/<name>/` into that worktree, run `w2c worktree-seed --check` there (repair once with `w2c worktree-seed` if needed; **STOP** if still failing), and commit the change folder there.
 
 Never stage deny-listed paths. Never name a `.delivery/` path or local planner file in the message. Never add a `Co-authored-by` trailer. On no, leave the files uncommitted and say that a fresh clone will not see the plan until it is committed.
+
+After a yes commit (worktree or branch):
+
+1. Re-run `w2c cloud smoke --change <name>`.
+2. If `openspec-not-ignored` or `openspec-change-tracked` fails: **STOP**. Do not hand off to `do-chores-cloud`. Fix ignore / finish a normal (non-force) plan commit first.
+3. Keep Delivery Plan `Setup when` as `spec-commit`.
+4. `w2c cloud status-set <name> TODO` only after that clean smoke, then re-run `w2c cloud smoke --change <name>` so `openspec-change-tracked` passes.
 
 ### Plan-push gate (temporary container only)
 
@@ -379,3 +392,4 @@ Then tell the user to run `do-chores-cloud`.
 - Naming a `.delivery/` path in commit text, or adding `Co-authored-by:` trailers
 - Writing "w2c" or a `.w2c/` path into a committed change file or a `.delivery/` report
 - Replacing the `design.md` or `tasks.md` that `w2c cloud new` wrote, or rewording its Guardrails or Conventions lines
+- Force-adding (`git add -f`) ignored OpenSpec paths, or handing off while `openspec/` is gitignored / the change is untracked

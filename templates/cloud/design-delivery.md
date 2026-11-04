@@ -6,7 +6,7 @@
 | Local branch | |
 | Remote branch | |
 | Isolation scope | ticket |
-| Setup when | first-task |
+| Setup when | spec-commit |
 | Reuse policy | reuse-if-same-ticket-else-stop |
 | Worktree skill | |
 | Worktree layout | |

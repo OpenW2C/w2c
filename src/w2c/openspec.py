@@ -18,6 +18,8 @@ MIN_OPENSPEC_VERSION = (1, 14, 3)
 RULE_MARKER = "W2C-OPENSPEC-RULES"
 NEED_INSTALL = "NEED_OPENSPEC_INSTALL"
 NEED_INIT = "NEED_OPENSPEC_INIT"
+NEED_UNIGNORE = "NEED_OPENSPEC_UNIGNORE"
+NEED_SPEC_COMMIT = "NEED_OPENSPEC_SPEC_COMMIT"
 
 CONFIG_RULES_SNIPPET = (
     "rules:\n"
@@ -245,4 +247,9 @@ def check(root: Path) -> dict:
         payload["rules_checked_via"] = "config-text"
     elif change:
         payload["rules_checked_via"] = "instructions"
+    from w2c import openspec_ledger as osl
+
+    for token in osl.track_needs(root):
+        if token not in payload["needs"]:
+            payload["needs"].append(token)
     return payload

@@ -38,7 +38,6 @@ NEED_CONFIG_APPROVAL openspec/config.yaml (rerun with --yes-config to add):
 +    guidance:
 +      - "For a change whose .openspec.yaml has x-delivery-status: READ-FIRST: read the read-first block at the top of tasks.md, then design.md, before any edit."
 +      - "For a change whose .openspec.yaml has x-delivery-status: Run this change only with the do-chores-cloud skill. If it is not available, stop and ask the user."
-NEED_REWRITE_APPROVAL .w2c/plans/M002-add-fifth/M002-ROADMAP.md:61 | Setup when | first-do-chores | -> | Setup when | first-task |
 NEED_REWRITE_APPROVAL .w2c/plans/M002-add-fifth/M002-ROADMAP.md:41 | Integration strategy | (from .w2c/DELIVERY-PROFILE.md) | -> | Integration strategy | (from the project's delivery profile) |
 NEED_REWRITE_APPROVAL .w2c/plans/M002-add-fifth/M002-ROADMAP.md:50 | Completion condition | All slices verified; honor git_delivery + explicit approval gates | -> | Completion condition | All slices verified; honor x-delivery-cadence and explicit approval gates |
 NEED_REWRITE_APPROVAL .w2c/plans/M002-add-fifth/M002-ROADMAP.md:72 - **Commit cadence** — read `git_delivery` from `.w2c/config.toml`. Never commit, push, or open a PR without explicit user approval for that action. -> - **Commit cadence** — commit, push and pull-request timing follows the change's `x-delivery-cadence` key in `.openspec.yaml`. Every commit, push and pull request still needs explicit user approval. Never commit, push, or open a PR without explicit user approval for that action.
