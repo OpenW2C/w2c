@@ -171,11 +171,13 @@ class SkillTrialTests(unittest.TestCase):
         shared = w2c_trials.SHARED_GROUPS
         self.assertEqual(
             w2c_trials.GROUPS_BOTH["work-to-chores-cloud"],
-            shared + ("interview", "plan-write", "reorder", "amend", "design-sections", "convert"),
+            shared + ("interview", "plan-write", "reorder", "amend", "design-sections", "convert",
+                      "companion-ask"),
         )
         self.assertEqual(
             w2c_trials.GROUPS_BOTH["do-chores-cloud"],
-            shared + ("step-loop", "closeout", "blocker", "ephemeral-push", "read-first", "no-answer", "off-plan"),
+            shared + ("step-loop", "closeout", "blocker", "ephemeral-push", "read-first", "no-answer", "off-plan",
+                      "companion-ask"),
         )
         for token in ("design.md", ".delivery", "ephemeral", "step"):
             self.assertIn(token, w2c_trials.CLOUD_CONCRETE_TOKENS)

@@ -92,6 +92,25 @@ class CloudSkillTextTests(unittest.TestCase):
             self.assertIn("## Companion fallback", text, skill)
         self.assertIn("requesting-code-review", _text("do-chores-cloud"))
 
+    def test_cloud_skills_ask_before_fallback(self) -> None:
+        question = (
+            "These companion skills are not installed here: <names>. "
+            "Without them I use the written fallback in this skill.",
+            "(a) Stop now so you can install them, then run this skill again. "
+            "[recommended when agent is claude-code]",
+            "(b) Continue with the written fallback. [recommended otherwise]",
+        )
+        for skill in ("work-to-chores-cloud", "do-chores-cloud"):
+            text = _text(skill)
+            self.assertIn("### Missing companion skills (ask first)", text, skill)
+            for line in question:
+                self.assertIn(line, text, skill)
+            for token in ("w2c help companions", "agent:", '--event stop --detail "install <names>"',
+                          "one question for every missing companion"):
+                self.assertIn(token, text, skill)
+            self.assertNotIn("Tell the user once which companion is missing", text, skill)
+            self.assertNotIn("and tell the user once", text, skill)
+
     def test_cloud_copilot_wrappers_match_the_2_2_shape(self) -> None:
         for old, new in (("work-to-chores", "work-to-chores-cloud"), ("do-chores", "do-chores-cloud")):
             self.assertEqual(_text(new, "SKILL.copilot.md"), _text(old, "SKILL.copilot.md"))

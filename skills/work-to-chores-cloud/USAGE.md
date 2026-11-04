@@ -14,7 +14,7 @@ Say `convert M007` to turn a 2.2 OpenSpec milestone into a cloud change. The age
 
 Say `reorder changes` to change which pending change runs next, or `amend change <name>` to drop, edit, or add open work. Amendments need one approval of the whole batch and go through the `w2c cloud amend-begin` / `amend-end` commands.
 
-**Need first:** grilling and brainstorming. If either is missing (for example on Copilot or Cursor), the skill uses its written fallback interview instead of stopping.
+**Need first:** grilling and brainstorming. When a companion skill is missing, the agent asks whether to stop so you can install it, or continue with the written fallback (its written interview).
 
 **Need on this machine:** `w2c` 3.0.0 or later and `openspec`. If `w2c` is missing, the agent asks before running it through `uvx --from git+https://github.com/OpenW2C/w2c@v3.0.0 w2c`.
 

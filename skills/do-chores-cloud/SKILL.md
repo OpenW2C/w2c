@@ -39,11 +39,27 @@ do chores cloud [--change <name>] [--max-units N]
 
    On no: **STOP** and tell the user to install it (`pipx install git+https://github.com/OpenW2C/w2c.git && w2c install-skills`). Never run uvx without that yes.
 2. `openspec` on PATH. Run `w2c openspec-check`. If `needs` contains `NEED_OPENSPEC_INSTALL` or `NEED_OPENSPEC_INIT`, ask first. On yes, follow `Fetch https://raw.githubusercontent.com/Fission-AI/OpenSpec/main/install.md and follow it.` and stop where it says to stop. On no, stop.
-3. **requesting-code-review** invocable. If it is missing (for example on Copilot or Cursor), do not stop: use **Companion fallback** for every `review` action, and tell the user once.
+3. **requesting-code-review** invocable. If it is missing (for example on Copilot or Cursor), follow **Missing companion skills (ask first)** below.
 
 No `.w2c/` ledger is needed. The plan is the change under `openspec/changes/<name>/`; local state is only the step state, kept in the checkout's own git directory (`.w2c/runtime/step.json` outside git), which is never committed. Each linked worktree has its own.
 
 Committed change files and the `.delivery/` reports must never contain the word "w2c", in any case, or a `.w2c/` path. Say "local planner files" instead.
+
+### Missing companion skills (ask first)
+
+Run `w2c cloud env` and read its `agent:` line. Ask one question for every missing companion together, not one per skill, and wait for the answer:
+
+```text
+These companion skills are not installed here: <names>. Without them I use the written fallback in this skill.
+(a) Stop now so you can install them, then run this skill again. [recommended when agent is claude-code]
+(b) Continue with the written fallback. [recommended otherwise]
+```
+
+`<names>` lists the missing skills (requesting-code-review). Mark (a) `[recommended]` when `agent:` is `claude-code`, and (b) otherwise.
+
+- **(a):** run `w2c help companions` and show the user only the section named by `agent:`, or every section when it is `unknown`. Never write install steps that this command does not print. Log `--stage prereq --event stop --detail "install <names>"` and **STOP**.
+- **(b):** follow **Companion fallback** for each missing skill. Use it for every `review` action. Log `--stage prereq --event retry --detail "fallback <names>"`.
+- **No answer:** when the run cannot wait for an answer, take (b). Never claim that a missing skill ran.
 
 ## The loop (exactly this)
 
@@ -149,7 +165,7 @@ If the user asks for anything the current action does not cover (another task, a
 
 ## Companion fallback
 
-Use this only when requesting-code-review is missing. For each `review` action:
+Use this only when requesting-code-review is missing, and only after the user chose (b) or the run could not wait for an answer. For each `review` action:
 
 1. Re-read the task line and its `Verify:` line in `w2c cloud brief`, and the spec scenario the task implements, before reading the diff.
 2. Review the task's diff against each class below. For every class, write one line in the task summary: what you checked, then either the finding or `none, because …` with the reason.
