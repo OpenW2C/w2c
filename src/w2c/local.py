@@ -175,6 +175,45 @@ def normalize_schema_version(value: object | None) -> int:
 
 _SEED_INVALID_PARTS = frozenset({"", ".", ".."})
 
+WORKTREE_SEED_POLICY_UNSET = "unset"
+WORKTREE_SEED_POLICY_NONE = "none"
+WORKTREE_SEED_POLICY_PATHS = "paths"
+WORKTREE_SEED_POLICY_VALUES = frozenset(
+    {
+        WORKTREE_SEED_POLICY_UNSET,
+        WORKTREE_SEED_POLICY_NONE,
+        WORKTREE_SEED_POLICY_PATHS,
+    }
+)
+
+
+def normalize_worktree_seed_policy(value: object | None) -> str:
+    """Return unset|none|paths. Missing / empty → unset; other values raise LocalError."""
+    if value is None:
+        return WORKTREE_SEED_POLICY_UNSET
+    text = str(value).strip().lower()
+    if not text:
+        return WORKTREE_SEED_POLICY_UNSET
+    if text not in WORKTREE_SEED_POLICY_VALUES:
+        raise LocalError(
+            f"invalid worktree_seed_policy {value!r}; use unset|none|paths"
+        )
+    return text
+
+
+def assert_worktree_seed_invariants(policy: str, paths: list[str]) -> None:
+    """Refuse invalid policy / path list combinations."""
+    policy = normalize_worktree_seed_policy(policy)
+    paths = normalize_worktree_seed(paths)
+    if policy in {WORKTREE_SEED_POLICY_UNSET, WORKTREE_SEED_POLICY_NONE} and paths:
+        raise LocalError(
+            f"worktree_seed_policy={policy!r} requires an empty worktree_seed list"
+        )
+    if policy == WORKTREE_SEED_POLICY_PATHS and not paths:
+        raise LocalError(
+            "worktree_seed_policy='paths' requires a non-empty worktree_seed list"
+        )
+
 
 def normalize_worktree_seed(value: object | None) -> list[str]:
     """Return relative seed paths. Reject absolute paths, ``..``, and empty segments."""
@@ -200,11 +239,15 @@ def normalize_worktree_seed(value: object | None) -> list[str]:
     return out
 
 
-def dump_worktree_seed_lines(paths: list[str]) -> list[str]:
-    if not paths:
-        return []
+def dump_worktree_seed_lines(
+    paths: list[str], policy: str = WORKTREE_SEED_POLICY_UNSET
+) -> list[str]:
     q = chr(34)
-    lines = ["worktree_seed = ["]
+    policy = normalize_worktree_seed_policy(policy)
+    lines = ["worktree_seed_policy = " + q + policy + q]
+    if not paths:
+        return lines
+    lines.append("worktree_seed = [")
     for rel in paths:
         escaped = rel.replace(chr(92), chr(92) * 2).replace(q, chr(92) + q)
         lines.append("  " + q + escaped + q + ",")
@@ -220,6 +263,7 @@ def load_repo_config(root: Path) -> dict:
             "worktree_ledger": "materialize",
             "worktree_dir": ".worktrees",
             "worktree_seed": [],
+            "worktree_seed_policy": WORKTREE_SEED_POLICY_UNSET,
             "git_delivery": None,
             "planning": PLANNING_CLASSIC,
             "schema_version": 1,
@@ -250,11 +294,19 @@ def load_repo_config(root: Path) -> dict:
         worktree_seed = normalize_worktree_seed(data.get("worktree_seed"))
     except LocalError:
         worktree_seed = []
+    try:
+        worktree_seed_policy = normalize_worktree_seed_policy(
+            data.get("worktree_seed_policy")
+        )
+    except LocalError:
+        worktree_seed_policy = WORKTREE_SEED_POLICY_UNSET
+    # Do not coerce invalid combos on load — smoke reports them.
     return {
         "track": bool(data.get("track", False)),
         "worktree_ledger": ledger,
         "worktree_dir": worktree_dir,
         "worktree_seed": worktree_seed,
+        "worktree_seed_policy": worktree_seed_policy,
         "git_delivery": normalize_git_delivery(data.get("git_delivery")),
         "planning": planning,
         "schema_version": normalize_schema_version(data.get("schema_version")),
@@ -276,6 +328,7 @@ def dump_repo_config(
     amend_prior_status: str = "",
     amend_decision: str = "",
     worktree_seed: list[str] | None = None,
+    worktree_seed_policy: str | None = None,
 ) -> str:
     if worktree_ledger not in {"symlink", "copy", "materialize"}:
         worktree_ledger = "materialize"
@@ -286,6 +339,12 @@ def dump_repo_config(
 
         w2c_version = pkg_version
     seed = normalize_worktree_seed(worktree_seed)
+    policy = normalize_worktree_seed_policy(
+        worktree_seed_policy
+        if worktree_seed_policy is not None
+        else WORKTREE_SEED_POLICY_UNSET
+    )
+    assert_worktree_seed_invariants(policy, seed)
     flag = "true" if track else "false"
     q = chr(34)
     lines = [
@@ -299,7 +358,7 @@ def dump_repo_config(
     lines.append("planning = " + q + normalize_planning(planning) + q)
     lines.append("schema_version = " + str(int(schema_version)))
     lines.append("w2c_version = " + q + str(w2c_version) + q)
-    lines.extend(dump_worktree_seed_lines(seed))
+    lines.extend(dump_worktree_seed_lines(seed, policy))
     if amend_lock:
         lines.append("amend_lock = " + q + str(amend_lock) + q)
         lines.append("amend_prior_status = " + q + str(amend_prior_status) + q)
@@ -317,6 +376,7 @@ def write_repo_config(
     schema_version: int | None = None,
     amend_update: dict | None = None,
     worktree_seed: list[str] | None = None,
+    worktree_seed_policy: str | None = None,
 ) -> None:
     current = load_repo_config(root)
     if track is None:
@@ -331,6 +391,13 @@ def write_repo_config(
         worktree_seed = list(current.get("worktree_seed") or [])
     else:
         worktree_seed = normalize_worktree_seed(worktree_seed)
+    if worktree_seed_policy is None:
+        worktree_seed_policy = str(
+            current.get("worktree_seed_policy") or WORKTREE_SEED_POLICY_UNSET
+        )
+    else:
+        worktree_seed_policy = normalize_worktree_seed_policy(worktree_seed_policy)
+    assert_worktree_seed_invariants(worktree_seed_policy, worktree_seed)
     path = repo_config_path(root)
     if schema_version is None:
         schema_version = (
@@ -360,6 +427,7 @@ def write_repo_config(
             amend_prior_status=amend_prior_status,
             amend_decision=amend_decision,
             worktree_seed=worktree_seed,
+            worktree_seed_policy=worktree_seed_policy,
         ),
         encoding="utf-8",
     )

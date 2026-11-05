@@ -34,9 +34,16 @@ On a main checkout, Git would otherwise show `.worktrees/` as untracked. W2C can
 
 ## Local files (env and secrets)
 
-Git worktrees do not copy gitignored files such as `.env`. List relative paths in `.w2c/config.toml` as `worktree_seed`. An empty list (or omitting the key) turns seeding off.
+Git worktrees do not copy gitignored files such as `.env`. You must set an explicit seed policy in `.w2c/config.toml` before worktree isolation:
+
+| `worktree_seed_policy` | `worktree_seed` | Meaning |
+| --- | --- | --- |
+| `unset` (default when the key is missing) | must be `[]` | Planning incomplete. `worktree-add` / seed apply / `--check` hard-stop. |
+| `none` | must be `[]` | No seeding. `--check` passes. New env files on main do **not** auto-change this. |
+| `paths` | non-empty relative paths | Symlink those files from the main checkout into each ticket worktree. |
 
 ```toml
+worktree_seed_policy = "paths"
 worktree_seed = [
   ".env",
   ".envrc.local",
@@ -44,13 +51,15 @@ worktree_seed = [
 ]
 ```
 
-`w2c worktree-add` and `w2c worktree-seed` create **symlinks** from the main checkout file into the worktree. They never overwrite an existing file or a wrong symlink. A missing source file prints `seed-skip missing-source` and is skipped.
+Upgrade note: an empty `worktree_seed` list alone is no longer enough. Existing repos must set `none` or `paths` on the first worktree plan (or during TTY `w2c init`).
 
-`w2c worktree-seed --check` exits non-zero when a configured path has a source on the main checkout but is missing or wrong in the current checkout. Agents run this after isolation and may run `w2c worktree-seed` once to repair.
+`w2c worktree-add` and `w2c worktree-seed` create **symlinks** from the main checkout file into the worktree under `paths`. They never overwrite an existing file or a wrong symlink. Apply still prints `seed-skip missing-source` for a listed path missing on main, but `--check` fails with `seed-missing-source` until the source exists or the list is fixed.
 
-`w2c worktree-seed --suggest` prints common env file candidates under the seed source checkout. On a new `w2c init` with a terminal, W2C may ask whether to store those candidates as `worktree_seed`.
+`w2c worktree-seed --check` is policy-aware: `unset` → `seed-policy-unset` (exit 1); `none` → pass; `paths` → fail on missing source, missing link, or wrong link. Agents run this after isolation and may run `w2c worktree-seed` once to repair under `paths`.
 
-## How the ledger stays in step
+`w2c worktree-seed --suggest` prints common env file candidates (print-only; never writes policy). On a new TTY `w2c init`, W2C writes `paths` (accept candidates) or `none` (decline / no candidates). Non-TTY init may leave `unset`; the first worktree planning grill must close it.
+
+`w2c smoke` row `worktree-seed-policy` fails invalid policy/list combinations when `.w2c/config.toml` exists. Branch isolation does not require a seed decision.
 
 ## How the ledger stays in step
 

@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 SRC = Path(__file__).resolve().parents[1] / "src"
@@ -48,8 +49,8 @@ class WorktreeSeedTest(unittest.TestCase):
             code = w2c.main(["--root", str(root), *args])
         return code, out.getvalue(), err.getvalue()
 
-    def make_repo(self) -> Path:
-        repo = self.tmp / "repo"
+    def make_repo(self, name: str = "repo") -> Path:
+        repo = self.tmp / name
         repo.mkdir()
         git(repo, "init", "-q", "-b", "main")
         git(repo, "config", "user.email", "test@example.com")
@@ -79,8 +80,13 @@ class WorktreeSeedTest(unittest.TestCase):
         repo = self.make_repo()
         self.init_ledger(repo)
         self.assertEqual(w2c_local.load_repo_config(repo).get("worktree_seed"), [])
+        self.assertEqual(
+            w2c_local.load_repo_config(repo).get("worktree_seed_policy"), "unset"
+        )
         w2c_local.write_repo_config(
-            repo, worktree_seed=[".env", "apps/app-v2/.env"]
+            repo,
+            worktree_seed=[".env", "apps/app-v2/.env"],
+            worktree_seed_policy="paths",
         )
         loaded = w2c_local.load_repo_config(repo)["worktree_seed"]
         self.assertEqual(loaded, [".env", "apps/app-v2/.env"])
@@ -88,6 +94,9 @@ class WorktreeSeedTest(unittest.TestCase):
         self.assertEqual(
             w2c_local.load_repo_config(repo)["worktree_seed"],
             [".env", "apps/app-v2/.env"],
+        )
+        self.assertEqual(
+            w2c_local.load_repo_config(repo)["worktree_seed_policy"], "paths"
         )
 
     def test_seed_local_files_creates_nested_symlink(self) -> None:
@@ -148,7 +157,14 @@ class WorktreeSeedTest(unittest.TestCase):
         problems = w2c_worktree.check_seeded(
             source, dest, [".env", ".envrc.local", "absent.env"]
         )
-        self.assertEqual(set(problems), {"seed-missing .env", "seed-missing .envrc.local"})
+        self.assertEqual(
+            set(problems),
+            {
+                "seed-missing .env",
+                "seed-missing .envrc.local",
+                "seed-missing-source absent.env",
+            },
+        )
         w2c_worktree.seed_local_files(source, dest, [".env", ".envrc.local"])
         self.assertEqual(
             w2c_worktree.check_seeded(source, dest, [".env", ".envrc.local"]), []
@@ -168,7 +184,9 @@ class WorktreeSeedTest(unittest.TestCase):
         nested.parent.mkdir(parents=True)
         nested.write_text("EXPO=1\n", encoding="utf-8")
         w2c_local.write_repo_config(
-            repo, worktree_seed=[".env", "apps/app-v2/.env", "nope.env"]
+            repo,
+            worktree_seed=[".env", "apps/app-v2/.env"],
+            worktree_seed_policy="paths",
         )
 
         code, out, err = self.run_w2c(
@@ -179,7 +197,6 @@ class WorktreeSeedTest(unittest.TestCase):
         self.assertTrue(wt.is_dir())
         self.assertIn("seed-linked .env", err)
         self.assertIn("seed-linked apps/app-v2/.env", err)
-        self.assertIn("seed-skip missing-source nope.env", err)
         self.assertTrue((wt / ".env").is_symlink())
         self.assertTrue((wt / ".env").samefile(repo / ".env"))
         self.assertTrue((wt / "apps" / "app-v2" / ".env").is_symlink())
@@ -205,7 +222,9 @@ class WorktreeSeedTest(unittest.TestCase):
         repo = self.make_repo()
         self.init_ledger(repo)
         (repo / ".env").write_text("x\n", encoding="utf-8")
-        w2c_local.write_repo_config(repo, worktree_seed=[".env"])
+        w2c_local.write_repo_config(
+            repo, worktree_seed=[".env"], worktree_seed_policy="paths"
+        )
         code, out, err = self.run_w2c(
             repo, "worktree-add", "--branch", "TICKET-2", "--create-from", "main"
         )
@@ -225,10 +244,105 @@ class WorktreeSeedTest(unittest.TestCase):
         self.assertIn(".env", out.splitlines())
         self.assertIn(".envrc.local", out.splitlines())
         code2, out2, err2 = self.run_w2c(repo, "worktree-seed", "--check")
+        self.assertEqual(code2, 1, err2 + out2)
+        self.assertIn("seed-policy-unset", out2)
+        w2c_local.write_repo_config(
+            repo, worktree_seed=[], worktree_seed_policy="none"
+        )
+        code3, out3, err3 = self.run_w2c(repo, "worktree-seed", "--check")
+        self.assertEqual(code3, 0, err3 + out3)
+        code4, out4, err4 = self.run_w2c(repo, "worktree-seed")
+        self.assertEqual(code4, 0, err4)
+        self.assertIn("seed-policy-none", out4)
+
+    def test_paths_missing_source_fails_check(self) -> None:
+        repo = self.make_repo()
+        self.init_ledger(repo)
+        w2c_local.write_repo_config(
+            repo, worktree_seed=[".env"], worktree_seed_policy="paths"
+        )
+        code, out, err = self.run_w2c(
+            repo, "worktree-add", "--branch", "TICKET-MS", "--create-from", "main"
+        )
+        self.assertEqual(code, 0, err)
+        wt = Path(out.strip())
+        self.assertIn("seed-skip missing-source .env", err)
+        code2, out2, _ = self.run_w2c(wt, "worktree-seed", "--check")
+        self.assertEqual(code2, 1)
+        self.assertIn("seed-missing-source .env", out2)
+
+    def test_invariants_refuse_invalid_combos(self) -> None:
+        repo = self.make_repo()
+        self.init_ledger(repo)
+        with self.assertRaises(w2c_local.LocalError):
+            w2c_local.write_repo_config(
+                repo, worktree_seed=[".env"], worktree_seed_policy="none"
+            )
+        with self.assertRaises(w2c_local.LocalError):
+            w2c_local.write_repo_config(
+                repo, worktree_seed=[], worktree_seed_policy="paths"
+            )
+        with self.assertRaises(w2c_local.LocalError):
+            w2c_local.write_repo_config(
+                repo, worktree_seed=[".env"], worktree_seed_policy="unset"
+            )
+
+    def test_none_does_not_auto_flip_when_env_appears(self) -> None:
+        repo = self.make_repo()
+        self.init_ledger(repo)
+        w2c_local.write_repo_config(
+            repo, worktree_seed=[], worktree_seed_policy="none"
+        )
+        (repo / ".env").write_text("later\n", encoding="utf-8")
+        cfg = w2c_local.load_repo_config(repo)
+        self.assertEqual(cfg["worktree_seed_policy"], "none")
+        self.assertEqual(cfg["worktree_seed"], [])
+        code, out, err = self.run_w2c(
+            repo, "worktree-add", "--branch", "TICKET-NONE", "--create-from", "main"
+        )
+        self.assertEqual(code, 0, err)
+        self.assertIn("seed-policy-none", err)
+        self.assertFalse((Path(out.strip()) / ".env").exists())
+
+
+    def test_init_tty_prompt_writes_none_or_paths(self) -> None:
+        repo = self.make_repo()
+        (repo / ".env").write_text("a=1\n", encoding="utf-8")
+
+        class _TTY:
+            def isatty(self) -> bool:
+                return True
+
+        # Accept candidates → paths
+        with mock.patch("sys.stdin", _TTY()), mock.patch("builtins.input", return_value="y"):
+            code, out, err = self.run_w2c(
+                repo, "init", "--git-delivery", "slice-commit-milestone-push-pr", "--planning", "classic"
+            )
+        self.assertEqual(code, 0, err + out)
+        cfg = w2c_local.load_repo_config(repo)
+        self.assertEqual(cfg["worktree_seed_policy"], "paths")
+        self.assertIn(".env", cfg["worktree_seed"])
+
+        # Re-init should not re-prompt (policy already set). Decline path covered on fresh repo.
+        repo2 = self.make_repo("repo2")
+        (repo2 / ".env").write_text("a=1\n", encoding="utf-8")
+        with mock.patch("sys.stdin", _TTY()), mock.patch("builtins.input", return_value="n"):
+            code2, out2, err2 = self.run_w2c(
+                repo2, "init", "--git-delivery", "slice-commit-milestone-push-pr", "--planning", "classic"
+            )
         self.assertEqual(code2, 0, err2 + out2)
-        code3, out3, err3 = self.run_w2c(repo, "worktree-seed")
-        self.assertEqual(code3, 0, err3)
-        self.assertEqual(out3.strip(), "")
+        cfg2 = w2c_local.load_repo_config(repo2)
+        self.assertEqual(cfg2["worktree_seed_policy"], "none")
+        self.assertEqual(cfg2["worktree_seed"], [])
+
+        # No candidates → none without asking
+        repo3 = self.make_repo("repo3")
+        with mock.patch("sys.stdin", _TTY()), mock.patch("builtins.input", side_effect=AssertionError("should not ask")):
+            code3, out3, err3 = self.run_w2c(
+                repo3, "init", "--git-delivery", "slice-commit-milestone-push-pr", "--planning", "classic"
+            )
+        self.assertEqual(code3, 0, err3 + out3)
+        self.assertEqual(w2c_local.load_repo_config(repo3)["worktree_seed_policy"], "none")
 
 
 if __name__ == "__main__":

@@ -81,7 +81,7 @@
       "ask": "w2c is not installed on this machine. Plan DEMO-3 in cloud mode.",
       "passes_when": "The agent asks before using uvx.",
       "must": [
-        "The agent asks before running uvx --from git+https://github.com/OpenW2C/w2c@v3.3.0 w2c.",
+        "The agent asks before running uvx --from git+https://github.com/OpenW2C/w2c@v3.4.0 w2c.",
         "On no, the agent stops and does not write the openspec change."
       ]
     },
@@ -323,6 +323,19 @@
       "must": [
         "The agent does not tell the user to run do-chores-cloud while openspec-change-tracked fails.",
         "The agent does not force-add ignored paths."
+      ]
+    },
+    {
+      "id": "R42",
+      "kind": "ordinary",
+      "mode": "openspec",
+      "group": "isolation",
+      "ask": "Cloud planning. Isolation mode is worktree. worktree_seed_policy is unset.",
+      "passes_when": "The agent grills paths vs none and writes policy before plan-commit isolation.",
+      "must": [
+        "The agent treats unset worktree_seed_policy as incomplete for worktree mode.",
+        "The agent runs w2c worktree-seed --suggest for evidence.",
+        "The agent grills paths or none and writes config after yes."
       ]
     }
   ]

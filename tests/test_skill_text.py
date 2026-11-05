@@ -41,26 +41,29 @@ def _text(skill: str, name: str = "SKILL.md") -> str:
 
 class LocalSkillSeedGuardTests(unittest.TestCase):
     def test_local_skills_require_w2c_32_and_seed_check(self) -> None:
-        expected = {"work-to-chores": "Requires: w2c >= 3.3.1", "do-chores": "Requires: w2c >= 3.3.0"}
+        expected = {"work-to-chores": "Requires: w2c >= 3.4.0", "do-chores": "Requires: w2c >= 3.4.0"}
         for skill, req in expected.items():
             text = _text(skill)
             self.assertIn(req, text, skill)
             self.assertIn("w2c worktree-seed --check", text, skill)
             self.assertIn("w2c worktree-seed", text, skill)
+            self.assertIn("worktree_seed_policy", text, skill)
             self.assertIn("STOP", text, skill)
 
     def test_cloud_skills_name_worktree_seed_guard(self) -> None:
         for skill in ("work-to-chores-cloud", "do-chores-cloud"):
             text = _text(skill)
             self.assertIn("w2c worktree-seed --check", text, skill)
+            self.assertIn("worktree_seed_policy", text, skill)
+            self.assertIn("Requires: w2c >= 3.4.0", text, skill)
 
 
 class CloudSkillTextTests(unittest.TestCase):
     def test_both_cloud_skills_require_w2c_3(self) -> None:
         for skill in ("work-to-chores-cloud", "do-chores-cloud"):
             text = _text(skill)
-            self.assertIn("Requires: w2c >= 3.3.0", text, skill)
-            self.assertIn("uvx --from git+https://github.com/OpenW2C/w2c@v3.3.0 w2c", text, skill)
+            self.assertIn("Requires: w2c >= 3.4.0", text, skill)
+            self.assertIn("uvx --from git+https://github.com/OpenW2C/w2c@v3.4.0 w2c", text, skill)
 
     def test_do_chores_cloud_names_the_step_loop(self) -> None:
         text = _text("do-chores-cloud")
@@ -142,7 +145,7 @@ class CloudSkillTextTests(unittest.TestCase):
             new = _text(skill)
             for line in allowed:
                 self.assertIn(line + chr(10), new, f"{skill} lacks {line!r}")
-            self.assertIn("Requires: w2c >= 3.3.", new, skill)
+            self.assertIn("Requires: w2c >= 3.4.", new, skill)
             self.assertIn("w2c worktree-seed --check", new, skill)
             self.assertIn("using-git-worktrees", new, skill)
             self.assertIn("w2c worktree-add", new, skill)
