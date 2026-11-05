@@ -279,6 +279,32 @@
         "The agent STOPs and says planning is incomplete (ignore fix and spec-commit).",
         "The agent does not force-add ignored paths, put openspec/ on worktree_seed, or call work-to-chores unless the user asks to amend."
       ]
+    },
+    {
+      "id": "R24",
+      "kind": "ordinary",
+      "mode": "openspec",
+      "group": "isolation",
+      "ask": "Worktree isolation. worktree_seed_policy is unset.",
+      "passes_when": "The agent STOPs as planning incomplete and offers amend / work-to-chores; does not invent recovery.",
+      "must": [
+        "The agent STOPs when worktree_seed_policy is unset or seed-policy-unset.",
+        "The agent does not invent a mid-run recovery or rewrite policy alone.",
+        "The agent offers amend or work-to-chores."
+      ]
+    },
+    {
+      "id": "R25",
+      "kind": "ordinary",
+      "mode": "classic",
+      "group": "isolation",
+      "ask": "Worktree isolation. worktree_seed_policy is unset.",
+      "passes_when": "The agent STOPs as planning incomplete and offers amend / work-to-chores; does not invent recovery.",
+      "must": [
+        "The agent STOPs when worktree_seed_policy is unset or seed-policy-unset.",
+        "The agent does not invent a mid-run recovery or rewrite policy alone.",
+        "The agent offers amend or work-to-chores."
+      ]
     }
   ]
 }

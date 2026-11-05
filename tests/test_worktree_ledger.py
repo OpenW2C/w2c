@@ -64,6 +64,10 @@ class WorktreeLedgerTest(unittest.TestCase):
             args.append("--track")
         code, _out, err = self.run_w2c(repo, *args)
         self.assertEqual(code, 0, err)
+        # Non-TTY init leaves worktree_seed_policy unset; worktree tests need an explicit decision.
+        w2c_local.write_repo_config(
+            repo, worktree_seed=[], worktree_seed_policy="none"
+        )
 
     def test_schema_stays_readable_by_current_install(self) -> None:
         self.assertEqual(w2c_local.CURRENT_SCHEMA_VERSION, 3)
@@ -260,6 +264,9 @@ class WorktreeLedgerTest(unittest.TestCase):
         code, out, err = self.run_w2c(container, "repo-layout")
         self.assertEqual(code, 0, err)
         self.assertIn("layout: bare-container", out)
+        w2c_local.write_repo_config(
+            container, worktree_seed=[], worktree_seed_policy="none"
+        )
         code, out, err = self.run_w2c(container, "worktree-add", "--branch", "main")
         self.assertEqual(code, 0, err)
         self.assertEqual(Path(out.strip()).resolve(), (container / "main").resolve())

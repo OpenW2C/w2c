@@ -941,39 +941,58 @@ def cmd_worktree_seed(root: Path, *, check: bool = False, suggest: bool = False)
         for rel in w2c_worktree.suggest_worktree_seed(source):
             print(rel)
         return 0
-    paths = list(w2c_local.load_repo_config(source).get("worktree_seed") or [])
-    if not paths:
-        paths = list(w2c_local.load_repo_config(root).get("worktree_seed") or [])
     if check:
-        problems = w2c_worktree.check_seeded(source, root, paths)
+        problems = w2c_worktree.check_worktree_seed(root, root)
         for line in problems:
             print(line)
         return 1 if problems else 0
-    for line in w2c_worktree.seed_local_files(source, root, paths):
+    try:
+        lines = w2c_worktree.seed_worktree(root, root)
+    except ledger_store.LedgerError as exc:
+        raise W2CError(str(exc)) from exc
+    for line in lines:
         print(line)
     return 0
 
 
 def _maybe_prompt_worktree_seed(root: Path, creating: bool) -> None:
-    """On a new init with a TTY, offer to record detected env files as worktree_seed."""
+    """On a new init with a TTY, record worktree_seed_policy (paths or none)."""
     if not creating or not sys.stdin.isatty():
         return
-    current = list(w2c_local.load_repo_config(root).get("worktree_seed") or [])
-    if current:
+    cfg = w2c_local.load_repo_config(root)
+    policy = str(cfg.get("worktree_seed_policy") or w2c_local.WORKTREE_SEED_POLICY_UNSET)
+    if policy != w2c_local.WORKTREE_SEED_POLICY_UNSET:
         return
     try:
         candidates = w2c_worktree.suggest_worktree_seed(root)
     except Exception:
-        return
+        candidates = []
     if not candidates:
+        w2c_local.write_repo_config(
+            root,
+            worktree_seed=[],
+            worktree_seed_policy=w2c_local.WORKTREE_SEED_POLICY_NONE,
+        )
+        print("wrote worktree_seed_policy=none (no local env candidates)")
         return
     print("Local files new worktrees may need:")
     for rel in candidates:
         print(f"  {rel}")
     answer = input("Add these as worktree_seed (symlinks on worktree-add)? [Y/n] ").strip().lower()
     if answer in {"", "y", "yes"}:
-        w2c_local.write_repo_config(root, worktree_seed=candidates)
-        print("wrote worktree_seed to .w2c/config.toml")
+        w2c_local.write_repo_config(
+            root,
+            worktree_seed=candidates,
+            worktree_seed_policy=w2c_local.WORKTREE_SEED_POLICY_PATHS,
+        )
+        print("wrote worktree_seed_policy=paths to .w2c/config.toml")
+    else:
+        w2c_local.write_repo_config(
+            root,
+            worktree_seed=[],
+            worktree_seed_policy=w2c_local.WORKTREE_SEED_POLICY_NONE,
+        )
+        print("wrote worktree_seed_policy=none to .w2c/config.toml")
 
 
 def cmd_init(
@@ -2110,6 +2129,21 @@ def run_smoke(root: Path, milestone: str | None = None) -> Report:
             "missing or invalid git_delivery in .w2c/config.toml; run "
             f"w2c init --git-delivery {w2c_local.GIT_DELIVERY_SLICE}|{w2c_local.GIT_DELIVERY_MILESTONE}",
         )
+
+    seed_policy = str(
+        cfg.get("worktree_seed_policy") or w2c_local.WORKTREE_SEED_POLICY_UNSET
+    )
+    seed_paths = list(cfg.get("worktree_seed") or [])
+    try:
+        w2c_local.assert_worktree_seed_invariants(seed_policy, seed_paths)
+        report.add(
+            "worktree-seed-policy",
+            "PASS",
+            f"{seed_policy}"
+            + (f" ({len(seed_paths)} paths)" if seed_policy == "paths" else ""),
+        )
+    except w2c_local.LocalError as exc:
+        report.add("worktree-seed-policy", "FAIL", str(exc))
 
     git_m_ok = True
     git_m_detail: list[str] = []

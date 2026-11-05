@@ -240,11 +240,12 @@ def seed_local_files(source: Path, dest: Path, paths: list[str]) -> list[str]:
 
 
 def check_seeded(source: Path, dest: Path, paths: list[str]) -> list[str]:
-    """Return problem lines for configured paths whose source exists but dest is wrong."""
+    """Return problem lines for configured paths (strict: missing source is a failure)."""
     problems: list[str] = []
     for rel in paths:
         src = source / rel
         if not src.exists():
+            problems.append(f"seed-missing-source {rel}")
             continue
         dst = dest / rel
         if not dst.exists() and not dst.is_symlink():
@@ -258,8 +259,49 @@ def check_seeded(source: Path, dest: Path, paths: list[str]) -> list[str]:
     return problems
 
 
+def _seed_policy_for(root: Path, dest: Path | None = None) -> str:
+    source = seed_source_root(root)
+    policy = str(
+        w2c_local.load_repo_config(source).get("worktree_seed_policy")
+        or w2c_local.WORKTREE_SEED_POLICY_UNSET
+    )
+    if policy == w2c_local.WORKTREE_SEED_POLICY_UNSET and dest is not None:
+        policy = str(
+            w2c_local.load_repo_config(dest).get("worktree_seed_policy")
+            or w2c_local.WORKTREE_SEED_POLICY_UNSET
+        )
+    if policy == w2c_local.WORKTREE_SEED_POLICY_UNSET:
+        policy = str(
+            w2c_local.load_repo_config(root).get("worktree_seed_policy")
+            or w2c_local.WORKTREE_SEED_POLICY_UNSET
+        )
+    try:
+        return w2c_local.normalize_worktree_seed_policy(policy)
+    except w2c_local.LocalError:
+        return w2c_local.WORKTREE_SEED_POLICY_UNSET
+
+
+def check_worktree_seed(root: Path, dest: Path) -> list[str]:
+    """Policy-aware seed check for ``dest`` (usually the current worktree)."""
+    policy = _seed_policy_for(root, dest)
+    if policy == w2c_local.WORKTREE_SEED_POLICY_UNSET:
+        return ["seed-policy-unset"]
+    if policy == w2c_local.WORKTREE_SEED_POLICY_NONE:
+        return []
+    source = seed_source_root(root)
+    return check_seeded(source, dest, _seed_paths_for(root, dest))
+
+
 def seed_worktree(root: Path, dest: Path) -> list[str]:
     """Apply ``worktree_seed`` from config into ``dest``."""
+    policy = _seed_policy_for(root, dest)
+    if policy == w2c_local.WORKTREE_SEED_POLICY_UNSET:
+        raise store.LedgerError(
+            "worktree_seed_policy is unset; finish planning "
+            "(set worktree_seed_policy to none or paths in .w2c/config.toml)"
+        )
+    if policy == w2c_local.WORKTREE_SEED_POLICY_NONE:
+        return ["seed-policy-none"]
     source = seed_source_root(root)
     return seed_local_files(source, dest, _seed_paths_for(root, dest))
 

@@ -5,6 +5,21 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.4.0] — 2026-11-05
+
+### Added
+
+- `worktree_seed_policy` in `.w2c/config.toml`: `unset` | `none` | `paths`. Missing key loads as `unset`.
+- Smoke row `worktree-seed-policy` fails invalid policy/list combinations.
+- Planning and execution skills require an explicit seed decision before worktree isolation (`unset` hard-stops).
+
+### Changed
+
+- `w2c worktree-seed --check` is policy-aware: `unset` fails with `seed-policy-unset`; `none` passes; `paths` fails when a listed path is missing on the main checkout (`seed-missing-source`) or wrong in the worktree.
+- `w2c worktree-add` / seed apply refuse `unset`, no-op on `none`, and link only under `paths`.
+- TTY `w2c init` writes `paths` (with candidates) or `none` (decline / no candidates) so a new interactive init is never left `unset`.
+- Local and cloud skills require w2c 3.4.0.
+
 ## [3.3.1] — 2026-11-05
 
 ### Fixed

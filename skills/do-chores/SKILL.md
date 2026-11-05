@@ -9,7 +9,7 @@ description: >-
 
 # Do Chores
 
-Requires: w2c >= 3.3.0
+Requires: w2c >= 3.4.0
 
 Execute planned work from `.w2c/`. Default: **one** next task.
 
@@ -178,7 +178,7 @@ Then:
 1. **Reuse policy** — if a worktree or local branch already exists with the exact planned name and clearly belongs to this ticket: reuse it. If dirty with unrelated files, or history looks unexpected: **STOP** and ask. Never force-reset, force-push, or delete worktrees/branches.
 2. **Mode `worktree`** — run `w2c repo-layout` and, if the plan's Worktree layout differs, update that field. Do not ask the layout question again. Run `w2c worktree-add --branch <Remote branch>`. Pass `--create-from HEAD` when the branch does not exist yet. Pass `--exclude no` only when the plan says `exclude-no`. Reuse the directory when the command prints the existing path. An OpenSpec spec-commit may already have created it. Continue all subsequent work for this ticket in that worktree. Do not nest a worktree inside an existing linked worktree.
 
-   After `w2c worktree-add`, run `w2c worktree-seed --check` from that worktree. If it fails, run `w2c worktree-seed` once, then `--check` again. If it still fails: **STOP**. Name the missing or conflicting paths. Tell the user to add the source files on the main checkout or fix `worktree_seed` in `.w2c/config.toml`. Do not copy secrets by hand as the primary fix; use `w2c worktree-seed`. An empty `worktree_seed` list makes `--check` succeed with nothing to do.
+   Before / after `w2c worktree-add`: if `worktree_seed_policy` is `unset` (or `--check` prints `seed-policy-unset`): **STOP**. Planning is incomplete — offer amend / work-to-chores; do not invent recovery. If `none`: `--check` should pass; do **not** STOP for “no .env”; you may inform the user if `--suggest` shows new candidates, but must not rewrite policy for that alone. If `paths`: run `w2c worktree-seed --check` from that worktree; on failure run `w2c worktree-seed` once then `--check` again; if still failing **STOP** and name missing / conflict / `seed-missing-source` paths. Do not copy secrets by hand as the primary fix; do not put `openspec/` on `worktree_seed`.
 3. **Mode `branch`** — ensure the current checkout is on Local branch. If that branch already exists, check it out without force. If it is missing, create it from current HEAD by applying the stored base-dirt policy below. Never force.
 
    Run `w2c base-dirt`. Non-zero exit: **STOP** and show the error. `.w2c/` and gitignored files are already excluded.

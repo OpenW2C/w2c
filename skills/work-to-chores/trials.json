@@ -349,6 +349,34 @@
         "The agent does not tell the user to run do-chores while openspec-change-tracked fails.",
         "The agent does not force-add ignored paths to clear the failure."
       ]
+    },
+    {
+      "id": "R30",
+      "kind": "ordinary",
+      "mode": "openspec",
+      "group": "isolation",
+      "ask": "Isolation mode is worktree. worktree_seed_policy is unset.",
+      "passes_when": "The agent grills paths vs none, writes config after yes, and does not hand off while unset.",
+      "must": [
+        "The agent reads worktree_seed_policy and treats unset as incomplete.",
+        "The agent runs w2c worktree-seed --suggest for evidence.",
+        "The agent grills paths or none and writes config only after user yes.",
+        "The agent does not proceed to worktree isolation while policy is unset."
+      ]
+    },
+    {
+      "id": "R31",
+      "kind": "ordinary",
+      "mode": "classic",
+      "group": "isolation",
+      "ask": "Isolation mode is worktree. worktree_seed_policy is unset.",
+      "passes_when": "The agent grills paths vs none, writes config after yes, and does not hand off while unset.",
+      "must": [
+        "The agent reads worktree_seed_policy and treats unset as incomplete.",
+        "The agent runs w2c worktree-seed --suggest for evidence.",
+        "The agent grills paths or none and writes config only after user yes.",
+        "The agent does not proceed to worktree isolation while policy is unset."
+      ]
     }
   ]
 }

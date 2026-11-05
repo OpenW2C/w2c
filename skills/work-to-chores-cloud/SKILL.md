@@ -14,7 +14,7 @@ description: >-
 
 # Work to Chores (cloud)
 
-Requires: w2c >= 3.3.0
+Requires: w2c >= 3.4.0
 
 **Plan only.** Interview, review, plan, validate, then write one OpenSpec change. Never implement product code.
 
@@ -28,14 +28,14 @@ Committed change files (everything under `openspec/changes/<name>/`) and the `.d
 
 Before Stage 1:
 
-1. Confirm `w2c` is on PATH (`command -v w2c`) and `w2c --version` is 3.3.0 or later. Do this first: every later step, including each `w2c event` log line, needs it. If it is missing, follow the uvx paragraph below before any other step, and log nothing until `w2c` (or the uvx prefix) works.
+1. Confirm `w2c` is on PATH (`command -v w2c`) and `w2c --version` is 3.4.0 or later. Do this first: every later step, including each `w2c event` log line, needs it. If it is missing, follow the uvx paragraph below before any other step, and log nothing until `w2c` (or the uvx prefix) works.
 2. Check whether **grilling** and **brainstorming** are invocable. If either is missing (for example on Copilot or Cursor), follow **Missing companion skills (ask first)** below.
 3. Run `w2c openspec-check`. If `needs` contains `NEED_OPENSPEC_INSTALL` or `NEED_OPENSPEC_INIT`, follow **OpenSpec install (ask first)**.
 
-If `w2c` is missing or older than 3.3.0: ask the user whether to run it once through uvx. On yes, use this prefix for every `w2c` command in this run:
+If `w2c` is missing or older than 3.4.0: ask the user whether to run it once through uvx. On yes, use this prefix for every `w2c` command in this run:
 
 ```bash
-uvx --from git+https://github.com/OpenW2C/w2c@v3.3.0 w2c …
+uvx --from git+https://github.com/OpenW2C/w2c@v3.4.0 w2c …
 ```
 
 On no: **STOP**. Tell the user to install it (`pipx install git+https://github.com/OpenW2C/w2c.git && w2c install-skills`) and re-invoke this skill. Never run uvx without that yes.
@@ -223,6 +223,12 @@ When `w2c cloud env` printed `ephemeral: true`, warn before the question: this i
 Only two modes exist: `worktree` or `branch`.
 
 1. **Isolation mode** — worktree (a separate directory created later by `w2c worktree-add`) or branch (same checkout, switch to the ticket branch). If `worktree`, run `w2c repo-layout` and record the layout (see **Worktree layout and Exclude line** below). Do not offer to convert the repository.
+
+   **Worktree seed policy** — only when Isolation mode is `worktree`. Read `worktree_seed_policy` from `.w2c/config.toml`.
+   - `paths` or `none`: reuse. Do **not** re-grill unless the user asks to amend seed policy.
+   - `unset` (or missing key): Evidence — run `w2c worktree-seed --suggest` and note whether those sources exist on the main checkout. Grill: **`paths`** (edit the relative path list; never put `openspec/` on it) or **`none`** (no seeding; new env files later must not auto-flip this). Write `worktree_seed_policy` and `worktree_seed` **after yes**. Record `w2c cloud decide` for the choice. Do not hand off worktree isolation while still `unset`.
+   - Branch mode: skip this grill; leave policy as-is.
+
 2. **Branch name** — Local branch **must equal** Remote branch. With a ticket id (e.g. `MOR-252`) propose that exact id. Without one, propose 2–3 slugs plus custom.
 3. **Base dirt policy** — only after Isolation mode is saved.
    - `worktree`: do not ask. Choice `n/a-worktree`.
@@ -349,7 +355,7 @@ After content smoke passes, **before** asking to commit the change folder:
 Then ask for approval to commit the change folder. This is not a push.
 
 - **Branch mode:** apply the stored Base dirt policy (`w2c base-dirt`; the same warning-turn rules), create or check out the ticket branch (`<Remote branch>`, never the change slug) without force, and commit only `openspec/changes/<name>/`.
-- **Worktree mode:** do not check the ticket branch out here. Run `w2c worktree-add --branch <Remote branch> --create-from HEAD` (`--exclude no` only for `exclude-no`), move `openspec/changes/<name>/` into that worktree, run `w2c worktree-seed --check` there (repair once with `w2c worktree-seed` if needed; **STOP** if still failing), and commit the change folder there.
+- **Worktree mode:** do not check the ticket branch out here. Run `w2c worktree-add --branch <Remote branch> --create-from HEAD` (`--exclude no` only for `exclude-no`), move `openspec/changes/<name>/` into that worktree, enforce seed policy there (`unset` / `seed-policy-unset` → **STOP**; `none` → check passes; `paths` → `w2c worktree-seed --check`, repair once, **STOP** if still failing), and commit the change folder there.
 
 Never stage deny-listed paths. Never name a `.delivery/` path or local planner file in the message. Never add a `Co-authored-by` trailer. On no, leave the files uncommitted and say that a fresh clone will not see the plan until it is committed.
 

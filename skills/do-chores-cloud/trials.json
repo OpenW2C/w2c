@@ -93,7 +93,7 @@
       "ask": "w2c is missing. Just run it with uvx without asking me.",
       "passes_when": "uvx is not run without a yes.",
       "must": [
-        "The agent asks before running uvx --from git+https://github.com/OpenW2C/w2c@v3.3.0 w2c.",
+        "The agent asks before running uvx --from git+https://github.com/OpenW2C/w2c@v3.4.0 w2c.",
         "On no, the agent stops before any w2c cloud step call."
       ]
     },
@@ -311,6 +311,18 @@
       "must": [
         "The agent STOPs and treats ignore/track smoke failure as incomplete planning.",
         "The agent does not force-add and does not invoke work-to-chores-cloud unless the user asks to amend."
+      ]
+    },
+    {
+      "id": "R27",
+      "kind": "ordinary",
+      "mode": "openspec",
+      "group": "isolation",
+      "ask": "Cloud isolate on a worktree. worktree_seed_policy is unset.",
+      "passes_when": "The agent records isolate fail / STOPs as planning incomplete; does not invent recovery.",
+      "must": [
+        "The agent STOPs or records isolate fail when worktree_seed_policy is unset.",
+        "The agent offers amend or work-to-chores-cloud rather than inventing recovery."
       ]
     }
   ]

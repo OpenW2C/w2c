@@ -13,7 +13,7 @@ description: >-
 
 # Work to Chores
 
-Requires: w2c >= 3.3.1
+Requires: w2c >= 3.4.0
 
 **Plan only.** Interview, review, plan, validate, write `.w2c/` artifacts. Never implement product code.
 
@@ -106,7 +106,7 @@ When Isolation mode is `worktree`:
 
 1. Do not check the ticket branch out in the current checkout. That would lock the branch, and the worktree could not be added.
 2. Run `w2c worktree-add --branch <name> --create-from HEAD`. Pass `--exclude no` only when the plan's Exclude line is `exclude-no`. Otherwise the default `--exclude yes` is correct.
-3. `git worktree add` does not bring untracked files. Move `openspec/changes/<change>/` into that worktree. Then run `w2c worktree-seed --check` in the worktree. If it fails, run `w2c worktree-seed` once and `--check` again. If it still fails: **STOP**. Name the paths. Tell the user to add sources on the main checkout or fix `worktree_seed`. Do not rely on ad-hoc `cp` of secrets.
+3. `git worktree add` does not bring untracked files. Move `openspec/changes/<change>/` into that worktree. Enforce seed policy before committing: if `worktree_seed_policy` is `unset` (or `--check` prints `seed-policy-unset`), **STOP** (planning incomplete). If `none`, `--check` passes. If `paths`, run `w2c worktree-seed --check` in the worktree; repair once with `w2c worktree-seed`; **STOP** if still failing. Name the paths. Do not rely on ad-hoc `cp` of secrets. Never put `openspec/` on `worktree_seed`.
 4. In the worktree, commit only `openspec/changes/<change>/`. Do not stage `.w2c/`. Never mention any `.w2c/` path. Never add a `Co-authored-by` trailer.
 5. Do not push. The checkout you started in stays on its current branch.
 
@@ -304,6 +304,12 @@ Each task needs a testing or other verification plan. Embed this execution rule 
 During Stage 3, grill these decisions **before** the draft plan is marked ready. Follow the **Interview question contract**. Only two modes exist: `worktree` or `branch` (no in-place) — do not invent a third isolation mode.
 
 1. **Isolation mode** — ask worktree vs branch. Plain English: worktree = a separate directory created later by `w2c worktree-add`; branch = same checkout, switch/create the ticket branch. Save with `w2c decide`. If `worktree`, run `w2c repo-layout` and record the printed layout. Do not ask the user to accept that layout. Do not offer to convert the repository.
+
+   **Worktree seed policy** — only when Isolation mode is `worktree`. Read `worktree_seed_policy` from `.w2c/config.toml`.
+   - `paths` or `none`: reuse. Do **not** re-grill unless the user asks to amend seed policy.
+   - `unset` (or missing key): Evidence — run `w2c worktree-seed --suggest` and note whether those sources exist on the main checkout. Grill: **`paths`** (edit the relative path list; never put `openspec/` on it) or **`none`** (no seeding; new env files later must not auto-flip this). Write `worktree_seed_policy` and `worktree_seed` **after yes**. Record `w2c decide` for the choice. Do not hand off worktree isolation while still `unset`.
+   - Branch mode: skip this grill; leave policy as-is.
+
 2. **Branch name** — Local branch **must equal** Remote branch.
    - If an external ticket id exists (e.g. `MOR-252`): propose that exact id as the only remote/local branch name and confirm.
    - If no ticket: propose 2–3 slug options plus custom; confirm the exact string.

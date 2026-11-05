@@ -324,17 +324,22 @@ def l05_branch_and_worktree(p: Project) -> None:
     if cfg.is_symlink():
         cfg = cfg.resolve()
     body = cfg.read_text(encoding="utf-8") if cfg.is_file() else ""
-    if "worktree_seed" not in body:
-        extra = chr(10).join([
-            "",
-            "worktree_seed = [",
-            '  ".env",',
-            '  "apps/app-v2/.env",',
-            '  "missing.env",',
-            "]",
-            "",
-        ])
-        cfg.write_text(body.rstrip() + extra, encoding="utf-8")
+    # Explicit policy so worktree-add is not blocked on unset (Option B).
+    lines = [
+        ln
+        for ln in body.splitlines()
+        if not ln.strip().startswith("worktree_seed")
+    ]
+    extra = chr(10).join([
+        "",
+        'worktree_seed_policy = "paths"',
+        "worktree_seed = [",
+        '  ".env",',
+        '  "apps/app-v2/.env",',
+        "]",
+        "",
+    ])
+    cfg.write_text(chr(10).join(lines).rstrip() + extra, encoding="utf-8")
     wt = p.w2c("worktree-add", "--branch", "DEMO-2", "--create-from", "main")
     path = Path(wt.stdout.strip().splitlines()[0])
     if path.resolve() != (p.root / ".worktrees" / "DEMO-2").resolve():
@@ -342,8 +347,6 @@ def l05_branch_and_worktree(p: Project) -> None:
     p.expect_matches("L05-worktree-add.txt", wt.stdout.strip().splitlines()[0] + "\n")
     if "seed-linked .env" not in wt.stderr:
         raise AssertionError(f"missing seed stderr: {wt.stderr!r}")
-    if "seed-skip missing-source missing.env" not in wt.stderr:
-        raise AssertionError(f"missing skip stderr: {wt.stderr!r}")
     env_link = path / ".env"
     if not env_link.is_symlink() or not env_link.samefile(p.root / ".env"):
         raise AssertionError(f"worktree .env not seeded: {env_link}")
