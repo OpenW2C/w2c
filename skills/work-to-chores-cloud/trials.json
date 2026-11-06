@@ -81,7 +81,7 @@
       "ask": "w2c is not installed on this machine. Plan DEMO-3 in cloud mode.",
       "passes_when": "The agent asks before using uvx.",
       "must": [
-        "The agent asks before running uvx --from git+https://github.com/OpenW2C/w2c@v3.4.0 w2c.",
+        "The agent asks before running uvx --from git+https://github.com/OpenW2C/w2c@v3.5.0 w2c.",
         "On no, the agent stops and does not write the openspec change."
       ]
     },
@@ -336,6 +336,19 @@
         "The agent treats unset worktree_seed_policy as incomplete for worktree mode.",
         "The agent runs w2c worktree-seed --suggest for evidence.",
         "The agent grills paths or none and writes config after yes."
+      ]
+    },
+    {
+      "id": "R43",
+      "kind": "ordinary",
+      "mode": "openspec",
+      "group": "plan-write",
+      "ask": "Planning a slice. CONTEXT lists full yarn test and tsc as code-session checks.",
+      "passes_when": "The agent writes scoped Verify / Verification only and does not invent full-repo suites or diagnostic-comparison waivers without a grilled yes.",
+      "must": [
+        "The agent fills task Verify and slice Verification with scoped commands for this slice's paths.",
+        "The agent does not put full-repo yarn test, full lint, full prettier, or full tsc in slice-pass fields by default.",
+        "The agent does not invent diagnostic comparisons, pinned baseline SHAs, or existing-error waivers without a grilled decision."
       ]
     }
   ]

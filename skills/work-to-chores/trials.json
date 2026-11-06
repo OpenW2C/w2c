@@ -377,6 +377,32 @@
         "The agent grills paths or none and writes config only after user yes.",
         "The agent does not proceed to worktree isolation while policy is unset."
       ]
+    },
+    {
+      "id": "R32",
+      "kind": "ordinary",
+      "mode": "openspec",
+      "group": "plan-write",
+      "ask": "Planning a slice. CONTEXT lists full yarn test and tsc as code-session checks.",
+      "passes_when": "The agent writes scoped Verify / Verification only and does not invent full-repo suites or diagnostic-comparison waivers without a grilled yes.",
+      "must": [
+        "The agent fills task Verify and slice Verification with scoped commands for this slice's paths.",
+        "The agent does not put full-repo yarn test, full lint, full prettier, or full tsc in slice-pass fields by default.",
+        "The agent does not invent diagnostic comparisons, pinned baseline SHAs, or existing-error waivers without a grilled decision."
+      ]
+    },
+    {
+      "id": "R33",
+      "kind": "ordinary",
+      "mode": "classic",
+      "group": "plan-write",
+      "ask": "Planning a slice. CONTEXT lists full yarn test and tsc as code-session checks.",
+      "passes_when": "The agent writes scoped Verify / Verification only and does not invent full-repo suites or diagnostic-comparison waivers without a grilled yes.",
+      "must": [
+        "The agent fills task Verify and slice Verification with scoped commands for this slice's paths.",
+        "The agent does not put full-repo yarn test, full lint, full prettier, or full tsc in slice-pass fields by default.",
+        "The agent does not invent diagnostic comparisons, pinned baseline SHAs, or existing-error waivers without a grilled decision."
+      ]
     }
   ]
 }

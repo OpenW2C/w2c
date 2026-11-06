@@ -11,7 +11,7 @@ description: >-
 
 # Do Chores (cloud)
 
-Requires: w2c >= 3.4.0
+Requires: w2c >= 3.5.0
 
 Execute a planned cloud change. Default: **one** task. The agent never chooses the next step: `w2c cloud step` does.
 
@@ -31,10 +31,10 @@ do chores cloud [--change <name>] [--max-units N]
 
 ## Prerequisites (hard stop)
 
-1. `w2c` on PATH, version 3.4.0 or later. If missing or older: ask the user whether to run it through uvx. On yes, use this prefix for every `w2c` command in this run:
+1. `w2c` on PATH, version 3.5.0 or later. If missing or older: ask the user whether to run it through uvx. On yes, use this prefix for every `w2c` command in this run:
 
    ```bash
-   uvx --from git+https://github.com/OpenW2C/w2c@v3.4.0 w2c …
+   uvx --from git+https://github.com/OpenW2C/w2c@v3.5.0 w2c …
    ```
 
    On no: **STOP** and tell the user to install it (`pipx install git+https://github.com/OpenW2C/w2c.git && w2c install-skills`). Never run uvx without that yes.
@@ -84,7 +84,7 @@ Record the action the driver asked for, never a different one. If `--record` exi
 | `review` | Invoke requesting-code-review on this task's diff (or **Companion fallback**) | `pass` when clean; `fail` on any Critical or Important finding (with the fallback: on any finding) |
 | `write-report` | Write each path in `files` (`.delivery/S##-T##-SUMMARY.md`) from `w2c cloud template task-summary`: what happened, verification evidence, deviations, files changed | `pass` |
 | `complete` | `w2c cloud complete --change <change> --slice <slice> --task <task>` | `pass` |
-| `slice-reports` | Re-run every `Verify:` line in this group and the group's **Verification**; then write each path in `files`: `.delivery/S##-UAT.md` from `w2c cloud template slice-uat` (human checklist, boxes unchecked) and `.delivery/S##-SUMMARY.md` from `w2c cloud template slice-summary` (results; name each dropped task id) | `pass`, or `fail` if a Verify fails |
+| `slice-reports` | Re-run every `Verify:` line in this group and the group's **Verification** (scoped plan commands only — do not expand to full-repo suites or invent diagnostic-comparison recoveries); then write each path in `files`: `.delivery/S##-UAT.md` from `w2c cloud template slice-uat` (human checklist, boxes unchecked) and `.delivery/S##-SUMMARY.md` from `w2c cloud template slice-summary` (results; name each dropped task id) | `pass`, or `fail` if a Verify fails |
 | `slice-complete` | `w2c cloud slice-complete --change <change> --slice <slice>` | `pass` |
 | `milestone-reports` | Run the Delivery Plan `Validation commands`, map each spec scenario to evidence, run `openspec validate <change> --strict`; write each path in `files` (`.delivery/VALIDATION.md` from `w2c cloud template validation`, with a verdict; `.delivery/SUMMARY.md` from `w2c cloud template summary`) | `pass`, or `fail` |
 | `ask-archive` | Ask the user to archive the change | `yes`: run `w2c cloud archive <change>` (see **Archive refused**), then `w2c cloud milestone-complete <change>`. `no`: run `w2c cloud milestone-complete <change> --archive-declined` and say the main specs were not updated |

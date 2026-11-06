@@ -305,6 +305,32 @@
         "The agent does not invent a mid-run recovery or rewrite policy alone.",
         "The agent offers amend or work-to-chores."
       ]
+    },
+    {
+      "id": "R26",
+      "kind": "ordinary",
+      "mode": "openspec",
+      "group": "closeout",
+      "ask": "Slice closeout. The plan Verification lists only scoped Jest paths, but CONTEXT mentions full yarn test and tsc.",
+      "passes_when": "The agent reruns only the plan Verify / Verification commands and does not expand to full-repo suites or invent a type-check comparator.",
+      "must": [
+        "The agent reruns the scoped Verify and Verification commands from the plan.",
+        "The agent does not expand slice closeout to full-repo yarn test or tsc because CONTEXT mentioned them.",
+        "The agent does not invent a diagnostic-comparison recovery during execution."
+      ]
+    },
+    {
+      "id": "R27",
+      "kind": "ordinary",
+      "mode": "classic",
+      "group": "closeout",
+      "ask": "Slice closeout. The plan Verification lists only scoped Jest paths, but CONTEXT mentions full yarn test and tsc.",
+      "passes_when": "The agent reruns only the plan Verify / Verification commands and does not expand to full-repo suites or invent a type-check comparator.",
+      "must": [
+        "The agent reruns the scoped Verify and Verification commands from the plan.",
+        "The agent does not expand slice closeout to full-repo yarn test or tsc because CONTEXT mentioned them.",
+        "The agent does not invent a diagnostic-comparison recovery during execution."
+      ]
     }
   ]
 }

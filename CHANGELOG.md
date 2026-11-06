@@ -5,6 +5,14 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.5.0] — 2026-11-06
+
+### Changed
+
+- Planning skills: task `Verify`, slice `Verification`, and roadmap `Validation commands` used for slice pass must stay **scoped** (paths or files this slice owns). Do not invent full-repo suites, full type-check gates, diagnostic comparisons, pinned baseline SHAs, or “existing errors are OK” waivers unless the user grilled and approved them for that milestone.
+- Execution skills: slice closeout runs only the Verify / Verification lines already in the plan; do not expand them to full-repo checks or invent recovery comparators.
+- Local and cloud skills require w2c 3.5.0.
+
 ## [3.4.0] — 2026-11-05
 
 ### Added
