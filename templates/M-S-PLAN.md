@@ -18,8 +18,7 @@ SLICE ID: SXX
 
 ## Verification
 
-- Run the **scoped** task and slice verification checks for this slice (paths or files this slice owns; optional lint/format on touched files only).
-- Do not list full-repo test/lint/format/type-check suites here unless a grilled decision for this milestone says so.
+- Run the task and slice verification checks for this slice.
 
 <tasks>
 </tasks>

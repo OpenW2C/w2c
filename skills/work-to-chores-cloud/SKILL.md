@@ -331,7 +331,7 @@ Ask the user to review the plan (isolation, branch, cadence, slices, decisions).
    **Threat Surface:**
    **Proof Level:**
    **Integration Closure:**
-   **Verification:** scoped commands for this group only (paths this slice owns; optional lint/format on touched files). Do **not** put full-repo test/lint/format/type-check suites here, and do **not** invent diagnostic comparisons, pinned baseline SHAs, or “existing errors are OK” waivers unless the user grilled and approved them for this change. Full-repo suites are milestone or pull-request gates. Honor `.w2c/DELIVERY-PROFILE.md` Validation when present.
+   **Verification:** scoped commands for this group only (paths this slice owns; optional lint/format on touched files). Do **not** put full-repo test/lint/format/type-check suites here, and do **not** invent diagnostic comparisons, pinned baseline SHAs, or “existing errors are OK” waivers unless the user grilled and approved them for this change. Put full-repo suites in Delivery Plan **Validation commands** (milestone / commit / push), not here. Honor `.w2c/DELIVERY-PROFILE.md` Validation for slice vs milestone split when present.
    **Files Likely Touched:**
 
    - [ ] 1.1 Task title
@@ -342,14 +342,14 @@ Ask the user to review the plan (isolation, branch, cadence, slices, decisions).
 
 #### Verification scope (slice pass)
 
-When filling task `- Verify:` lines, each slice `## Verification`, and the roadmap **Validation commands** row used for slice closeout:
+When filling task `- Verify:` lines and each slice `## Verification`:
 
 - Prefer **scoped** commands that cover only the files or paths this slice owns (example: a package test runner pointed at those paths).
 - Optional: lint or format checks on **touched files only**.
 - **Do not** put full-repo test, full lint, full format, or full type-check suites in those slice-pass fields.
 - **Do not** invent type-check diagnostic comparisons, pinned baseline SHAs, error-count allowances, or “existing failures are OK” waivers.
-- Full-repo suites belong in milestone closeout, pull-request gates, or a separately grilled decision for that milestone — never as silent defaults copied from CONTEXT or a prior recovery amendment.
-- Read `.w2c/DELIVERY-PROFILE.md` **Validation** when present; it overrides vague CONTEXT wording for this project.
+- Roadmap / Delivery Plan **Validation commands** may list full-repo suites — that row is for milestone closeout, commit, and push gates, not slice pass. Do not empty it to satisfy scoped-only.
+- Read `.w2c/DELIVERY-PROFILE.md` **Validation** when present: use its slice-pass rules for Verify / Verification; use its milestone / PR gates for **Validation commands**. Profile must not reintroduce full-repo suites into slice-pass fields unless grilled.
 
    do-chores-cloud writes the closeout reports under `.delivery/` from `w2c cloud template task-summary`, `slice-uat`, `slice-summary`, `validation`, and `summary`. Do not write them here.
 6. Keep `x-delivery-status` at `PLANNING` until the plan-commit gate succeeds (so `openspec-change-tracked` does not fail early).
