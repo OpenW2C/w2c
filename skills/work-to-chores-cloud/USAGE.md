@@ -16,6 +16,6 @@ Say `reorder changes` to change which pending change runs next, or `amend change
 
 **Need first:** grilling and brainstorming. When a companion skill is missing, the agent asks whether to stop so you can install it, or continue with the written fallback (its written interview).
 
-**Need on this machine:** `w2c` 3.4.0 or later and `openspec`. If `w2c` is missing, the agent asks before running it through `uvx --from git+https://github.com/OpenW2C/w2c@v3.4.0 w2c`.
+**Need on this machine:** `w2c` 3.5.0 or later and `openspec`. If `w2c` is missing, the agent asks before running it through `uvx --from git+https://github.com/OpenW2C/w2c@v3.5.0 w2c`.
 
 Then run `do-chores-cloud`.

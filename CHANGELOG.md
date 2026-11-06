@@ -5,6 +5,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.5.0] — 2026-11-06
+
+### Changed
+
+- Planning skills: task `Verify` and slice `## Verification` (slice pass) must stay **scoped** (paths or files this slice owns). Do not invent full-repo suites, diagnostic comparisons, pinned baseline SHAs, or “existing errors are OK” waivers into those fields unless the user grilled and approved them for that milestone.
+- Roadmap / Delivery Plan **Validation commands** remain the home for full-repo suites and milestone / commit / push gates — do not strip them to force “scoped only.”
+- Execution skills: slice closeout runs only the Verify / Verification lines already in the plan; do not expand from CONTEXT. If those lines already embed full-repo suites or comparator waivers with no grilled decision for this milestone, **STOP** and offer amend (work-to-chores / work-to-chores-cloud); do not invent recovery.
+- `w2c smoke` does **not** enforce scoped Verify — this is a skill contract only.
+- Local and cloud skills require w2c 3.5.0.
+
 ## [3.4.0] — 2026-11-05
 
 ### Added

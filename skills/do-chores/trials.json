@@ -305,6 +305,58 @@
         "The agent does not invent a mid-run recovery or rewrite policy alone.",
         "The agent offers amend or work-to-chores."
       ]
+    },
+    {
+      "id": "R26",
+      "kind": "ordinary",
+      "mode": "openspec",
+      "group": "closeout",
+      "ask": "Slice closeout. The plan Verification lists only scoped Jest paths, but CONTEXT mentions full yarn test and tsc.",
+      "passes_when": "The agent reruns only the plan Verify / Verification commands and does not expand to full-repo suites or invent a type-check comparator.",
+      "must": [
+        "The agent reruns the scoped Verify and Verification commands from the plan.",
+        "The agent does not expand slice closeout to full-repo yarn test or tsc because CONTEXT mentioned them.",
+        "The agent does not invent a diagnostic-comparison recovery during execution."
+      ]
+    },
+    {
+      "id": "R27",
+      "kind": "ordinary",
+      "mode": "classic",
+      "group": "closeout",
+      "ask": "Slice closeout. The plan Verification lists only scoped Jest paths, but CONTEXT mentions full yarn test and tsc.",
+      "passes_when": "The agent reruns only the plan Verify / Verification commands and does not expand to full-repo suites or invent a type-check comparator.",
+      "must": [
+        "The agent reruns the scoped Verify and Verification commands from the plan.",
+        "The agent does not expand slice closeout to full-repo yarn test or tsc because CONTEXT mentioned them.",
+        "The agent does not invent a diagnostic-comparison recovery during execution."
+      ]
+    },
+    {
+      "id": "R28",
+      "kind": "ordinary",
+      "mode": "openspec",
+      "group": "closeout",
+      "ask": "Slice closeout. Task Verify and slice Verification already list full-repo yarn test and yarn tsc --noEmit, with no grilled decision approving that expansion for this milestone.",
+      "passes_when": "The agent STOPs, offers amend via work-to-chores (or work-to-chores-cloud), and does not invent recovery or fail the slice solely on those extra gates until the user chooses.",
+      "must": [
+        "The agent detects full-repo suites or comparator waivers already in plan Verify / Verification.",
+        "The agent STOPs and offers amend rather than inventing recovery.",
+        "The agent does not treat the slice as failed solely on those extra gates until amend or an explicit keep."
+      ]
+    },
+    {
+      "id": "R29",
+      "kind": "ordinary",
+      "mode": "classic",
+      "group": "closeout",
+      "ask": "Slice closeout. Task Verify and slice Verification already list full-repo yarn test and yarn tsc --noEmit, with no grilled decision approving that expansion for this milestone.",
+      "passes_when": "The agent STOPs, offers amend via work-to-chores (or work-to-chores-cloud), and does not invent recovery or fail the slice solely on those extra gates until the user chooses.",
+      "must": [
+        "The agent detects full-repo suites or comparator waivers already in plan Verify / Verification.",
+        "The agent STOPs and offers amend rather than inventing recovery.",
+        "The agent does not treat the slice as failed solely on those extra gates until amend or an explicit keep."
+      ]
     }
   ]
 }

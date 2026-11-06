@@ -14,7 +14,7 @@ description: >-
 
 # Work to Chores (cloud)
 
-Requires: w2c >= 3.4.0
+Requires: w2c >= 3.5.0
 
 **Plan only.** Interview, review, plan, validate, then write one OpenSpec change. Never implement product code.
 
@@ -28,14 +28,14 @@ Committed change files (everything under `openspec/changes/<name>/`) and the `.d
 
 Before Stage 1:
 
-1. Confirm `w2c` is on PATH (`command -v w2c`) and `w2c --version` is 3.4.0 or later. Do this first: every later step, including each `w2c event` log line, needs it. If it is missing, follow the uvx paragraph below before any other step, and log nothing until `w2c` (or the uvx prefix) works.
+1. Confirm `w2c` is on PATH (`command -v w2c`) and `w2c --version` is 3.5.0 or later. Do this first: every later step, including each `w2c event` log line, needs it. If it is missing, follow the uvx paragraph below before any other step, and log nothing until `w2c` (or the uvx prefix) works.
 2. Check whether **grilling** and **brainstorming** are invocable. If either is missing (for example on Copilot or Cursor), follow **Missing companion skills (ask first)** below.
 3. Run `w2c openspec-check`. If `needs` contains `NEED_OPENSPEC_INSTALL` or `NEED_OPENSPEC_INIT`, follow **OpenSpec install (ask first)**.
 
-If `w2c` is missing or older than 3.4.0: ask the user whether to run it once through uvx. On yes, use this prefix for every `w2c` command in this run:
+If `w2c` is missing or older than 3.5.0: ask the user whether to run it once through uvx. On yes, use this prefix for every `w2c` command in this run:
 
 ```bash
-uvx --from git+https://github.com/OpenW2C/w2c@v3.4.0 w2c …
+uvx --from git+https://github.com/OpenW2C/w2c@v3.5.0 w2c …
 ```
 
 On no: **STOP**. Tell the user to install it (`pipx install git+https://github.com/OpenW2C/w2c.git && w2c install-skills`) and re-invoke this skill. Never run uvx without that yes.
@@ -331,7 +331,7 @@ Ask the user to review the plan (isolation, branch, cadence, slices, decisions).
    **Threat Surface:**
    **Proof Level:**
    **Integration Closure:**
-   **Verification:**
+   **Verification:** scoped commands for this group only (paths this slice owns; optional lint/format on touched files). Do **not** put full-repo test/lint/format/type-check suites here, and do **not** invent diagnostic comparisons, pinned baseline SHAs, or “existing errors are OK” waivers unless the user grilled and approved them for this change. Put full-repo suites in Delivery Plan **Validation commands** (milestone / commit / push), not here. Honor `.w2c/DELIVERY-PROFILE.md` Validation for slice vs milestone split when present.
    **Files Likely Touched:**
 
    - [ ] 1.1 Task title
@@ -339,6 +339,17 @@ Ask the user to review the plan (isolation, branch, cadence, slices, decisions).
    ```
 
    Fill all eight fields in every group. Task checkboxes live only in their group.
+
+#### Verification scope (slice pass)
+
+When filling task `- Verify:` lines and each slice `## Verification`:
+
+- Prefer **scoped** commands that cover only the files or paths this slice owns (example: a package test runner pointed at those paths).
+- Optional: lint or format checks on **touched files only**.
+- **Do not** put full-repo test, full lint, full format, or full type-check suites in those slice-pass fields.
+- **Do not** invent type-check diagnostic comparisons, pinned baseline SHAs, error-count allowances, or “existing failures are OK” waivers.
+- Roadmap / Delivery Plan **Validation commands** may list full-repo suites — that row is for milestone closeout, commit, and push gates, not slice pass. Do not empty it to satisfy scoped-only.
+- Read `.w2c/DELIVERY-PROFILE.md` **Validation** when present: use its slice-pass rules for Verify / Verification; use its milestone / PR gates for **Validation commands**. Profile must not reintroduce full-repo suites into slice-pass fields unless grilled.
 
    do-chores-cloud writes the closeout reports under `.delivery/` from `w2c cloud template task-summary`, `slice-uat`, `slice-summary`, `validation`, and `summary`. Do not write them here.
 6. Keep `x-delivery-status` at `PLANNING` until the plan-commit gate succeeds (so `openspec-change-tracked` does not fail early).

@@ -13,7 +13,7 @@ description: >-
 
 # Work to Chores
 
-Requires: w2c >= 3.4.0
+Requires: w2c >= 3.5.0
 
 **Plan only.** Interview, review, plan, validate, write `.w2c/` artifacts. Never implement product code.
 
@@ -75,7 +75,7 @@ Keep the interview contract. Also:
 
 - Evidence includes `openspec list --specs` and `openspec show <id> --type spec` before you name a capability. Reuse an existing capability path when the behavior already exists.
 - Stage 3 grills one capabilities question: which capabilities are new, which existing ones change, or `skip_specs` when behavior does not change. Save it with `w2c decide`.
-- A slice is one `## N.` group in `tasks.md`. A task is `- [ ] N.M` plus an indented `- Verify:` line. Slice plan files stay delivery envelopes and contain no task checkboxes. Copy `templates/openspec/M-S-PLAN.md`.
+- A slice is one `## N.` group in `tasks.md`. A task is `- [ ] N.M` plus an indented `- Verify:` line. Slice plan files stay delivery envelopes and contain no task checkboxes. Copy `templates/openspec/M-S-PLAN.md`. When filling that envelope, keep `## Verification` scoped (see **Verification scope**).
 - Isolation, base dirt, manual test, and commit conventions grilling are unchanged. Conventions must also say `openspec/` is product content and is never deny-listed.
 
 ### OpenSpec write (only after Stage 5 approval)
@@ -367,6 +367,17 @@ When Isolation mode is `worktree`, after `w2c repo-layout`:
 Isolation scope is always **ticket**: every milestone/slice for this ticket shares the same mode and branch. Setup for classic mode happens on **first `do-chores`**, not during planning.
 
 After isolation grilling, read `.w2c/config.toml` `git_delivery`. If missing or invalid: **STOP**. Tell the user to run `w2c init --git-delivery slice-commit-milestone-push-pr|milestone-commit-milestone-push-pr` (or `w2c migrate … --git-delivery …`). Do not invent a cadence.
+
+### Verification scope (slice pass)
+
+When filling task `- Verify:` lines and each slice `## Verification`:
+
+- Prefer **scoped** commands that cover only the files or paths this slice owns (example: a package test runner pointed at those paths).
+- Optional: lint or format checks on **touched files only**.
+- **Do not** put full-repo test, full lint, full format, or full type-check suites in those slice-pass fields.
+- **Do not** invent type-check diagnostic comparisons, pinned baseline SHAs, error-count allowances, or “existing failures are OK” waivers.
+- Roadmap / Delivery Plan **Validation commands** may list full-repo suites — that row is for milestone closeout, commit, and push gates, not slice pass. Do not empty it to satisfy scoped-only.
+- Read `.w2c/DELIVERY-PROFILE.md` **Validation** when present: use its slice-pass rules for Verify / Verification; use its milestone / PR gates for **Validation commands**. Profile must not reintroduce full-repo suites into slice-pass fields unless grilled.
 
 ### DELIVERY-PROFILE (optional — no hard-stop)
 
