@@ -11,7 +11,7 @@ description: >-
 
 # Do Chores (cloud)
 
-Requires: w2c >= 3.5.0
+Requires: w2c >= 3.6.0
 
 Execute a planned cloud change. Default: **one** task. The agent never chooses the next step: `w2c cloud step` does.
 
@@ -31,15 +31,16 @@ do chores cloud [--change <name>] [--max-units N]
 
 ## Prerequisites (hard stop)
 
-1. `w2c` on PATH, version 3.5.0 or later. If missing or older: ask the user whether to run it through uvx. On yes, use this prefix for every `w2c` command in this run:
+1. `w2c` on PATH, version 3.6.0 or later. If missing or older: ask the user whether to run it through uvx. On yes, use this prefix for every `w2c` command in this run:
 
    ```bash
-   uvx --from git+https://github.com/OpenW2C/w2c@v3.5.0 w2c …
+   uvx --from git+https://github.com/OpenW2C/w2c@v3.6.0 w2c …
    ```
 
    On no: **STOP** and tell the user to install it (`pipx install git+https://github.com/OpenW2C/w2c.git && w2c install-skills`). Never run uvx without that yes.
 2. `openspec` on PATH. Run `w2c openspec-check`. If `needs` contains `NEED_OPENSPEC_INSTALL` or `NEED_OPENSPEC_INIT`, ask first. On yes, follow `Fetch https://raw.githubusercontent.com/Fission-AI/OpenSpec/main/install.md and follow it.` and stop where it says to stop. On no, stop.
 3. **requesting-code-review** invocable. If it is missing (for example on Copilot or Cursor), follow **Missing companion skills (ask first)** below.
+4. Editor **security review** (when a slice needs it). If missing, ask with the same missing-companion pattern, then use the security fallback from `w2c help security`.
 
 No `.w2c/` ledger is needed. The plan is the change under `openspec/changes/<name>/`; local state is only the step state, kept in the checkout's own git directory (`.w2c/runtime/step.json` outside git), which is never committed. Each linked worktree has its own.
 
@@ -82,6 +83,7 @@ Record the action the driver asked for, never a different one. If `--record` exi
 | `implement` | Make the change for this one task, from the brief | `pass`, or `fail` if it is not finished |
 | `verify` | Run the task's `Verify:` command from the brief | `pass` on exit 0, else `fail` |
 | `review` | Invoke requesting-code-review on this task's diff (or **Companion fallback**) | `pass` when clean; `fail` on any Critical or Important finding (with the fallback: on any finding) |
+| `security-review` | When the slice Threat Surface is `required` or `accepted`: run the editor security review or the fallback checklist from `w2c help security`. When `none`: backstop for trigger hits in the diff, else record `n/a`. | `pass` when clean or only accepted risk ids; `fail` on any new finding; `stop` on trigger-on-none |
 | `write-report` | Write each path in `files` (`.delivery/S##-T##-SUMMARY.md`) from `w2c cloud template task-summary`: what happened, verification evidence, deviations, files changed | `pass` |
 | `complete` | `w2c cloud complete --change <change> --slice <slice> --task <task>` | `pass` |
 | `slice-reports` | Re-run every `Verify:` line in this group and the group's **Verification** only (do not expand from CONTEXT). If those lines already embed full-repo suites or a pinned-SHA / diagnostic waiver with no grilled decision for this change in Decisions / design: record `slice-reports` `fail`, **STOP**, and offer amend via work-to-chores-cloud — do not invent recovery. Then write each path in `files`: `.delivery/S##-UAT.md` from `w2c cloud template slice-uat` (human checklist, boxes unchecked) and `.delivery/S##-SUMMARY.md` from `w2c cloud template slice-summary` (results; name each dropped task id) | `pass`, or `fail` if a Verify fails |
@@ -94,7 +96,7 @@ Record the action the driver asked for, never a different one. If `--record` exi
 
 A failing validation command never decides an ask for the user: record only what the user answers.
 
-On a `fail` the driver sends you back (`implement` after a failed verify or review). Find the root cause, fix, and follow the next step it gives. Never tick a `tasks.md` box by hand and never edit `x-delivery-*` keys: `w2c cloud complete`, `slice-complete`, `archive`, and `milestone-complete` are the only writers.
+On a `fail` the driver sends you back (`implement` after a failed verify, review, or security-review). Find the root cause, fix, and follow the next step it gives. Never tick a `tasks.md` box by hand and never edit `x-delivery-*` keys: `w2c cloud complete`, `slice-complete`, `archive`, and `milestone-complete` are the only writers.
 
 ## Asks and approvals
 
@@ -178,9 +180,16 @@ Use this only when requesting-code-review is missing, and only after the user ch
 
 Any finding, in any class, fails the review: record `review` `fail`, fix, and follow the loop. A class line without a reason does not count as checked.
 
+### Security review fallback
+
+Use when the driver action is `security-review` and no editor security review tool is available (after the missing-companion ask, or always for this action when the tool is missing). Follow the fallback checklist in `w2c help security`. Record `security_review: fallback-pass` or `fail`. Findings that match Accepted risk ids are noted and do not fail. New findings fail.
+
+**Backstop:** if Threat Surface is `none` but the diff hits a trigger, record `security-review` `stop` and offer amend via work-to-chores-cloud. Do not edit the plan.
+
+
 ## Report
 
-At the end of the run: change, slices and tasks completed, Verify commands and outcomes, review result (or fallback checklist), reports written, isolation mode and branch, each ask and its answer, and the stop reason if any.
+At the end of the run: change, slices and tasks completed, Verify commands and outcomes, review result (or fallback checklist), security-review result, reports written, isolation mode and branch, each ask and its answer, and the stop reason if any.
 
 ## Red flags — STOP
 
@@ -190,6 +199,7 @@ At the end of the run: change, slices and tasks completed, Verify commands and o
 - Recording a result for an action you did not do, or a different action than the driver asked for
 - Skipping `w2c cloud brief` at a new task
 - Skipping review, or recording `review` `pass` with a Critical or Important finding open (with the fallback: with any finding open, or a class line missing)
+- Skipping security-review on a required or accepted slice, or recording pass with a new finding open
 - Ticking `tasks.md` by hand or editing `x-delivery-*` keys
 - Committing or pushing except as the answer to `ask-commit` / `ask-push` (or the report commit chosen in **Archive refused**)
 - Committing, pushing, or opening a pull request without an explicit yes

@@ -14,7 +14,7 @@ description: >-
 
 # Work to Chores (cloud)
 
-Requires: w2c >= 3.5.0
+Requires: w2c >= 3.6.0
 
 **Plan only.** Interview, review, plan, validate, then write one OpenSpec change. Never implement product code.
 
@@ -28,14 +28,14 @@ Committed change files (everything under `openspec/changes/<name>/`) and the `.d
 
 Before Stage 1:
 
-1. Confirm `w2c` is on PATH (`command -v w2c`) and `w2c --version` is 3.5.0 or later. Do this first: every later step, including each `w2c event` log line, needs it. If it is missing, follow the uvx paragraph below before any other step, and log nothing until `w2c` (or the uvx prefix) works.
+1. Confirm `w2c` is on PATH (`command -v w2c`) and `w2c --version` is 3.6.0 or later. Do this first: every later step, including each `w2c event` log line, needs it. If it is missing, follow the uvx paragraph below before any other step, and log nothing until `w2c` (or the uvx prefix) works.
 2. Check whether **grilling** and **brainstorming** are invocable. If either is missing (for example on Copilot or Cursor), follow **Missing companion skills (ask first)** below.
 3. Run `w2c openspec-check`. If `needs` contains `NEED_OPENSPEC_INSTALL` or `NEED_OPENSPEC_INIT`, follow **OpenSpec install (ask first)**.
 
-If `w2c` is missing or older than 3.5.0: ask the user whether to run it once through uvx. On yes, use this prefix for every `w2c` command in this run:
+If `w2c` is missing or older than 3.6.0: ask the user whether to run it once through uvx. On yes, use this prefix for every `w2c` command in this run:
 
 ```bash
-uvx --from git+https://github.com/OpenW2C/w2c@v3.5.0 w2c …
+uvx --from git+https://github.com/OpenW2C/w2c@v3.6.0 w2c …
 ```
 
 On no: **STOP**. Tell the user to install it (`pipx install git+https://github.com/OpenW2C/w2c.git && w2c install-skills`) and re-invoke this skill. Never run uvx without that yes.
@@ -76,7 +76,7 @@ Read `openspec/config.yaml`. The cloud rules are present when it contains `DELIV
 
 Use this section only for a companion skill that is missing. Do not use it when the skill is installed.
 
-- **grilling or brainstorming missing:** run that pass yourself with the **Interview question contract** below, word for word: one question at a time, Evidence block first, options with pros, cons, example and possible outcome, one `[recommended]`, one mermaid diagram, wait for the answer, save with `w2c cloud decide`. Grilling closes when scope, users, done criteria, risks, integrations, and out-of-scope are clear. Brainstorming looks for structural gaps: edge cases, empty states, error paths, testing seams.
+- **grilling or brainstorming missing:** run that pass yourself with the **Interview question contract** below, word for word: one question at a time, Evidence block first, options with pros, cons, example and possible outcome, one `[recommended]`, one mermaid diagram, wait for the answer, save with `w2c cloud decide`. Grilling closes when scope, users, done criteria, risks, security applicability, integrations, and out-of-scope are clear. Brainstorming looks for structural gaps: edge cases, empty states, error paths, testing seams.
 - Use this section only after the user chose (b), or the run could not wait for an answer.
 
 ## Status writes
@@ -173,6 +173,8 @@ If the user wants to drop, change, or add open work in a change that already exi
 8. `w2c cloud smoke --change <name>`. On failure the lock stays. On success `w2c cloud amend-end --change <name>`. Show `w2c cloud amendments --change <name>`.
 9. `w2c cloud follow-up --change <name> --slice S## [--task T##] --ticket <link>` sets the ticket link later. The reason text stays fixed.
 
+When the amendment is because execution found a trigger hit on a `none` slice, re-run the security pass and Threat Surface fill for that slice before `amend-end`.
+
 Then stop. Do not write product code.
 
 ## Convert a 2.2 milestone ("convert M###")
@@ -194,7 +196,7 @@ Always run this stage, even when a ticket or spec is pasted. Need a hint of the 
 
 In order, each question following the **Interview question contract**:
 
-1. **Grilling** — until scope, users, done criteria, risks, integrations, and out-of-scope are clear.
+1. **Grilling** — until scope, users, done criteria, risks, security applicability, integrations, and out-of-scope are clear.
 2. **Brainstorming** — structural gaps (edge cases, empty states, testing seams).
 3. **Grilling again** — confirm each gap and pick a solution.
 
@@ -204,11 +206,19 @@ Record decisions with `w2c cloud decide`.
 
 Review collected knowledge for architectural or design gaps that would break the original requirement. If you find one, say what is wrong and its impact, then ask with the interview contract. Save the choice and return to Stage 1.
 
+### Security pass (required)
+
+Read `w2c help security`. Search the scope and the code that will change against the fixed trigger list. Present a report with evidence-backed findings (or "nothing found" plus the search). Do not invent findings. The grilling fallback runs this pass the same way when companions are missing.
+
+Ask with the interview contract: nothing found → one yes/no; findings → address all, address some, accept all, or mark wrong. For each finding to address, ask one control question. Save with `w2c cloud decide`.
+
+For declined risks: ask register file, ticket, or both. Write with `w2c cloud risk-accept --change` after the change exists (or hold the decision and accept after `w2c cloud new`). Committed change files must never name the planner or a `.w2c/` path — cite baselines only. In a temporary container (`ephemeral: true`), warn that a local register is lost and recommend `committed` or a ticket. Delivery Plan row `Risk register` records `local`, `committed:<path>`, or `ticket-only`.
+
 ## Stage 3 - Plan
 
 One piece of work is one change (`<name>` is a short kebab-case slug). Each `## N.` group in `tasks.md` is a slice. Each task is `- [ ] N.M <title>` with an indented `- Verify: <command>` line. Grill one capabilities question: which capabilities are new, which existing ones change, or none when behavior does not change.
 
-Embed this execution rule (do **not** execute it here): a task is not complete until Verify passes and **requesting-code-review** is clean; after a group's last task re-run its Verify lines, write the slice UAT and summary, complete the slice; after the last group write `VALIDATION.md` and `SUMMARY.md`, commit them (after a yes), archive, then commit the archive move (after a yes). When the archive is declined, the change is committed but not pushed: the push check refuses a finished change until it is archived.
+Embed this execution rule (do **not** execute it here): a task is not complete until Verify passes, **requesting-code-review** is clean, and the **security review** for the slice passes (or is `n/a`); after a group's last task re-run its Verify lines, write the slice UAT and summary, complete the slice; after the last group write `VALIDATION.md` and `SUMMARY.md`, commit them (after a yes), archive, then commit the archive move (after a yes). When the archive is declined, the change is committed but not pushed: the push check refuses a finished change until it is archived.
 
 The `.delivery/` reports reach git history only through commits: each slice commit carries the reports present then, the milestone commit before the archive carries `VALIDATION.md`, `SUMMARY.md`, and any report not yet committed, and `w2c cloud archive` then removes `.delivery/`, so the commit after the archive carries only the move.
 
@@ -302,11 +312,11 @@ Ask: "Do you want a step-by-step manual test guide for this change, to run after
 
 ## Stage 4 - Validate the plan
 
-Loop Stages 1–4 until no gap is left. Confirm: one isolation mode and branch across the ticket, cadence chosen, every Delivery Plan row has a value or `none`, conventions filled with the Co-authored-by ban, manual test answered, every slice has all eight fields, every task has a Verify line.
+Loop Stages 1–4 until no gap is left. Confirm: one isolation mode and branch across the ticket, cadence chosen, every Delivery Plan row has a value or `none`, conventions filled with the Co-authored-by ban, manual test answered, every slice has all eight fields with a structured Threat Surface, Security pass is done, every task has a Verify line.
 
 ## Stage 5 - User review
 
-Ask the user to review the plan (isolation, branch, cadence, slices, decisions). A requested change is checked against the original requirement first. If it fits, restate it, wait for confirmation, and go back to Stage 1. If not, explain the mismatch and do not change the plan. Do not write files before approval.
+Ask the user to review the plan (isolation, branch, cadence, slices, Threat Surfaces, accepted risks, decisions). A requested change is checked against the original requirement first. If it fits, restate it, wait for confirmation, and go back to Stage 1. If not, explain the mismatch and do not change the plan. Do not write files before approval.
 
 ## Write the change (after approval only)
 
@@ -314,7 +324,7 @@ Ask the user to review the plan (isolation, branch, cadence, slices, decisions).
 2. `w2c cloud decisions-flush --change <name>`.
 3. For each artifact, run `openspec instructions <artifact> --change <name> --json` and write the file it names. Order: proposal, specs, design, tasks. For `design.md` and `tasks.md`, fill the files `w2c cloud new` wrote: never replace them. `w2c cloud template design` and `w2c cloud template read-first` print the same text again if one was lost.
 4. **`design.md`** must contain these six required sections, in this order, as `w2c cloud new` wrote them. After `openspec instructions design`, put OpenSpec's own design sections (Context, Goals / Non-Goals, Risks / Trade-offs, Migration Plan, Open Questions) after `## Amendments`. Never remove or rename the six:
-   - `## Delivery Plan` — every row filled (value or `none`): Isolation mode, Local branch, Remote branch, Isolation scope `ticket`, Setup when `spec-commit`, Reuse policy, Worktree skill, Worktree layout, Worktree dir, Exclude line, Push rule, Base dirt policy, External ticket ID, Integration strategy, Integration branch, Production branch, Review unit, Execution sequence, Validation commands, Completion condition, Size budget (LOC diff), Manual test guide. Plus `### Base dirt paths` for `leave-untouched`.
+   - `## Delivery Plan` — every row filled (value or `none`): Isolation mode, Local branch, Remote branch, Isolation scope `ticket`, Setup when `spec-commit`, Reuse policy, Worktree skill, Worktree layout, Worktree dir, Exclude line, Push rule, Base dirt policy, External ticket ID, Integration strategy, Integration branch, Production branch, Review unit, Execution sequence, Validation commands, Completion condition, Size budget (LOC diff), Manual test guide, Security pass, Risk register. Plus `### Base dirt paths` for `leave-untouched`.
    - `## Guardrails` — the template's guardrails, verbatim. Do not edit them.
    - `## Commit and PR Conventions` — the template text verbatim, with only the placeholders filled as **Commit and PR conventions** says.
    - `## Decisions` — the flushed table, plus the Decision Rationale prose for each grilled choice.
@@ -329,6 +339,12 @@ Ask the user to review the plan (isolation, branch, cadence, slices, decisions).
    **Demo:**
    **Must-Haves:**
    **Threat Surface:**
+   - Security review: required | none | accepted
+   - Reason: <when none>
+   - Threats: <finding id, evidence, category, severity>
+   - Controls: <control + baseline>
+   - Security tests: <named in a Verify line>
+   - Accepted risks: <ids when accepted>
    **Proof Level:**
    **Integration Closure:**
    **Verification:** scoped commands for this group only (paths this slice owns; optional lint/format on touched files). Do **not** put full-repo test/lint/format/type-check suites here, and do **not** invent diagnostic comparisons, pinned baseline SHAs, or “existing errors are OK” waivers unless the user grilled and approved them for this change. Put full-repo suites in Delivery Plan **Validation commands** (milestone / commit / push), not here. Honor `.w2c/DELIVERY-PROFILE.md` Validation for slice vs milestone split when present.
@@ -339,6 +355,11 @@ Ask the user to review the plan (isolation, branch, cadence, slices, decisions).
    ```
 
    Fill all eight fields in every group. Task checkboxes live only in their group.
+
+
+#### Threat Surface (per slice)
+
+Recheck each group against Files Likely Touched and the security pass. Fill the structured Threat Surface (`required` / `none` / `accepted`). A `required` group needs Threats, Controls, and a Security test that appears in a task Verify line. Set Delivery Plan `Security pass` to `done`.
 
 #### Verification scope (slice pass)
 
@@ -390,6 +411,8 @@ Then tell the user to run `do-chores-cloud`.
 
 - Implementing product code
 - Skipping grilling or brainstorming, or stopping when a companion is missing instead of using **Companion fallback**
+- Skipping the security pass, or writing a finding without evidence
+- Marking a trigger-hit slice as `none` without a grilled decision
 - Asking a question without an Evidence block first, or without pros, cons, example, outcome, and a mermaid diagram
 - Writing change files before Stage 5 approval
 - A `design.md` without all six sections in order, or a Delivery Plan row left blank

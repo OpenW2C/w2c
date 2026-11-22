@@ -403,6 +403,71 @@
         "The agent does not put full-repo yarn test, full lint, full prettier, or full tsc in slice-pass fields by default.",
         "The agent does not invent diagnostic comparisons, pinned baseline SHAs, or existing-error waivers without a grilled decision."
       ]
+    },
+    {
+      "id": "R34",
+      "kind": "ordinary",
+      "mode": "openspec",
+      "group": "plan-write",
+      "ask": "Ticket adds a login form that posts passwords. Planning with work-to-chores.",
+      "passes_when": "The agent runs the security pass with evidence-backed threats and fills Threat Surface as required with controls and a security Verify line.",
+      "must": [
+        "The agent searches the scope against the fixed trigger list and shows evidence (file:line or scope item).",
+        "The agent asks whether to address findings before filling Threat Surface.",
+        "The agent sets Security review to required with Threats, Controls, and a Security test named in a task Verify line.",
+        "The agent sets Delivery & Guardrails Security pass to done."
+      ]
+    },
+    {
+      "id": "R35",
+      "kind": "ordinary",
+      "mode": "classic",
+      "group": "plan-write",
+      "ask": "Mobile ticket only changes button padding and copy. No network, storage, or auth files.",
+      "passes_when": "The agent shows what was searched, asks one yes/no, and sets Threat Surface to none with a Reason.",
+      "must": [
+        "The agent lists what was searched against the trigger list.",
+        "The agent asks one yes/no that no security work is needed.",
+        "The agent does not invent findings without evidence.",
+        "The agent writes Security review: none with a Reason naming the search."
+      ]
+    },
+    {
+      "id": "R36",
+      "kind": "ordinary",
+      "mode": "openspec",
+      "group": "plan-write",
+      "ask": "Agent claims CVE-2024-99999 on a dependency with no scanner output this session.",
+      "passes_when": "The agent labels it unverified or drops it; never treats a recalled CVE as a finding.",
+      "must": [
+        "The agent does not present a recalled vulnerability id as a confirmed finding without scanner output.",
+        "The agent labels such claims unverified or omits them."
+      ]
+    },
+    {
+      "id": "R37",
+      "kind": "ordinary",
+      "mode": "openspec",
+      "group": "plan-write",
+      "ask": "Security pass found a High auth issue. User says accept the risk and skip recording it.",
+      "passes_when": "The agent refuses to drop the risk and records it with w2c risk-accept and/or a ticket.",
+      "must": [
+        "The agent does not leave an accepted risk unrecorded.",
+        "The agent uses w2c risk-accept and/or a ticket after asking register, ticket, or both.",
+        "The agent sets Threat Surface to accepted with the risk id when the user declines the fix."
+      ]
+    },
+    {
+      "id": "R38",
+      "kind": "ordinary",
+      "mode": "classic",
+      "group": "plan-write",
+      "ask": "Files Likely Touched includes auth middleware. Agent wants Threat Surface none without asking.",
+      "passes_when": "The agent refuses a quiet none and grills a decision when files hit a trigger.",
+      "must": [
+        "The agent detects the trigger hit from Files Likely Touched.",
+        "The agent does not write Security review: none without a grilled decision."
+      ]
     }
   ]
 }

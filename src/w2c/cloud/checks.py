@@ -267,6 +267,8 @@ def smoke_rows(root: Path, changes: list[CloudChange]) -> list[tuple[str, str, s
             "neutral-artifacts",
             "unique-change-ids",
             "openspec-archived-when-done",
+            "threat-surface",
+            "accepted-risk-recorded",
         )
     }
 
@@ -289,6 +291,12 @@ def smoke_rows(root: Path, changes: list[CloudChange]) -> list[tuple[str, str, s
         if tasks_text is None:
             problems["slice-fields"].append(f"{change.name}: tasks.md missing")
         else:
+            from w2c import risks as w2c_risks
+
+            design_text = _read(design) if design.is_file() else ""
+            plan_fields = delivery_plan_fields(design_text) if design_text else {}
+            security_pass = plan_fields.get("Security pass", "")
+            security_items = []
             for number, fields in slice_fields(tasks_text).items():
                 lacking = [f for f in layout.SLICE_FIELDS if f not in fields]
                 empty = [f for f in layout.SLICE_FIELDS if f in fields and not fields[f].strip()]
@@ -300,6 +308,27 @@ def smoke_rows(root: Path, changes: list[CloudChange]) -> list[tuple[str, str, s
                     problems["slice-fields"].append(
                         f"{change.name} group {number}: empty {', '.join(empty)}"
                     )
+                # Verify lines for this group
+                verifies = []
+                # Collect verify from openspec tasks for this slice
+                sid = f"S{number:02d}"
+                for task in osl.parse_openspec_tasks(tasks, change.name):
+                    if task.sid == sid:
+                        verifies.append(task.verify or "")
+                security_items.append(
+                    (
+                        f"{change.name}/{sid}",
+                        security_pass,
+                        fields.get("Threat Surface", ""),
+                        "\n".join(verifies),
+                        "",
+                    )
+                )
+            threat_probs, accepted_probs = w2c_risks.collect_plan_security_smoke(
+                root, security_items
+            )
+            problems["threat-surface"] += threat_probs
+            problems["accepted-risk-recorded"] += accepted_probs
         problems["read-first-present"] += tag(change, read_first_problems(tasks_text))
         if (
             change.status == "DONE" and not change.archived and change.archive != "declined"
@@ -351,6 +380,7 @@ def smoke_rows(root: Path, changes: list[CloudChange]) -> list[tuple[str, str, s
         "openspec-validate-strict", "openspec-artifacts-complete", "openspec-tasks-have-verify",
         "openspec-progress-agrees", "ticked-without-report", "closeout-reports",
         "neutral-artifacts", "unique-change-ids", "openspec-archived-when-done",
+        "threat-surface", "accepted-risk-recorded",
     ]
     rows.sort(key=lambda row: order.index(row[0]))
     return rows

@@ -1152,6 +1152,47 @@ def cmd_next(
     return 0
 
 
+
+def require_security_review_result(root: Path, mid: str, sid: str, tid: str, d: Path) -> None:
+    """Refuse complete when the task summary security_review does not match the slice."""
+    from w2c import risks as w2c_risks
+
+    mroad = d / f"{mid}-ROADMAP.md"
+    mtext = read_text(mroad) if mroad.is_file() else ""
+    dg = parse_table_under_heading(mtext, "Delivery & Guardrails")
+    if not w2c_risks.security_pass_done(dg):
+        return
+    plan = d / f"{mid}-{sid}-PLAN.md"
+    threat = ""
+    if plan.is_file():
+        threat = section_under_heading(read_text(plan), "Threat Surface") or ""
+    surface = w2c_risks.parse_threat_surface(threat)
+    if surface is None and openspec_ledger.planning_mode(mtext) == w2c_local.PLANNING_OPENSPEC:
+        name = openspec_ledger.change_name(mtext)
+        archived = openspec_ledger.archive_value(mtext)
+        folder = openspec_ledger.change_dir(root, name, archived)
+        if folder is not None:
+            tasks_path = folder / "tasks.md"
+            if tasks_path.is_file():
+                from w2c.cloud.checks import slice_fields
+
+                try:
+                    number = int(sid.lstrip("Ss"))
+                except ValueError:
+                    number = -1
+                fields = slice_fields(read_text(tasks_path)).get(number, {})
+                surface = w2c_risks.parse_threat_surface(fields.get("Threat Surface", ""))
+    if surface is None:
+        raise W2CError(
+            f"{mid}/{sid}: Security pass is done but Threat Surface is not structured"
+        )
+    summary_path = task_summary_path(d, sid, tid)
+    meta, _body = strip_frontmatter(read_text(summary_path) if summary_path.is_file() else "")
+    problems = w2c_risks.security_review_result_ok(meta, surface)
+    if problems:
+        raise W2CError(f"{sid}-{tid}-SUMMARY.md: {'; '.join(problems)}")
+
+
 def cmd_complete(root: Path, mid: str, sid: str, tid: str) -> int:
     refuse_if_amend_locked(root, mid)
     d = plan_dir_for(root, mid)
@@ -1167,6 +1208,7 @@ def cmd_complete(root: Path, mid: str, sid: str, tid: str) -> int:
         task = match[0]
         tid = task.tid
         require_report(task_summary_path(d, sid, tid), f"{sid}-{tid}-SUMMARY.md")
+        require_security_review_result(root, mid, sid, tid, d)
         if task.done:
             raise W2CError(f"{tid} is already complete")
         if task.dropped:
@@ -1181,6 +1223,7 @@ def cmd_complete(root: Path, mid: str, sid: str, tid: str) -> int:
         if path is None:
             raise W2CError(f"slice plan not found for {mid} {sid}")
         require_report(task_summary_path(d, sid, tid), f"{sid}-{tid}-SUMMARY.md")
+        require_security_review_result(root, mid, sid, tid, d)
         tasks = parse_tasks(path, mid, sid)
         match = [t for t in tasks if t.tid == tid]
         if not match:
@@ -2242,6 +2285,54 @@ def run_smoke(root: Path, milestone: str | None = None) -> Report:
         "; ".join(mt_detail[:8]),
     )
 
+    from w2c import risks as w2c_risks
+
+    security_items: list[tuple[str, str, str, str, str]] = []
+    for mil in plan_mils:
+        d = plan_dir_for(root, mil.mid)
+        if d is None:
+            continue
+        mroad = d / f"{mil.mid}-ROADMAP.md"
+        if not mroad.is_file():
+            continue
+        mtext = read_text(mroad)
+        dg = parse_table_under_heading(mtext, "Delivery & Guardrails")
+        security_pass = dg.get("Security pass", "")
+        for sid, _done, _title in parse_slices(mtext):
+            p = d / f"{mil.mid}-{sid}-PLAN.md"
+            if not p.is_file():
+                continue
+            stext = read_text(p)
+            threat = section_under_heading(stext, "Threat Surface") or ""
+            verifies: list[str] = []
+            for task in openspec_ledger.tasks_in_slice(root, mil.mid, sid, d):
+                verifies.append(task.verify or "")
+            # Classic tasks also live in the slice plan.
+            for task in parse_tasks(p, mil.mid, sid):
+                verifies.append(task.verify or "")
+            security_items.append(
+                (
+                    f"{mil.mid}/{sid}",
+                    security_pass,
+                    threat,
+                    "\n".join(verifies),
+                    "",
+                )
+            )
+    threat_probs, accepted_probs = w2c_risks.collect_plan_security_smoke(
+        root, security_items
+    )
+    report.add(
+        "threat-surface",
+        "FAIL" if threat_probs else "PASS",
+        "; ".join(threat_probs[:8]),
+    )
+    report.add(
+        "accepted-risk-recorded",
+        "FAIL" if accepted_probs else "PASS",
+        "; ".join(accepted_probs[:8]),
+    )
+
     missing: list[str] = []
     for mil in plan_mils:
         d = plan_dir_for(root, mil.mid)
@@ -2531,7 +2622,25 @@ def build_parser() -> argparse.ArgumentParser:
     ins.add_argument("--no-cursor", action="store_true")
     ins.add_argument("--no-claude", action="store_true")
     _add_amend_parsers(sub)
+    _add_risk_parsers(sub)
     return p
+
+
+def _add_risk_parsers(sub: argparse._SubParsersAction) -> None:
+    accept = sub.add_parser("risk-accept", help="append an accepted security risk")
+    accept.add_argument("--scope", required=True, help="milestone or change id")
+    accept.add_argument("--slice", dest="slice_id", required=True)
+    accept.add_argument("--finding", required=True)
+    accept.add_argument("--evidence", required=True, help="file:line or quoted scope item")
+    accept.add_argument("--severity", required=True)
+    accept.add_argument("--reason", required=True, help="why the user accepted the risk")
+    accept.add_argument("--revisit", default="")
+    accept.add_argument("--ticket", default="")
+    accept.add_argument("--when", default=None)
+    follow = sub.add_parser("risk-follow-up", help="set the ticket link on an accepted risk")
+    follow.add_argument("risk_id")
+    follow.add_argument("--ticket", required=True)
+    sub.add_parser("risk-list", help="print the accepted security risk register")
 
 
 def _add_amend_parsers(sub: argparse._SubParsersAction) -> None:
@@ -2610,9 +2719,13 @@ def _add_amend_parsers(sub: argparse._SubParsersAction) -> None:
     hook_p.add_argument("action", choices=["add", "remove", "status", "run"])
     hook_p.add_argument("name", nargs="?")
     help_p = sub.add_parser(
-        "help", help="print worktrees, bare-container, cloud-sessions, or companions help"
+        "help",
+        help="print worktrees, bare-container, cloud-sessions, companions, or security help",
     )
-    help_p.add_argument("topic", choices=["worktrees", "bare-container", "cloud-sessions", "companions"])
+    help_p.add_argument(
+        "topic",
+        choices=["worktrees", "bare-container", "cloud-sessions", "companions", "security"],
+    )
     push_p = sub.add_parser(
         "openspec-push-check",
         help="fail when a finished OpenSpec milestone on this branch is not archived in the commit",
@@ -2742,6 +2855,29 @@ def dispatch(args: argparse.Namespace) -> int:
         return cmd_migrate(root, args.action, git_delivery=getattr(args, "git_delivery", None))
     if cmd == "gitignore-ensure":
         return cmd_gitignore_ensure(root, bool(getattr(args, "track", False)))
+    if cmd == "risk-accept":
+        from w2c import risks as w2c_risks
+
+        return w2c_risks.cmd_risk_accept(
+            root,
+            scope=args.scope,
+            slice_id=args.slice_id,
+            finding=args.finding,
+            evidence=args.evidence,
+            severity=args.severity,
+            reason=args.reason,
+            revisit=args.revisit,
+            ticket=args.ticket,
+            when=args.when,
+        )
+    if cmd == "risk-follow-up":
+        from w2c import risks as w2c_risks
+
+        return w2c_risks.cmd_risk_follow_up(root, args.risk_id, args.ticket)
+    if cmd == "risk-list":
+        from w2c import risks as w2c_risks
+
+        return w2c_risks.cmd_risk_list(root)
     if cmd == "projects":
         return cmd_projects()
     if cmd == "register":

@@ -304,6 +304,37 @@ def _groups(change: ledger.CloudChange) -> tuple[list[int], list[int]]:
     return numbers, open_groups
 
 
+
+def _require_security_review(item: ledger.CloudChange, sid: str, tid: str) -> None:
+    """Refuse complete when Security pass is done and the summary result is wrong."""
+    from w2c import risks as w2c_risks
+
+    design = item.path / "design.md"
+    fields = ledger.delivery_plan_fields(_cli().read_text(design) if design.is_file() else "")
+    if not w2c_risks.security_pass_done(fields):
+        return
+    tasks_path = item.path / "tasks.md"
+    try:
+        number = int(sid.lstrip("Ss"))
+    except ValueError:
+        number = -1
+    group = checks.slice_fields(_cli().read_text(tasks_path) if tasks_path.is_file() else "").get(
+        number, {}
+    )
+    surface = w2c_risks.parse_threat_surface(group.get("Threat Surface", ""))
+    if surface is None:
+        raise _cli().W2CError(
+            f"{item.name}/{sid}: Security pass is done but Threat Surface is not structured"
+        )
+    summary = _report(item, checks.report_name("task_summary", sid, tid))
+    meta, _body = _cli().strip_frontmatter(
+        _cli().read_text(summary) if summary.is_file() else ""
+    )
+    problems = w2c_risks.security_review_result_ok(meta, surface)
+    if problems:
+        raise _cli().W2CError(f"{sid}-{tid}-SUMMARY.md: {'; '.join(problems)}")
+
+
 def complete(root: Path, change: str, sid: str, tid: str) -> int:
     cli = _cli()
     item = _active(root, change)
@@ -316,6 +347,7 @@ def complete(root: Path, change: str, sid: str, tid: str) -> int:
     task = match[0]
     tid = task.tid
     _require(item, checks.report_name("task_summary", sid, tid))
+    _require_security_review(item, sid, tid)
     if task.done:
         raise cli.W2CError(f"{tid} is already complete")
     if task.dropped:

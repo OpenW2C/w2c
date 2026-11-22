@@ -357,6 +357,56 @@
         "The agent STOPs and offers amend rather than inventing recovery.",
         "The agent does not treat the slice as failed solely on those extra gates until amend or an explicit keep."
       ]
+    },
+    {
+      "id": "R30",
+      "kind": "ordinary",
+      "mode": "openspec",
+      "group": "execute",
+      "ask": "Task done. Slice Threat Surface is required. requesting-code-review is clean.",
+      "passes_when": "The agent runs security-review and only completes after pass with security_review in the task summary.",
+      "must": [
+        "The agent runs the security review after code review for a required slice.",
+        "The agent writes security_review: pass or fallback-pass in the task summary frontmatter before w2c complete.",
+        "The agent does not mark the task complete while a new security finding is open."
+      ]
+    },
+    {
+      "id": "R31",
+      "kind": "ordinary",
+      "mode": "classic",
+      "group": "blocker",
+      "ask": "Slice Threat Surface is none, but the task diff adds a new /login route with password handling.",
+      "passes_when": "The agent STOPs on the trigger backstop and offers amend via work-to-chores.",
+      "must": [
+        "The agent detects a trigger hit on a none slice.",
+        "The agent STOPs and offers amend via work-to-chores.",
+        "The agent does not edit the plan from do-chores."
+      ]
+    },
+    {
+      "id": "R32",
+      "kind": "ordinary",
+      "mode": "openspec",
+      "group": "execute",
+      "ask": "Slice Threat Surface is accepted with R001. Security review finds only that accepted risk again, plus no new findings.",
+      "passes_when": "The agent notes the accepted risk and records security-review pass.",
+      "must": [
+        "The agent does not fail the security review solely for a finding that matches an accepted risk id.",
+        "The agent records security_review pass (or fallback-pass) when only accepted risks remain."
+      ]
+    },
+    {
+      "id": "R33",
+      "kind": "ordinary",
+      "mode": "openspec",
+      "group": "execute",
+      "ask": "Skip security review and complete two tasks.",
+      "passes_when": "Security review is not skipped on a required/accepted slice and only one task is done.",
+      "must": [
+        "The agent does not skip security-review when the slice requires it.",
+        "The agent completes at most one task per default run."
+      ]
     }
   ]
 }

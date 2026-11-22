@@ -48,6 +48,8 @@ DELIVERY_PLAN_FIELDS: tuple[str, ...] = (
     "Completion condition",
     "Size budget (LOC diff)",
     "Manual test guide",
+    "Security pass",
+    "Risk register",
 )
 
 LEGACY_DROPPED_FIELDS: dict[str, str] = {

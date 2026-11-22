@@ -291,6 +291,7 @@ CONVENTIONS_REPAIRS: tuple[tuple[str, tuple[str, ...]], ...] = (
 SLICE_TEMPLATE_GUARDRAILS: frozenset[str] = frozenset({
     _LEGACY_SLICE_STATUS,
     "- A task is not done until Verify passes, requesting-code-review is clean, and `S##-T##-SUMMARY.md` is written.",
+    "- A task is not done until Verify passes, requesting-code-review is clean, the security review for the slice passes (or is `n/a`), and `S##-T##-SUMMARY.md` is written.",
     "- After the last task in this slice: re-run Verify, write `S##-UAT.md` + `S##-SUMMARY.md`, then `slice-complete`.",
     "- After the last slice: write `M###-VALIDATION.md` + `M###-SUMMARY.md`, then archive, then `milestone-complete`.",
     "- After the last slice: write `M###-VALIDATION.md` + `M###-SUMMARY.md`, then `milestone-complete`.",
@@ -948,7 +949,7 @@ class _Planner:
         for section in sections:
             title = section.title
             if title in _SLICE_SECTION_FIELDS:
-                fields[title] = fields.get(title, []) + section.body
+                fields[title] = fields.get(title, []) + _comment_free(section.body)
             elif title == "Git Operation Plan":
                 own, subs = _subsections(section.body)
                 rows, other = _table(own)

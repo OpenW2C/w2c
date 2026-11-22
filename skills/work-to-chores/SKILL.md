@@ -13,7 +13,7 @@ description: >-
 
 # Work to Chores
 
-Requires: w2c >= 3.5.0
+Requires: w2c >= 3.6.0
 
 **Plan only.** Interview, review, plan, validate, write `.w2c/` artifacts. Never implement product code.
 
@@ -231,6 +231,8 @@ Log `--stage amend --event started`.
 8. Run `w2c smoke --milestone M###`. On failure the amendment lock stays. On success run `w2c amend-end M###`. If the saved status was `INPROGRESS` and the batch changed the milestone, it stays `PAUSED` until the user sets the status. If there were no mutations, `amend-end` restores the saved status.
 9. `w2c follow-up` can set or replace only the ticket link later. The reason text stays fixed.
 
+When the amendment is because execution found a trigger hit on a `none` slice, re-run the Stage 2 security pass and Stage 3 Threat Surface fill for that slice before `amend-end`.
+
 Log `--stage amend --event complete` after `amend-end`. Then stop. Do not write product code.
 
 ## Classic planning stages
@@ -247,7 +249,7 @@ Need a hint of the work. If the prompt has no ticket, spec, or description: ask 
 
 Then, in order — each question follows the **Interview question contract**:
 
-1. **Grilling** - one question at a time. Close when **scope, users, done criteria, risks, integrations, and out-of-scope** are clear. Log `--stage gather --event complete --detail grilling` when that pass closes (or `retry` if you must restart it).
+1. **Grilling** - one question at a time. Close when **scope, users, done criteria, risks, security applicability, integrations, and out-of-scope** are clear. Log `--stage gather --event complete --detail grilling` when that pass closes (or `retry` if you must restart it).
 2. **Brainstorming** - find structural gaps (edge cases, empty states, testing seams). When proposing approaches or gap solutions, use the same evidence-first options contract. Log `--stage gather --event complete --detail brainstorming` when it closes.
 3. **Grilling again** - confirm each gap and pick a solution (same contract).
 
@@ -275,6 +277,21 @@ Wait for a choice. Save it with `w2c decide`. Then return to Stage 1 with a new 
 
 If no issue: log `--stage review --event complete`.
 
+### Security pass (required)
+
+Log `--stage security --event started`. Read `w2c help security`. Search the scope and the code that will change against the fixed trigger list. Present a report: each finding with evidence (`file:line` or quoted scope item), category, and severity from the table — or "nothing found" plus what was searched. Do not invent findings, categories, severities, or vulnerability ids without scanner output.
+
+Then ask with the **Interview question contract**:
+
+- If nothing found: one yes/no — "no security work needed?" Recommended: yes when the search was thorough.
+- If findings: address all, address some, accept all, or mark findings wrong. Recommended: address all Critical and High.
+
+For each finding to address, ask one control question (baseline options, recommended default). Save each choice with `w2c decide`.
+
+For each declined risk: ask one batch question — register file, ticket, or both (per-risk override allowed). Write each entry with `w2c risk-accept`. Tickets follow the amend rule: `w2c` never calls a tracker. If `security_risk_register` in `.w2c/config.toml` is `unset`, grill once: `local` (default, `.w2c/SECURITY-RISKS.md`) or `committed` (path + warn that a public repo lists open holes). Write the config after yes.
+
+Log `--stage security --event complete`.
+
 ## Stage 3 - Plan
 
 Log `--stage plan --event started`.
@@ -295,7 +312,7 @@ Milestone states: PLANNING, TODO, PAUSED, INPROGRESS, DONE, ERROR, STOP.
 
 Each task needs a testing or other verification plan. Embed this execution rule in every slice plan (do **not** execute it here):
 
-- A task is not complete until Verify passes and **requesting-code-review** is clean. Loop fix, verify, review until both succeed. Write `S##-T##-SUMMARY.md`, then `w2c complete`.
+- A task is not complete until Verify passes, **requesting-code-review** is clean, and the **security review** for the slice passes (or is `n/a`). Loop fix, verify, review, security-review until all succeed. Write `S##-T##-SUMMARY.md` with `security_review:` in frontmatter (`pass` / `fallback-pass` / `n/a`), then `w2c complete`.
 - When every task in a slice is complete: re-run that slice’s Verify commands, write `S##-UAT.md` and `S##-SUMMARY.md`, then `w2c slice-complete`.
 - When every slice in a milestone is complete: validate the whole milestone, write `M###-VALIDATION.md` and `M###-SUMMARY.md`, then `w2c milestone-complete`.
 
@@ -446,15 +463,27 @@ For **each milestone**, follow the **Interview question contract** (evidence may
 
 Log `--stage plan --event complete` when the draft plan is ready for validation.
 
+
+### Threat Surface (per slice)
+
+After Files Likely Touched are drafted, recheck each slice against the trigger list and the security pass outcomes:
+
+- No hits → `Security review: none` plus Reason naming the search.
+- Hits that will be fixed → `required` with Threats, Controls, Security tests; at least one security test must appear in a task Verify line.
+- Hits the user accepted → `accepted` with Accepted risks ids from `w2c risk-accept`.
+- A slice whose files hit a trigger cannot be `none` without a grilled decision.
+
+Set Delivery & Guardrails `Security pass` to `done` for milestones written under these rules.
+
 ## Stage 4 - Validate the plan
 
 Log `--stage validate --event started`. Until there are no pending issues or gaps, loop Stages 1-4. Never rewrite an existing CONTEXT; `w2c context-new --major` or `--minor`. Save decisions with `w2c decide`. Log `--stage validate --event retry` on each loop back, then `--stage validate --event complete` when clean.
 
-Confirm Git Operation Plan is present and consistent across all milestones/slices for the ticket (same mode, branch, and Base dirt policy when both sides set it). Confirm `.w2c/config.toml` has a valid `git_delivery`. Confirm every ROADMAP and slice PLAN has a filled `## Commit and PR conventions` section (repo-detected title/body/PR rules, deny-list + do-not-mention `.w2c/` artifacts, plus the Co-authored-by ban). Confirm each milestone Delivery & Guardrails `Manual test guide` is `yes` or `no`, and if `yes` that `M###-MANUAL-TEST.md` exists and is non-empty. When grilled decisions exist, confirm each milestone `M###-CONTEXT.md` has a filled **Decision Rationale** (choice, why, pros, cons, expected outcome, diagram) — not only Key Decisions bullets. Do not require plan cells to duplicate the chosen cadence — config is source of truth.
+Confirm Git Operation Plan is present and consistent across all milestones/slices for the ticket (same mode, branch, and Base dirt policy when both sides set it). Confirm `.w2c/config.toml` has a valid `git_delivery`. Confirm every ROADMAP and slice PLAN has a filled `## Commit and PR conventions` section (repo-detected title/body/PR rules, deny-list + do-not-mention `.w2c/` artifacts, plus the Co-authored-by ban). Confirm each milestone Delivery & Guardrails `Security pass` is `done` when this plan used the security pass, and every slice Threat Surface is structured (`required` / `none` / `accepted`). Confirm each milestone Delivery & Guardrails `Manual test guide` is `yes` or `no`, and if `yes` that `M###-MANUAL-TEST.md` exists and is non-empty. When grilled decisions exist, confirm each milestone `M###-CONTEXT.md` has a filled **Decision Rationale** (choice, why, pros, cons, expected outcome, diagram) — not only Key Decisions bullets. Do not require plan cells to duplicate the chosen cadence — config is source of truth.
 
 ## Stage 5 - User review
 
-Log `--stage user-review --event started`. Ask the user to review the plan (including isolation mode and branch name, and Decision Rationale in each `M###-CONTEXT.md`). If they request a change:
+Log `--stage user-review --event started`. Ask the user to review the plan (including isolation mode and branch name, each slice Threat Surface, accepted risks, and Decision Rationale in each `M###-CONTEXT.md`). If they request a change:
 
 1. Do not trust it until checked against the original requirement.
 2. If it fits: restate what you understood and your suggested adjustment; wait for confirmation; then Stage 1 with a new CONTEXT version. Log `--stage user-review --event retry`.
@@ -529,6 +558,8 @@ Then tell the user: run `do-chores` next; isolation setup (worktree create or br
 
 - Implementing product code
 - Skipping grilling or brainstorming
+- Skipping the security pass, or writing a finding without evidence
+- Marking a trigger-hit slice as `none` without a grilled decision
 - Asking a grill/brainstorm question without an Evidence block first
 - Padding options with fake or illegal choices just to hit a count
 - Presenting options without pros, cons, example, possible outcome, and a mermaid diagram

@@ -187,6 +187,18 @@ WORKTREE_SEED_POLICY_VALUES = frozenset(
 )
 
 
+SECURITY_RISK_REGISTER_UNSET = "unset"
+SECURITY_RISK_REGISTER_LOCAL = "local"
+SECURITY_RISK_REGISTER_COMMITTED = "committed"
+SECURITY_RISK_REGISTER_VALUES = frozenset(
+    {
+        SECURITY_RISK_REGISTER_UNSET,
+        SECURITY_RISK_REGISTER_LOCAL,
+        SECURITY_RISK_REGISTER_COMMITTED,
+    }
+)
+
+
 def normalize_worktree_seed_policy(value: object | None) -> str:
     """Return unset|none|paths. Missing / empty → unset; other values raise LocalError."""
     if value is None:
@@ -199,6 +211,48 @@ def normalize_worktree_seed_policy(value: object | None) -> str:
             f"invalid worktree_seed_policy {value!r}; use unset|none|paths"
         )
     return text
+
+
+def normalize_security_risk_register(value: object | None) -> str:
+    """Return unset|local|committed. Missing / empty → unset."""
+    if value is None:
+        return SECURITY_RISK_REGISTER_UNSET
+    text = str(value).strip().lower()
+    if not text:
+        return SECURITY_RISK_REGISTER_UNSET
+    if text not in SECURITY_RISK_REGISTER_VALUES:
+        raise LocalError(
+            f"invalid security_risk_register {value!r}; use unset|local|committed"
+        )
+    return text
+
+
+def normalize_security_risk_register_path(value: object | None) -> str:
+    """Return a relative path string, or empty."""
+    if value is None:
+        return ""
+    text = str(value).strip().replace("\\", "/")
+    if not text:
+        return ""
+    if text.startswith("/") or text.startswith("../") or "/../" in f"/{text}/":
+        raise LocalError(
+            f"security_risk_register_path must be a relative path: {text}"
+        )
+    return text
+
+
+def assert_security_risk_register_invariants(mode: str, path: str) -> None:
+    """Refuse invalid security risk register mode / path combinations."""
+    mode = normalize_security_risk_register(mode)
+    path = normalize_security_risk_register_path(path)
+    if mode == SECURITY_RISK_REGISTER_COMMITTED and not path:
+        raise LocalError(
+            "security_risk_register='committed' requires security_risk_register_path"
+        )
+    if mode in {SECURITY_RISK_REGISTER_UNSET, SECURITY_RISK_REGISTER_LOCAL} and path:
+        raise LocalError(
+            f"security_risk_register={mode!r} requires an empty security_risk_register_path"
+        )
 
 
 def assert_worktree_seed_invariants(policy: str, paths: list[str]) -> None:
@@ -264,6 +318,8 @@ def load_repo_config(root: Path) -> dict:
             "worktree_dir": ".worktrees",
             "worktree_seed": [],
             "worktree_seed_policy": WORKTREE_SEED_POLICY_UNSET,
+            "security_risk_register": SECURITY_RISK_REGISTER_UNSET,
+            "security_risk_register_path": "",
             "git_delivery": None,
             "planning": PLANNING_CLASSIC,
             "schema_version": 1,
@@ -300,6 +356,18 @@ def load_repo_config(root: Path) -> dict:
         )
     except LocalError:
         worktree_seed_policy = WORKTREE_SEED_POLICY_UNSET
+    try:
+        security_risk_register = normalize_security_risk_register(
+            data.get("security_risk_register")
+        )
+    except LocalError:
+        security_risk_register = SECURITY_RISK_REGISTER_UNSET
+    try:
+        security_risk_register_path = normalize_security_risk_register_path(
+            data.get("security_risk_register_path")
+        )
+    except LocalError:
+        security_risk_register_path = ""
     # Do not coerce invalid combos on load — smoke reports them.
     return {
         "track": bool(data.get("track", False)),
@@ -307,6 +375,8 @@ def load_repo_config(root: Path) -> dict:
         "worktree_dir": worktree_dir,
         "worktree_seed": worktree_seed,
         "worktree_seed_policy": worktree_seed_policy,
+        "security_risk_register": security_risk_register,
+        "security_risk_register_path": security_risk_register_path,
         "git_delivery": normalize_git_delivery(data.get("git_delivery")),
         "planning": planning,
         "schema_version": normalize_schema_version(data.get("schema_version")),
@@ -329,6 +399,8 @@ def dump_repo_config(
     amend_decision: str = "",
     worktree_seed: list[str] | None = None,
     worktree_seed_policy: str | None = None,
+    security_risk_register: str | None = None,
+    security_risk_register_path: str | None = None,
 ) -> str:
     if worktree_ledger not in {"symlink", "copy", "materialize"}:
         worktree_ledger = "materialize"
@@ -345,6 +417,15 @@ def dump_repo_config(
         else WORKTREE_SEED_POLICY_UNSET
     )
     assert_worktree_seed_invariants(policy, seed)
+    risk_mode = normalize_security_risk_register(
+        security_risk_register
+        if security_risk_register is not None
+        else SECURITY_RISK_REGISTER_UNSET
+    )
+    risk_path = normalize_security_risk_register_path(
+        security_risk_register_path if security_risk_register_path is not None else ""
+    )
+    assert_security_risk_register_invariants(risk_mode, risk_path)
     flag = "true" if track else "false"
     q = chr(34)
     lines = [
@@ -359,6 +440,10 @@ def dump_repo_config(
     lines.append("schema_version = " + str(int(schema_version)))
     lines.append("w2c_version = " + q + str(w2c_version) + q)
     lines.extend(dump_worktree_seed_lines(seed, policy))
+    if risk_mode != SECURITY_RISK_REGISTER_UNSET:
+        lines.append("security_risk_register = " + q + risk_mode + q)
+    if risk_path:
+        lines.append("security_risk_register_path = " + q + risk_path + q)
     if amend_lock:
         lines.append("amend_lock = " + q + str(amend_lock) + q)
         lines.append("amend_prior_status = " + q + str(amend_prior_status) + q)
@@ -377,6 +462,8 @@ def write_repo_config(
     amend_update: dict | None = None,
     worktree_seed: list[str] | None = None,
     worktree_seed_policy: str | None = None,
+    security_risk_register: str | None = None,
+    security_risk_register_path: str | None = None,
 ) -> None:
     current = load_repo_config(root)
     if track is None:
@@ -398,6 +485,23 @@ def write_repo_config(
     else:
         worktree_seed_policy = normalize_worktree_seed_policy(worktree_seed_policy)
     assert_worktree_seed_invariants(worktree_seed_policy, worktree_seed)
+    if security_risk_register is None:
+        security_risk_register = str(
+            current.get("security_risk_register") or SECURITY_RISK_REGISTER_UNSET
+        )
+    else:
+        security_risk_register = normalize_security_risk_register(security_risk_register)
+    if security_risk_register_path is None:
+        security_risk_register_path = str(
+            current.get("security_risk_register_path") or ""
+        )
+    else:
+        security_risk_register_path = normalize_security_risk_register_path(
+            security_risk_register_path
+        )
+    assert_security_risk_register_invariants(
+        security_risk_register, security_risk_register_path
+    )
     path = repo_config_path(root)
     if schema_version is None:
         schema_version = (
@@ -428,6 +532,8 @@ def write_repo_config(
             amend_decision=amend_decision,
             worktree_seed=worktree_seed,
             worktree_seed_policy=worktree_seed_policy,
+            security_risk_register=security_risk_register,
+            security_risk_register_path=security_risk_register_path,
         ),
         encoding="utf-8",
     )

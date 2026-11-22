@@ -80,6 +80,26 @@ def register(sub: argparse._SubParsersAction) -> None:
     mg.add_argument("--yes-config", action="store_true", help="approve the openspec/config.yaml edit")
     mg.add_argument("--yes-rewrites", action="store_true", help="approve the known legacy line rewrites")
     _register_amend(csub)
+    _register_risks(csub)
+
+
+def _register_risks(csub: argparse._SubParsersAction) -> None:
+    accept = csub.add_parser("risk-accept", help="append an accepted security risk for a change")
+    accept.add_argument("--change", required=True)
+    accept.add_argument("--slice", dest="slice_id", required=True)
+    accept.add_argument("--finding", required=True)
+    accept.add_argument("--evidence", required=True)
+    accept.add_argument("--severity", required=True)
+    accept.add_argument("--reason", required=True)
+    accept.add_argument("--revisit", default="")
+    accept.add_argument("--ticket", default="")
+    accept.add_argument("--when", default=None)
+    follow = csub.add_parser("risk-follow-up", help="set the ticket link on an accepted risk")
+    follow.add_argument("--change", required=True, help="unused; kept for symmetry")
+    follow.add_argument("risk_id")
+    follow.add_argument("--ticket", required=True)
+    listed = csub.add_parser("risk-list", help="print the accepted security risk register")
+    listed.add_argument("--change", default=None, help="unused; kept for symmetry")
 
 
 def _register_amend(csub: argparse._SubParsersAction) -> None:
@@ -167,6 +187,29 @@ def dispatch(args: argparse.Namespace) -> int:
         if cmd == "brief":
             return driver.brief_cmd(root, args.change)
         return driver.step_cmd(root, args.change, args.json, args.record_action, args.record_result)
+    if cmd == "risk-accept":
+        from w2c import risks as w2c_risks
+
+        return w2c_risks.cmd_risk_accept(
+            root,
+            scope=args.change,
+            slice_id=args.slice_id,
+            finding=args.finding,
+            evidence=args.evidence,
+            severity=args.severity,
+            reason=args.reason,
+            revisit=args.revisit,
+            ticket=args.ticket,
+            when=args.when,
+        )
+    if cmd == "risk-follow-up":
+        from w2c import risks as w2c_risks
+
+        return w2c_risks.cmd_risk_follow_up(root, args.risk_id, args.ticket)
+    if cmd == "risk-list":
+        from w2c import risks as w2c_risks
+
+        return w2c_risks.cmd_risk_list(root)
     if cmd in AMEND_COMMANDS:
         return _amend(root, args)
     raise SystemExit(f"unknown cloud command {cmd}")

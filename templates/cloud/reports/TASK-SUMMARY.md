@@ -6,6 +6,7 @@ key_files: []
 key_decisions: []
 duration: ""
 verification_result: passed
+security_review: n/a
 completed_at: ISO-8601
 blocker_discovered: false
 ---

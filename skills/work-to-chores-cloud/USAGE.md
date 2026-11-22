@@ -2,7 +2,7 @@
 
 Say `work to chores cloud` (or `/work-to-chores-cloud`) and paste a ticket, a spec, or a short description of the work. The agent interviews you, checks the codebase, and writes one OpenSpec change under `openspec/changes/<name>/`. It does not change product code.
 
-The whole plan lives in the repository, so a fresh clone or a temporary container can run it. `design.md` holds six sections: Delivery Plan, Guardrails, Commit and PR Conventions, Decisions, Manual Test Guide, and Amendments. `tasks.md` starts with a read-first block, and each `## N.` group is one slice with eight fields (Goal, Demo, Must-Haves, Threat Surface, Proof Level, Integration Closure, Verification, Files Likely Touched) and its tasks.
+The whole plan lives in the repository, so a fresh clone or a temporary container can run it. `design.md` holds six sections: Delivery Plan, Guardrails, Commit and PR Conventions, Decisions, Manual Test Guide, and Amendments. `tasks.md` starts with a read-first block, and each `## N.` group is one slice with eight fields (Goal, Demo, Must-Haves, Threat Surface with structured Security review, Proof Level, Integration Closure, Verification, Files Likely Touched) and its tasks.
 
 Interviews are **evidence-first**: before each question the agent searches the repo and shows facts, then offers a recommended choice plus alternatives with pros, cons, examples, outcomes, and a mermaid diagram. It asks for worktree or branch, the branch name, the base dirt choice, the commit cadence, the commit and pull-request conventions, and whether you want a manual test guide. If `w2c cloud env` says this is a temporary container, it warns that the milestone cadence can lose work and recommends the slice cadence.
 
@@ -16,6 +16,6 @@ Say `reorder changes` to change which pending change runs next, or `amend change
 
 **Need first:** grilling and brainstorming. When a companion skill is missing, the agent asks whether to stop so you can install it, or continue with the written fallback (its written interview).
 
-**Need on this machine:** `w2c` 3.5.0 or later and `openspec`. If `w2c` is missing, the agent asks before running it through `uvx --from git+https://github.com/OpenW2C/w2c@v3.5.0 w2c`.
+**Need on this machine:** `w2c` 3.6.0 or later and `openspec`. If `w2c` is missing, the agent asks before running it through `uvx --from git+https://github.com/OpenW2C/w2c@v3.6.0 w2c`.
 
 Then run `do-chores-cloud`.

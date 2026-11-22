@@ -28,7 +28,7 @@ STEP_STATE = Path(".w2c/runtime/step.json")  # outside git, and the pre-3.0.0 lo
 GIT_STEP_STATE = Path("w2c/step.json")  # under `git rev-parse --git-dir`
 STATE_VERSION = 1
 
-TASK_STAGES: tuple[str, ...] = ("implement", "verify", "review", "write-report", "complete")
+TASK_STAGES: tuple[str, ...] = ("implement", "verify", "review", "security-review", "write-report", "complete")
 WORK_ACTIONS = frozenset(
     {"smoke", "isolate", *TASK_STAGES, "slice-reports", "slice-complete", "milestone-reports"}
 )
@@ -380,20 +380,46 @@ def _ask_out(ctx: Context, action: str, answer: str | None,
     return _out(action, ctx, files, reason=reason), ctx
 
 
+def _slice_needs_security_review(change: ledger.CloudChange, sid: str) -> bool:
+    """True when Security pass is done and the slice Threat Surface is required or accepted."""
+    from w2c import risks as w2c_risks
+    from w2c.cloud import checks
+    from w2c.cloud.ledger import delivery_plan_fields
+
+    design = change.path / "design.md"
+    fields = delivery_plan_fields(design.read_text(encoding="utf-8") if design.is_file() else "")
+    if not w2c_risks.security_pass_done(fields):
+        return False
+    tasks_path = change.path / "tasks.md"
+    try:
+        number = int(sid.lstrip("Ss"))
+    except ValueError:
+        return False
+    group = checks.slice_fields(
+        tasks_path.read_text(encoding="utf-8") if tasks_path.is_file() else ""
+    ).get(number, {})
+    surface = w2c_risks.parse_threat_surface(group.get("Threat Surface", ""))
+    return surface is not None and surface.security_review in {"required", "accepted"}
+
+
 def _task_step(root: Path, change: ledger.CloudChange, ctx: Context, state: dict, task,
                tasks_md: Path) -> tuple[dict, Context]:
     fresh = state.get("task") != task.openspec_id
     last = None if fresh else state.get("stage_action")
     result = None if fresh else state.get("stage_result")
     summary = _report_path(root, change, "task_summary", task.sid, task.tid)
+    needs_security = _slice_needs_security_review(change, task.sid)
+    fail_stages = ("verify", "review", "security-review")
     if last is None or (last == "implement" and result != "pass") \
-            or (last in ("verify", "review") and result != "pass"):
+            or (last in fail_stages and result != "pass"):
         action = "implement"
     elif last == "implement":
         action = "verify"
     elif last == "verify":
         action = "review"
     elif last == "review":
+        action = "security-review" if needs_security else "write-report"
+    elif last == "security-review":
         action = "write-report"
     elif last == "write-report":
         written = result == "pass" and _present(change, "task_summary", task.sid, task.tid)

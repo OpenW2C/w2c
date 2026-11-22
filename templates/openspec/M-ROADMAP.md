@@ -39,6 +39,7 @@
 | Completion condition | All slices verified; honor git_delivery + explicit approval gates |
 | Size budget (LOC diff) | |
 | Manual test guide | no |
+| Security pass | |
 
 ## Git Operation Plan
 | Field | Value |
@@ -66,7 +67,7 @@
 - **No force git** — never force-reset, force-push, or delete worktrees/branches. Dirty or unexpected existing branch/worktree → hard stop and ask.
 - **Validation** — run the validation commands in this table before each commit and before each push.
 - **Status writes** — never hand-edit STATE.md, QUEUE.md, ROADMAP status emojis, or task checkboxes. Use `w2c` on PATH. `w2c complete` is the only writer of checkboxes in `tasks.md`.
-- **Verify loop** — a task is not complete until its Verify commands pass and requesting-code-review is clean.
+- **Verify loop** — a task is not complete until its Verify commands pass, requesting-code-review is clean, and the security review for the slice passes (or is `n/a`).
 - **Closeout reports** — write `S##-T##-SUMMARY.md` before `complete`; `S##-UAT.md` + `S##-SUMMARY.md` before `slice-complete`; `M###-VALIDATION.md` + `M###-SUMMARY.md` before milestone DONE.
 - **Commit and PR** — honor `## Commit and PR conventions`. Never add `Co-authored-by:` or similar AI co-author trailers. Never stage deny-listed paths on product commits. Never mention any `.w2c/` path or artifact in commit or PR text.
 

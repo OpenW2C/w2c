@@ -5,6 +5,18 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.6.0] - 2026-11-22
+
+### Added
+
+- Planning security pass (local and cloud): evidence-backed Threat Surface, declined-risk register (`w2c risk-accept` / `risk-follow-up` / `risk-list`), and `w2c help security`.
+- Per-task security-review gate after code review for slices marked `required` or `accepted` (cloud driver stage + task summary `security_review` frontmatter).
+- Smoke checks `threat-surface` and `accepted-risk-recorded` when Delivery `Security pass` is `done`.
+
+### Changed
+
+- Slice templates and Delivery Plan rows now carry structured Threat Surface / Security pass / Risk register fields. Older plans without `Security pass: done` stay valid.
+
 ## [3.5.0] — 2026-11-06
 
 ### Changed

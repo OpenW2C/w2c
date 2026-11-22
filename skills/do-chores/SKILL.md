@@ -9,7 +9,7 @@ description: >-
 
 # Do Chores
 
-Requires: w2c >= 3.5.0
+Requires: w2c >= 3.6.0
 
 Execute planned work from `.w2c/`. Default: **one** next task.
 
@@ -82,7 +82,7 @@ Log at every loop step enter/exit and every hard stop. `complete`, `slice-comple
 
 Write these in the milestone plan folder. They are ledger, not runtime logs. Commit them only when `.w2c/config.toml` has `track = true`.
 
-**`S##-T##-SUMMARY.md`** — frontmatter (`id`, `parent`, `milestone`, `key_files`, `verification_result`, `completed_at`) plus What Happened, Verification, Verification Evidence table, Deviations, Known Issues, Files Created/Modified.
+**`S##-T##-SUMMARY.md`** — frontmatter (`id`, `parent`, `milestone`, `key_files`, `verification_result`, `security_review`, `completed_at`) plus What Happened, Verification, Verification Evidence table, Deviations, Known Issues, Files Created/Modified.
 
 **`S##-UAT.md`** — human checklist (leave boxes unchecked). Automated results go in the slice summary.
 
@@ -108,6 +108,10 @@ Every unit:
 7. **Implement** that task only (in the isolated workspace). Log `--stage implement --event started` before edits and `--stage implement --event complete` after. If the plan cannot continue, follow **Blocker** and do not reach complete.
 8. **Verify** — log `--stage verify --event started`, then run the task’s Verify commands. On failure: log `--stage verify --event retry`, find root cause, fix, re-verify. Loop until green, then `--stage verify --event pass`.
 9. **Review** — log `--stage review --event started`, then invoke requesting-code-review. On findings: log `--stage review --event retry`, find root cause, fix, re-verify, re-review. Loop until clean, then `--stage review --event pass`.
+9b. **Security review** — read the slice Threat Surface (and `w2c help security`).
+    - **Backstop:** if Threat Surface is `none` but the task diff hits a trigger category, **STOP**. Log `--stage security-review --event stop --detail "trigger-on-none"`. Offer amend via work-to-chores. Do not edit the plan.
+    - If `none` and no trigger hit: record `security_review: n/a` in the task summary; skip the review tool.
+    - If `required` or `accepted`: log `--stage security-review --event started`. Invoke the editor security review (Cursor `/review-security` or Claude Code `/security-review`) when available. If missing: ask once — (a) stop to install [recommended when the tool exists for this agent], or (b) continue with the fallback checklist from `w2c help security`. A finding that matches an Accepted risk id is noted and does not fail. Any new finding: log `--stage security-review --event retry`, fix, re-verify, re-review, re-run security review. Loop until clean, then `--stage security-review --event pass`. Put `security_review: pass` or `fallback-pass` in the task summary frontmatter.
 10. **Task summary** — write `.w2c/plans/M###-<slug>/S##-T##-SUMMARY.md` using the task-summary shape below. Do not call `complete` until this file exists and is non-empty. Log `--stage report --event complete --detail task-summary`.
 11. **Complete** — `w2c complete --milestone … --slice … --task …`. The CLI refuses without the task summary. It does **not** mark the slice or milestone done.
 12. **Slice closeout** — if stdout contains `NEED_SLICE_REPORTS` or `NEED_SLICE_COMPLETE`: re-run every task Verify command in that slice plus the slice Verification section. On failure: fix, re-verify, log `--stage verify --event retry`. Before re-running Verify at slice closeout (and the same rule for each task Verify): run **only** the commands already written in the plan. Do **not** expand them from CONTEXT or DELIVERY-PROFILE into full-repo test/lint/format/type-check suites, and do **not** invent diagnostic-comparison recoveries. If task Verify or slice Verification already names those full-repo suites or a pinned-SHA / diagnostic waiver, and `.w2c/DECISIONS.md` / this milestone CONTEXT has no grilled decision approving that expansion for this milestone: **STOP**. Offer amend via work-to-chores; do not invent recovery; do not mark the slice failed on those extra gates until the user amends to scoped Verify or explicitly keeps the expansion. Then write `S##-UAT.md` (human checklist, leave boxes unchecked) and `S##-SUMMARY.md` (automated results). The slice summary must name each dropped task id. Then `w2c slice-complete --milestone … --slice …`. `NEED_SLICE_REPORTS` still means those reports. `NEED_DROP_SLICE` is not this skill's job. Read `git_delivery` from `.w2c/config.toml`. If it is `slice-commit-milestone-push-pr`: **ask** for explicit approval to make a **local commit** of the product changes (honor `## Commit and PR conventions`: stage only product paths — never deny-listed paths; never mention any `.w2c/` path or artifact in the message; never AI co-author trailers). If the user declines: skip the commit and continue. Do **not** push or open a PR at slice closeout.
@@ -210,7 +214,8 @@ When the last open milestone on that remote branch is done, ask once whether to 
 ## Red flags — STOP
 
 - Marking a task complete by editing the markdown checkbox
-- Skipping smoke, isolate, verify, requesting-code-review, or closeout reports
+- Skipping smoke, isolate, verify, requesting-code-review, security-review, or closeout reports
+- Recording `security_review: pass` with a new finding open, or `n/a` when the slice is required/accepted
 - Calling `complete` / `slice-complete` / `milestone-complete` without the required report files
 - Continuing after smoke FAIL on the milestone this run is executing
 - Stopping because a different milestone failed smoke, unless the user asked for a full workspace smoke

@@ -187,7 +187,7 @@ class DriverBase(unittest.TestCase):
         action = step["action"]
         answers = answers or {}
         sid, tid = step["slice"], step["task"]
-        if action in ("smoke", "isolate", "implement", "verify", "review"):
+        if action in ("smoke", "isolate", "implement", "verify", "review", "security-review"):
             self.rec(action, "pass")
         elif action == "write-report":
             self.report(f"{sid}-{tid}-SUMMARY.md")
@@ -331,6 +331,46 @@ class RuleTests(DriverBase):
         self.ok("cloud", "complete", "--change", NAME, "--slice", "S01", "--task", "T01")
         step = self.step()
         self.assertEqual((step["action"], step["task"]), ("smoke", "T02"))
+
+    def test_security_review_stage_when_required(self) -> None:
+        import re
+
+        self.make()
+        design = self.root / "openspec" / "changes" / NAME / "design.md"
+        body = design.read_text(encoding="utf-8")
+        body = body.replace(
+            "| Remote branch | DEMO-1 |",
+            "| Remote branch | DEMO-1 |" + "\n" + "| Security pass | done |",
+        )
+        design.write_text(body, encoding="utf-8")
+        tasks = self.root / "openspec" / "changes" / NAME / "tasks.md"
+        tbody = tasks.read_text(encoding="utf-8")
+        threat = "\n".join(
+            [
+                "**Threat Surface:**",
+                "- Security review: required",
+                "- Threats: F1, a.py:1, input handling, High",
+                "- Controls: validate input (OWASP ASVS V5)",
+                "- Security tests: test_bad_input",
+                "- Accepted risks:",
+            ]
+        )
+        tbody = re.sub(r"\*\*Threat Surface:\*\*.*", threat, tbody, count=1)
+        if "test_bad_input" not in tbody:
+            tbody = tbody.replace("- Verify:", "- Verify: pytest -k test_bad_input", 1)
+        tasks.write_text(tbody, encoding="utf-8")
+        self.smoke_pass()
+        self.rec("implement", "pass")
+        self.rec("verify", "pass")
+        self.rec("review", "pass")
+        self.assertEqual(self.action(), "security-review")
+        self.rec("security-review", "fail")
+        self.assertEqual(self.action(), "implement")
+        self.rec("implement", "pass")
+        self.rec("verify", "pass")
+        self.rec("review", "pass")
+        self.rec("security-review", "pass")
+        self.assertEqual(self.action(), "write-report")
 
     def test_rule6_slice_reports_then_slice_complete(self) -> None:
         self.make()

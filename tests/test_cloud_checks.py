@@ -33,6 +33,8 @@ CHECK_NAMES = {
     "git-operation-plan",
     "commit-pr-conventions",
     "manual-test-guide",
+    "threat-surface",
+    "accepted-risk-recorded",
     "slice-fields",
     "read-first-present",
     "openspec-not-ignored",

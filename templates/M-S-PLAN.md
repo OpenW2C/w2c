@@ -12,6 +12,8 @@ SLICE ID: SXX
 
 ## Threat Surface
 
+<!-- Shape: Security review (required|none|accepted); Reason; Threats; Controls; Security tests; Accepted risks. -->
+
 ## Proof Level
 
 ## Integration Closure
@@ -38,7 +40,7 @@ Must match the parent `M###-ROADMAP.md` Git Operation Plan (same Isolation mode,
 
 ### Guardrails
 - Do not mark tasks complete by editing checkboxes. Use `w2c complete`.
-- A task is not done until Verify passes, requesting-code-review is clean, and `S##-T##-SUMMARY.md` is written.
+- A task is not done until Verify passes, requesting-code-review is clean, the security review for the slice passes (or is `n/a`), and `S##-T##-SUMMARY.md` is written.
 - After the last task in this slice: re-run Verify, write `S##-UAT.md` + `S##-SUMMARY.md`, then `slice-complete`.
 - After the last slice: write `M###-VALIDATION.md` + `M###-SUMMARY.md`, then `milestone-complete`.
 - Honor this slice Git Operation Plan, the milestone Git Operation Plan, and `git_delivery` from `.w2c/config.toml`. Never commit, push, or open a PR without explicit user approval for that action.
