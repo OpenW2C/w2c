@@ -1,16 +1,16 @@
 You can run W2C cloud mode in a cloud agent (Claude Code cloud, Codex cloud, GitHub Copilot coding agent, or Cursor background agents) by installing the `w2c` and `openspec` programs and the skills in that agent's environment setup.
 
-A cloud agent only runs cloud mode when its environment has `w2c` (the W2C command line), `openspec` (the OpenSpec command line), and the skills installed. Each snippet below does the same four things: install `w2c` from a pinned release, install OpenSpec 1.16.0, run `w2c install-skills`, and put `~/.local/bin` on PATH. The release is 3.3.0. The repository owner creates the `v3.3.0` tag after the release merges, so the pin works only once that tag exists.
+A cloud agent only runs cloud mode when its environment has `w2c` (the W2C command line), `openspec` (the OpenSpec command line), and the skills installed. Each snippet below does the same four things: install `w2c` from a pinned release, install OpenSpec 2.1.1, run `w2c install-skills`, and put `~/.local/bin` on PATH. The release is 3.6.1. The repository owner creates the `v3.6.1` tag after the release merges, so the pin works only once that tag exists. OpenSpec 2.1.1 through npm needs Node.js 22.20.0 or newer. The Claude and Codex block matches [`scripts/cloud-session-setup.sh`](../scripts/cloud-session-setup.sh); copy that file when the setup script changes.
 
 ## Set up each platform
 
 ### Claude Code and Codex
 
-Paste this into the environment's setup script (the script the platform runs when it builds the container).
+Paste this into the environment's setup script (the script the platform runs when it builds the container). Prefer copying [`scripts/cloud-session-setup.sh`](../scripts/cloud-session-setup.sh) so the pins stay identical.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/OpenW2C/w2c/v3.3.0/install.sh | bash -s -- --ref v3.3.0
-npm install -g @fission-ai/openspec@1.16.0
+curl -fsSL https://raw.githubusercontent.com/OpenW2C/w2c/v3.6.1/install.sh | bash -s -- --ref v3.6.1
+npm install -g @fission-ai/openspec@2.1.1
 export PATH="$HOME/.local/bin:$PATH"
 w2c install-skills
 ```
@@ -36,9 +36,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install w2c
-        run: curl -fsSL https://raw.githubusercontent.com/OpenW2C/w2c/v3.3.0/install.sh | bash -s -- --ref v3.3.0
+        run: curl -fsSL https://raw.githubusercontent.com/OpenW2C/w2c/v3.6.1/install.sh | bash -s -- --ref v3.6.1
       - name: Install OpenSpec
-        run: npm install -g @fission-ai/openspec@1.16.0
+        run: npm install -g @fission-ai/openspec@2.1.1
       - name: Put w2c on PATH
         run: echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - name: Install skills
@@ -51,7 +51,7 @@ Create `.cursor/environment.json`. Cursor runs `install` when it builds the back
 
 ```json
 {
-  "install": "curl -fsSL https://raw.githubusercontent.com/OpenW2C/w2c/v3.3.0/install.sh | bash -s -- --ref v3.3.0 && npm install -g @fission-ai/openspec@1.16.0 && export PATH=\"$HOME/.local/bin:$PATH\" && w2c install-skills"
+  "install": "curl -fsSL https://raw.githubusercontent.com/OpenW2C/w2c/v3.6.1/install.sh | bash -s -- --ref v3.6.1 && npm install -g @fission-ai/openspec@2.1.1 && export PATH=\"$HOME/.local/bin:$PATH\" && w2c install-skills"
 }
 ```
 
@@ -86,4 +86,4 @@ When `ephemeral` is true, `do-chores-cloud` asks to push after each approved sli
 
 ## A session with no setup
 
-If `w2c` is missing or older than 3.3.0, the cloud skills ask first whether to run it once through uvx (a tool that runs a Python program without installing it). On yes, they run every command as `uvx --from git+https://github.com/OpenW2C/w2c@v3.3.0 w2c ...`. On no, they stop and tell you to install it.
+If `w2c` is missing or older than 3.6.1, the cloud skills ask first whether to run it once through uvx (a tool that runs a Python program without installing it). On yes, they run every command as `uvx --from git+https://github.com/OpenW2C/w2c@v3.6.1 w2c ...`. On no, they stop and tell you to install it.

@@ -25,7 +25,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        openspec: ["1.14.3", "1.16.0"]
+        openspec: ["1.14.3", "1.16.0", "2.1.1"]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -33,7 +33,7 @@ jobs:
           python-version: "3.12"
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "22.20"
       - name: Install OpenSpec
         run: npm install -g @fission-ai/openspec@${{ matrix.openspec }}
       - name: Full-cycle test

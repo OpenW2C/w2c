@@ -5,6 +5,17 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.6.1] - 2026-11-22
+
+### Added
+
+- `scripts/cloud-session-setup.sh`: copy-paste setup for Claude Code / Codex cloud sessions (pinned w2c + OpenSpec).
+- Continuous integration full-cycle matrix also runs OpenSpec 2.1.1 (keeps 1.14.3 and 1.16.0).
+
+### Changed
+
+- `docs/cloud-sessions.md` and cloud setup pins move from w2c `v3.3.0` / OpenSpec `1.16.0` to w2c `v3.6.1` / OpenSpec `2.1.1` (npm install needs Node.js 22.20.0 or newer). Full-cycle e2e passed on OpenSpec 2.1.1.
+
 ## [3.6.0] - 2026-11-22
 
 ### Added
