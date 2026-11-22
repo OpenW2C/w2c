@@ -13,6 +13,9 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 DOC = REPO / "docs" / "cloud-sessions.md"
+SETUP_SCRIPT = REPO / "scripts" / "cloud-session-setup.sh"
+W2C_PIN = "v3.6.1"
+OPENSPEC_PIN = "@fission-ai/openspec@2.1.1"
 
 
 def run_install(*args: str) -> subprocess.CompletedProcess:
@@ -63,7 +66,10 @@ class InstallRefTests(unittest.TestCase):
 
 class CloudSessionsDocTests(unittest.TestCase):
     def test_help_cloud_sessions_prints_doc(self) -> None:
-        env = dict(os.environ, PYTHONPATH=str(REPO / "src"))
+        # Prefer the repo docs over a stale ~/.local/share/w2c copy.
+        data = Path(tempfile.mkdtemp(prefix="w2c-help-"))
+        self.addCleanup(shutil.rmtree, data, True)
+        env = dict(os.environ, PYTHONPATH=str(REPO / "src"), W2C_DATA_HOME=str(data))
         proc = subprocess.run(
             [sys.executable, "-m", "w2c", "help", "cloud-sessions"],
             capture_output=True, text=True, env=env, cwd=str(REPO), check=False,
@@ -78,24 +84,38 @@ class CloudSessionsDocTests(unittest.TestCase):
 
     def test_each_platform_snippet_is_complete(self) -> None:
         sections = self._sections()
+        ref = f"--ref {W2C_PIN}"
         for name in ("Claude Code and Codex", "GitHub Copilot", "Cursor"):
             self.assertIn(name, sections)
             body = sections[name]
-            for needle in ("--ref v3.3.0", "@fission-ai/openspec@1.16.0",
-                           "w2c install-skills", ".local/bin"):
+            for needle in (ref, OPENSPEC_PIN, "w2c install-skills", ".local/bin"):
                 self.assertIn(needle, body, f"{name}: {needle}")
-            self.assertLess(body.index("--ref v3.3.0"), body.index("@fission-ai/openspec@1.16.0"))
-            self.assertLess(body.index("@fission-ai/openspec@1.16.0"), body.index("w2c install-skills"))
+            self.assertLess(body.index(ref), body.index(OPENSPEC_PIN))
+            self.assertLess(body.index(OPENSPEC_PIN), body.index("w2c install-skills"))
         self.assertIn("copilot-setup-steps:", sections["GitHub Copilot"])
         self.assertIn(".github/workflows/copilot-setup-steps.yml", sections["GitHub Copilot"])
         self.assertIn(".cursor/environment.json", sections["Cursor"])
         self.assertIn('"install"', sections["Cursor"])
+        self.assertIn("scripts/cloud-session-setup.sh", sections["Claude Code and Codex"])
+
+    def test_cloud_session_setup_script_matches_doc_pins(self) -> None:
+        self.assertTrue(SETUP_SCRIPT.is_file(), SETUP_SCRIPT)
+        script = SETUP_SCRIPT.read_text(encoding="utf-8")
+        doc = DOC.read_text(encoding="utf-8")
+        for needle in (f"--ref {W2C_PIN}", OPENSPEC_PIN, "w2c install-skills",
+                       'export PATH="$HOME/.local/bin:$PATH"'):
+            self.assertIn(needle, script, needle)
+            self.assertIn(needle, doc, needle)
+        self.assertIn("# --- W2C setup script end ---", script)
+        self.assertLess(script.index(f"--ref {W2C_PIN}"), script.index(OPENSPEC_PIN))
+        self.assertLess(script.index(OPENSPEC_PIN), script.index("w2c install-skills"))
 
     def test_bashrc_line_is_appended_once(self) -> None:
         line = 'export PATH="$HOME/.local/bin:$PATH"'
         guarded = f"grep -qxF '{line}' ~/.bashrc || echo '{line}' >> ~/.bashrc"
         sections = self._sections()
         self.assertIn(guarded, sections["Claude Code and Codex"])
+        self.assertIn(guarded, SETUP_SCRIPT.read_text(encoding="utf-8"))
         cursor_guarded = "{ " + guarded.replace('"', '\\"') + "; }"
         self.assertIn(cursor_guarded, sections["Cursor"])
         text = DOC.read_text(encoding="utf-8")
@@ -112,7 +132,8 @@ class CloudSessionsDocTests(unittest.TestCase):
         text = DOC.read_text(encoding="utf-8")
         for needle in ("W2C_EPHEMERAL", "CLAUDE_CODE_REMOTE", "CODESPACES", "GITHUB_ACTIONS",
                        "work-to-chores-cloud", "do-chores-cloud", "grilling", "brainstorming",
-                       "requesting-code-review", "uvx --from git+https://github.com/OpenW2C/w2c@v3.3.0"):
+                       "requesting-code-review",
+                       f"uvx --from git+https://github.com/OpenW2C/w2c@{W2C_PIN}"):
             self.assertIn(needle, text)
 
 
